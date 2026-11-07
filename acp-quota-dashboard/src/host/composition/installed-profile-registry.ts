@@ -35,6 +35,7 @@ import { resolveSubprocessSeam } from './subprocess.ts'
 import { AcpRemoteService } from '../../remote/service.ts'
 import { auditTimelineRowOf } from './audit-row.ts'
 import { installAcpBackendGuard } from './backend-guard.ts'
+import { installAcpModelSwitchCompatibility } from './model-switch-compatibility.ts'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { installExternalChildCatalog } from '../subagent/catalog-publication.ts'
 import { ExternalSubagentProjector } from '../subagent/external-projector.ts'
@@ -428,6 +429,11 @@ export function installInstalledProfileRegistry(
   // Adapters are also the owner of provider-composition recovery verbs. Keep
   // this map available before constructing the additive Remote service.
   const profileAdapters = new Map<string, AcpProfileAdapter>()
+  if (sidecar !== undefined)
+    installAcpModelSwitchCompatibility(ctx, (provider) => {
+      const profileId = acpAgentIdFromRoute(provider)
+      return profileId !== undefined && profileAdapters.has(profileId)
+    })
   const retiringProfiles = new Set<Promise<void>>()
   const closeProfile = (adapter: AcpProfileAdapter): Promise<void> => {
     const completion = Promise.withResolvers<void>()
