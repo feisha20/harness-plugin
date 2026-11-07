@@ -337,6 +337,7 @@ describe('AcpRemoteService current public surface', () => {
       'health',
       'ownedProviderRoutes',
       'projectedSubagentIds',
+      'quota',
       'rebindRecoveryBlank',
       'recoveryFollow',
       'recoverySnapshot',

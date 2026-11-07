@@ -11,10 +11,10 @@ beforeEach(() => {
   // both routing keys independently without mutating that original object.
   process.env = { ...originalEnvironment }
   for (const name of ['http', 'https', 'all', 'no', 'ftp', 'ws', 'wss']) {
-    vi.stubEnv(`${name}_proxy`, undefined)
-    vi.stubEnv(`${name.toUpperCase()}_PROXY`, undefined)
+    delete process.env[`${name}_proxy`]
+    delete process.env[`${name.toUpperCase()}_PROXY`]
   }
-  vi.stubEnv('REQUEST_METHOD', undefined)
+  delete process.env.REQUEST_METHOD
 })
 afterEach(() => {
   try {

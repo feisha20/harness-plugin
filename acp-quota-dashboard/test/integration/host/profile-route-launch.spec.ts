@@ -25,9 +25,10 @@ describe('ACP profile route launch contract', () => {
     const command = path.join(directory, process.platform === 'win32' ? 'node.exe' : 'node')
     let adapter: AcpProfileAdapter | undefined
     try {
-      // A real executable copy also works on Windows without symlink privileges.
-      fs.copyFileSync(process.execPath, command, fs.constants.COPYFILE_FICLONE)
-      fs.chmodSync(command, 0o700)
+      // macOS 的 Node 可执行文件可能依赖相对路径动态库，符号链接保留原始加载位置。
+      // Windows 的 Node 安装通常自包含，复制可避免创建符号链接所需的权限。
+      if (process.platform === 'win32') fs.copyFileSync(process.execPath, command, fs.constants.COPYFILE_FICLONE)
+      else fs.symlinkSync(process.execPath, command)
       const config = acpSettingsSchema({
         agents: {
           'path-test': {
