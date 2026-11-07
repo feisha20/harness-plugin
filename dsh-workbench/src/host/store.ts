@@ -74,11 +74,11 @@ export class WorkbenchStore {
       },
       {
         id: 'codex',
-        name: 'Codex CLI 历史',
+        name: 'Codex 桌面端 / CLI 会话',
         enabled: true,
-        status: fs.existsSync(path.join(home, '.codex')) ? 'available' : 'unavailable',
-        path: path.join(home, '.codex'),
-        sessionCount: 4,
+        status: fs.existsSync(process.env.CODEX_HOME || path.join(home, '.codex')) ? 'available' : 'unavailable',
+        path: process.env.CODEX_HOME || path.join(home, '.codex'),
+        sessionCount: 0,
         lastSyncAt: null,
       },
       {
@@ -222,6 +222,8 @@ export class WorkbenchStore {
           if (!data.sources.some(source => source.id === 'zcode')) {
             data.sources.push(this.getDefaultSources().find(source => source.id === 'zcode')!)
           }
+          const codex = data.sources.find(source => source.id === 'codex')
+          if (codex?.name === 'Codex CLI 历史') codex.name = 'Codex 桌面端 / CLI 会话'
           return data
         }
       }

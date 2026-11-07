@@ -25,7 +25,9 @@ export function WorkbenchApp() {
   const [activeTab, setActiveTab] = useState<'tasks' | 'daily' | 'periodic' | 'sources'>('tasks')
   const [snapshot, setSnapshot] = useState<WorkbenchSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
+  const [requestSyncing, setSyncing] = useState(false)
+  const [backendSyncing, setBackendSyncing] = useState(false)
+  const syncing = requestSyncing || backendSyncing
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   const showToast = useCallback((msg: string) => {
@@ -52,6 +54,29 @@ export function WorkbenchApp() {
 
   useEffect(() => {
     fetchSnapshot()
+  }, [fetchSnapshot])
+
+  // 通过短请求跟踪后台任务，刷新页面或长请求断开后仍能看到真实状态。
+  useEffect(() => {
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout>
+    let wasRunning = false
+    const controller = new AbortController()
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/workbench/sync/status', {signal: controller.signal})
+        if (!res.ok) throw new Error('读取同步状态失败')
+        const data = await res.json() as {running: boolean; sources: SourceConfig[]}
+        if (disposed) return
+        setBackendSyncing(data.running)
+        setSnapshot(previous => previous ? {...previous, sources: previous.sources.map(source => ({...source, ...data.sources.find(item => item.id === source.id)}))} : previous)
+        if (wasRunning && !data.running) await fetchSnapshot()
+        wasRunning = data.running
+      } catch { /* 临时断网保留已有内容，下次继续查询。 */ }
+      finally { if (!disposed) timer = setTimeout(poll, 2000) }
+    }
+    void poll()
+    return () => { disposed = true; clearTimeout(timer); controller.abort() }
   }, [fetchSnapshot])
 
   // Task Handlers
@@ -224,7 +249,10 @@ export function WorkbenchApp() {
         await fetchSnapshot()
         if (result.success === false) setSyncError(result.message)
         showToast(result.message || '多通道采集与事项抽取已完成！')
-      } else { setSyncError('同步请求失败，请检查服务状态') }
+      } else {
+        const body = await res.json().catch(()=>({}))
+        setSyncError(body.message || '同步请求失败，请检查服务状态')
+      }
     } catch (err) {
       setSyncError('同步请求失败，请检查服务连接')
       console.error('Sync failed:', err)

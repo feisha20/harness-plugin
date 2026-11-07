@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { scanZcode, zcodeTranscript } from './zcode.ts'
-import { summarizeSessions, type SummaryGenerator } from './sessionSummary.ts'
+import { scanCodex, codexTranscript } from './codex.ts'
+import { summarizeSessions, type SummaryGenerator, type SummaryProgress } from './sessionSummary.ts'
 import type { Evidence, SourceConfig, Task, TaskSource } from '../shared/types.ts'
 
 export interface CollectorScanResult {
@@ -19,21 +20,26 @@ export class SessionCollector {
     this.homeDir = os.homedir()
   }
 
-  public async scanSource(source: SourceConfig, previous:Task[] = []): Promise<CollectorScanResult> {
+  public async scanSource(source: SourceConfig, previous:Task[] = [], onProgress?:(sessionCount:number, progress:SummaryProgress)=>void): Promise<CollectorScanResult> {
     switch (source.id) {
       case 'dsh':
         return this.scanDsh(source)
       case 'claude':
         return this.scanClaude(source)
-      case 'codex':
-        return this.scanCodex(source)
+      case 'codex': {
+        const result = await scanCodex(source.path || process.env.CODEX_HOME || path.join(this.homeDir, '.codex'))
+        if (!result.extractedTasks.length) return result
+        if (!this.summarize) return {...result, extractedTasks: [], error: '未连接会话概要模型，请检查 DSH 默认模型配置'}
+        const summarized = await summarizeSessions(result.extractedTasks, new Map(result.extractedTasks.map(task => [task.id, codexTranscript(task)])), previous, this.summarize, progress=>onProgress?.(result.sessionCount,progress))
+        return {...result, extractedTasks: summarized.tasks, ...(summarized.failures ? {error: `${summarized.failures} 条会话概要生成失败，原记录保留。${summarized.error || '模型未返回有效的一句话概要'}`} : {})}
+      }
       case 'gemini':
         return this.scanGemini(source)
       case 'zcode': {
         const result=scanZcode(source.path)
         if (result.error) return result
         if (!this.summarize) return {...result,extractedTasks:[],error:'未连接会话概要模型，请检查 DSH 默认模型配置'}
-        const summarized=await summarizeSessions(result.extractedTasks,new Map(result.extractedTasks.map(task=>[task.id,zcodeTranscript(task)])),previous,this.summarize)
+        const summarized=await summarizeSessions(result.extractedTasks,new Map(result.extractedTasks.map(task=>[task.id,zcodeTranscript(task)])),previous,this.summarize,progress=>onProgress?.(result.sessionCount,progress))
         return {...result,extractedTasks:summarized.tasks,...(summarized.failures ? {error:`${summarized.failures} 条会话概要生成失败，原记录保留。${summarized.error || '模型未返回有效的一句话概要'}`} : {})}
       }
       case 'zentao':
@@ -161,22 +167,6 @@ export class SessionCollector {
 
     return {
       source: 'claude',
-      extractedTasks,
-      sessionCount,
-    }
-  }
-
-  private scanCodex(source: SourceConfig): CollectorScanResult {
-    const codexDir = path.join(this.homeDir, '.codex')
-    const extractedTasks: Task[] = []
-    let sessionCount = 0
-
-    if (fs.existsSync(codexDir)) {
-      sessionCount = 2
-    }
-
-    return {
-      source: 'codex',
       extractedTasks,
       sessionCount,
     }

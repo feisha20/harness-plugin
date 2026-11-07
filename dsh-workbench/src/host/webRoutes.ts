@@ -5,6 +5,7 @@ import { ReportEngine } from './reportEngine.ts'
 import { reorganizeReport } from './reportSummary.ts'
 import type { SummaryGenerator } from './sessionSummary.ts'
 import { SessionCollector } from './collector.ts'
+import { safeAiError } from './aiFailure.ts'
 import type { DailyReport, PeriodicReport, SourceConfig, Task, TaskSource } from '../shared/types.ts'
 
 function sendJson(res: ServerResponse, statusCode: number, data: unknown): void {
@@ -37,6 +38,15 @@ function parseBody<T = unknown>(req: IncomingMessage): Promise<T> {
 }
 
 export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: SessionCollector, generateReport?:SummaryGenerator) {
+  let syncRunning = false
+  // 重启后没有仍在运行的同步，不能沿用磁盘上的“采集中”。
+  for (const source of store.getSnapshot().sources) {
+    if (source.status !== 'scanning') continue
+    source.status = 'error'
+    source.error = '上次同步已中断，请重新同步'
+    source.progress = undefined
+    store.save()
+  }
   return async function workbenchHttpHandler(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -157,8 +167,20 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
         }
       }
 
+      // 只返回状态，不触发报告计算或写盘，供页面持续刷新进度。
+      if (pathname === '/api/workbench/sync/status' && req.method === 'GET') {
+        sendJson(res, 200, {running: syncRunning, sources: store.getSnapshot().sources.map(({zentaoConfig, ...source}) => source)})
+        return
+      }
+
       // 3. Sync Trigger
       if (pathname === '/api/workbench/sync' && req.method === 'POST') {
+        if (syncRunning) {
+          sendJson(res, 409, {success:false, message:'已有同步正在进行，请查看采集进度'})
+          return
+        }
+        syncRunning = true
+        try {
         const snapshot = store.getSnapshot()
         let newCount = 0
         let updatedCount = 0
@@ -167,22 +189,31 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
         for (const src of snapshot.sources) {
           if (!src.enabled) continue
           src.status = 'scanning'
+          src.progress = '正在读取会话文件…'
+          src.error = null
           store.save()
 
-          const result = await collector.scanSource(src, snapshot.tasks)
+          const result = await collector.scanSource(src, snapshot.tasks, (sessionCount, progress) => {
+            src.sessionCount = sessionCount
+            src.progress = `概要处理 ${progress.processed}/${progress.total} 条，缓存复用 ${progress.cached} 条${progress.failed ? `，失败 ${progress.failed} 条` : ''}`
+            store.save()
+          }).catch(cause => ({source:src.id, extractedTasks:[], sessionCount:src.sessionCount,
+            error:`采集失败：${safeAiError(cause instanceof Error ? cause.message : String(cause))}`}))
           src.status = result.error ? 'error' : 'available'
           src.sessionCount = result.sessionCount
           src.lastSyncAt = new Date().toISOString()
           src.error = result.error || null
+          src.progress = result.error ? '同步失败，请查看错误信息' : `同步完成，整理 ${result.extractedTasks.length} 条工作记录`
           if (result.error) errors.push(`${src.name}：${result.error}`)
 
           for (const item of result.extractedTasks) {
-            const exists = snapshot.tasks.find((t) => t.id === item.id || (item.source !== 'zcode' && t.title === item.title))
+            const isSessionRecord = item.source === 'zcode' || item.source === 'codex'
+            const exists = snapshot.tasks.find((t) => t.id === item.id || (!isSessionRecord && t.title === item.title))
             if (!exists) {
               store.saveTask(item)
               newCount++
             } else {
-              if (item.source === 'zcode') store.saveTask({...exists,...item})
+              if (isSessionRecord) store.saveTask({...exists,...item})
               updatedCount++
             }
           }
@@ -197,6 +228,9 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
           updatedTasks: updatedCount,
           message: `${errors.length ? '同步存在失败' : '同步完成'}：新增 ${newCount} 项，更新 ${updatedCount} 项。${errors.join('；')}`,
         })
+        } finally {
+          syncRunning = false
+        }
         return
       }
 

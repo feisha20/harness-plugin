@@ -135,7 +135,7 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
                         }}
                       />
                       <span style={{ color: isAvailable ? '#059669' : isScanning ? 'var(--dsh-color-text-primary, #242424)' : '#64748b' }}>
-                        {isAvailable ? '环境就绪 / 已连接' : isScanning ? '正在同步采集...' : '未就绪 / 本地未检出'}
+                        {isAvailable ? '环境就绪 / 已连接' : isScanning ? '正在同步采集...' : src.status === 'error' ? '同步失败' : '未就绪 / 本地未检出'}
                       </span>
                     </div>
                   </div>
@@ -177,8 +177,12 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
               {/* Stats */}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b' }}>
                 <span>已识别会话：<strong style={{ color: '#0f172a' }}>{src.sessionCount}</strong> 个</span>
-                <span>上次同步：{src.lastSyncAt ? src.lastSyncAt.slice(11, 19) : '尚未同步'}</span>
+                <span>上次同步：{src.lastSyncAt ? new Date(src.lastSyncAt).toLocaleTimeString('zh-CN', {timeZone:'Asia/Shanghai', hour12:false}) : '尚未同步'}</span>
               </div>
+
+              {(src.progress || src.error) && <div role="status" aria-live="polite" style={{fontSize:'12px', color:src.error ? '#b91c1c' : 'var(--dsh-color-text-secondary, #64748b)'}}>
+                {src.error || src.progress}
+              </div>}
 
               {/* Special Config for Zentao */}
               {isZentao && (

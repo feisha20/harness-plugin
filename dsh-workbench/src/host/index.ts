@@ -15,7 +15,7 @@ declare module '@deepseek-ai/cordis' {
         kind: 'exact' | 'prefix'
         path: string
         handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
-      }) => void
+      }) => () => void
     }
   }
 }
@@ -50,10 +50,12 @@ export function apply(ctx: Context): void {
   const handler = createWorkbenchHttpHandler(store, collector, (input)=>generate(REPORT_INSTRUCTION,input,6000))
 
   if (ctx.webServer) {
-    ctx.webServer.register({
+    const webServer = ctx.webServer
+    // 插件停用或热更新时释放路由，避免下一版本注册失败。
+    ctx.effect(() => webServer.register({
       kind: 'prefix',
       path: '/api/workbench',
       handler,
-    })
+    }))
   }
 }

@@ -43,6 +43,7 @@ export interface SourceConfig {
   sessionCount: number
   lastSyncAt: string | null
   error?: string | null
+  progress?: string // 当前采集阶段及概要处理进度
   zentaoConfig?: {
     url: string
     account: string

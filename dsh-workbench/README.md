@@ -9,7 +9,7 @@
 ### 1. 🔌 多通道会话采集源 (Data Sources)
 - **DeepSeek Harness 本机会话**：自动扫描本端会话历史与转录日志（`brain/*/transcript.jsonl`），提取会话关键目标与完成动作。
 - **Claude Code 会话**：监听并解析本机 Claude Code 日志（`~/.claude`）。
-- **Codex CLI 历史**：适配并采样本机 Codex 历史任务（`~/.codex`）。
+- **Codex 桌面端 / CLI 会话**：只读扫描 Codex 用户目录下的 `sessions` 和 `archived_sessions` 中的 JSONL 日志；默认 `~/.codex`，支持 `CODEX_HOME` 或采集源自定义路径。排除子代理及环境注入消息，按会话和北京时间日期合并，复用模型生成一句话概要，保留真实项目、时间和原话证据。首次同步会整理历史会话，后续正文未变化时复用概要缓存；模型不可用时明确报错并保留原记录。
 - **Gemini CLI 会话**：接入 Gemini CLI 历史会话快照（`~/.gemini`）。
 - **禅道 Zentao**：支持配置禅道系统地址、账号与 API 凭据，自动同步指派给本人的待办与 Bug 缺陷。
 - **采集诊断与状态**：各渠道具备独立的可用性探测、就绪指示、会话统计与一键增量同步能力。
