@@ -89,9 +89,10 @@ export function DailyReportView({
 
   // Computed synthesized markdown if not manually edited
   const synthesizedReport = ReportEngine.generateDailyReport(selectedDay, tasks)
-  const currentMarkdown = report?.isEdited ? (report.summaryMarkdown || '') : synthesizedReport.summaryMarkdown
+  const currentMarkdown = (report?.isEdited || report?.aiOrganized) ? (report.summaryMarkdown || '') : synthesizedReport.summaryMarkdown
 
   const handleRegenerate = async () => {
+    if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
     setLoading(true)
     setLoadError(null)
     try {
@@ -176,9 +177,9 @@ export function DailyReportView({
                 padding: '4px 10px',
                 borderRadius: '6px',
                 border: '1px solid',
-                borderColor: selectedDay === q.key ? '#2563eb' : 'var(--dsh-color-border, #cbd5e1)',
-                backgroundColor: selectedDay === q.key ? '#eff6ff' : 'var(--dsh-color-bg-canvas, #ffffff)',
-                color: selectedDay === q.key ? '#2563eb' : 'var(--dsh-color-text-primary, #0f172a)',
+                borderColor: selectedDay === q.key ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-border, #cbd5e1)',
+                backgroundColor: selectedDay === q.key ? 'var(--dsh-color-bg-subtle, #f4f4f4)' : 'var(--dsh-color-bg-canvas, #ffffff)',
+                color: selectedDay === q.key ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-primary, #0f172a)',
                 fontSize: '12px',
                 fontWeight: selectedDay === q.key ? 600 : 400,
                 cursor: 'pointer',
@@ -237,7 +238,7 @@ export function DailyReportView({
             }}
           >
             <IconRefresh size={14} color="#64748b" />
-            <span>重新提取汇总</span>
+            <span>AI 重新整理</span>
           </button>
 
           <button
@@ -268,8 +269,8 @@ export function DailyReportView({
               style={{
                 padding: '6px 14px',
                 borderRadius: '6px',
-                backgroundColor: '#10b981',
-                color: '#ffffff',
+                backgroundColor: 'var(--workbench-action-bg, #242424)',
+                color: 'var(--workbench-action-fg, #ffffff)',
                 border: 'none',
                 fontSize: '12px',
                 fontWeight: 500,
@@ -277,10 +278,10 @@ export function DailyReportView({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                boxShadow: '0 1px 2px rgba(16,185,129,0.2)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
               }}
             >
-              <IconSave size={14} color="#ffffff" />
+              <IconSave size={14} color="currentColor" />
               <span>保存修改</span>
             </button>
           )}
@@ -290,8 +291,8 @@ export function DailyReportView({
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
-              backgroundColor: copySuccess ? '#059669' : '#2563eb',
-              color: '#ffffff',
+              backgroundColor: 'var(--workbench-action-bg, #242424)',
+              color: 'var(--workbench-action-fg, #ffffff)',
               border: 'none',
               fontSize: '12px',
               fontWeight: 500,
@@ -299,16 +300,17 @@ export function DailyReportView({
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
               transition: 'background-color 0.2s',
             }}
           >
-            {copySuccess ? <IconCheck size={14} color="#ffffff" /> : <IconCopy size={14} color="#ffffff" />}
+            {copySuccess ? <IconCheck size={14} color="currentColor" /> : <IconCopy size={14} color="currentColor" />}
             <span>{copySuccess ? '已复制到剪贴板！' : '复制标准日报'}</span>
           </button>
         </div>
       </div>
 
+      {loadError && currentMarkdown && <div role="alert" style={{padding:'10px 14px',fontSize:12,color:'var(--dsh-color-text-primary,#242424)',border:'1px solid var(--dsh-color-border-subtle,#ddd)',borderRadius:6,overflowWrap:'anywhere'}}>AI 整理失败，已保留原报告：{loadError}</div>}
       {/* Main Content Area */}
       <div
         style={{
@@ -325,12 +327,12 @@ export function DailyReportView({
         {loading ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#64748b' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '15px', marginBottom: '8px' }}>
-              <IconSync size={18} color="#2563eb" spinning />
+              <IconSync size={18} color="var(--dsh-color-text-primary, #242424)" spinning />
               <span>正在生成汇总...</span>
             </div>
             <div style={{ fontSize: '12px', color: '#94a3b8' }}>正在聚合各渠道会话并生成标准工作日报</div>
           </div>
-        ) : loadError ? (
+        ) : loadError && !currentMarkdown ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#ef4444' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '14px', marginBottom: '12px' }}>
               <IconAlertCircle size={18} color="#ef4444" />
@@ -338,12 +340,13 @@ export function DailyReportView({
             </div>
             <div>
               <button
-                onClick={handleRegenerate}
+                disabled={loading}
+            onClick={handleRegenerate}
                 style={{
                   padding: '6px 14px',
                   borderRadius: '6px',
-                  backgroundColor: '#2563eb',
-                  color: '#ffffff',
+                  backgroundColor: 'var(--workbench-action-bg, #242424)',
+                  color: 'var(--workbench-action-fg, #ffffff)',
                   border: 'none',
                   cursor: 'pointer',
                   fontSize: '12px',
@@ -352,7 +355,7 @@ export function DailyReportView({
                   gap: '6px',
                 }}
               >
-                <IconRefresh size={14} color="#ffffff" />
+                <IconRefresh size={14} color="currentColor" />
                 <span>重新加载</span>
               </button>
             </div>
@@ -390,7 +393,7 @@ export function DailyReportView({
               <MarkdownRenderer content={currentMarkdown} />
             ) : (
               <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>
-                暂无日报内容，点击右上角“重新提取汇总”
+                暂无日报内容，点击右上角“AI 重新整理”
               </div>
             )}
           </div>

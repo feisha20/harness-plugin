@@ -12,9 +12,6 @@ import {
   IconSave,
   IconCopy,
   IconCheck,
-  IconTarget,
-  IconFolder,
-  IconCalendarDays,
   IconAlertCircle,
   IconSync,
 } from './Icons.tsx'
@@ -117,10 +114,10 @@ export function PeriodicReportView({
       ? ReportEngine.generateWeeklyReport(selectedWeek, tasks, dailyReports)
       : ReportEngine.generateMonthlyReport(selectedMonth, tasks, dailyReports)
 
-  const currentMarkdown = report?.isEdited ? (report.markdown || '') : synthesizedReport.markdown
-  const effectiveStats = report?.isEdited ? report.stats : synthesizedReport.stats
+  const currentMarkdown = (report?.isEdited || report?.aiOrganized) ? (report.markdown || '') : synthesizedReport.markdown
 
   const handleRegenerate = async () => {
+    if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
     setLoading(true)
     setLoadError(null)
     try {
@@ -210,8 +207,8 @@ export function PeriodicReportView({
                 padding: '5px 14px',
                 borderRadius: '4px',
                 border: 'none',
-                backgroundColor: reportType === 'weekly' ? '#2563eb' : 'transparent',
-                color: reportType === 'weekly' ? '#ffffff' : 'var(--dsh-color-text-secondary, #64748b)',
+                backgroundColor: reportType === 'weekly' ? 'var(--workbench-action-bg, #242424)' : 'transparent',
+                color: reportType === 'weekly' ? 'var(--workbench-action-fg, #ffffff)' : 'var(--dsh-color-text-secondary, #64748b)',
                 fontSize: '12px',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -221,7 +218,7 @@ export function PeriodicReportView({
                 transition: 'all 0.15s ease',
               }}
             >
-              <IconPeriodic size={14} color={reportType === 'weekly' ? '#ffffff' : '#64748b'} />
+              <IconPeriodic size={14} color={reportType === 'weekly' ? 'var(--workbench-action-fg, #ffffff)' : '#64748b'} />
               <span>工作周报</span>
             </button>
             <button
@@ -233,8 +230,8 @@ export function PeriodicReportView({
                 padding: '5px 14px',
                 borderRadius: '4px',
                 border: 'none',
-                backgroundColor: reportType === 'monthly' ? '#2563eb' : 'transparent',
-                color: reportType === 'monthly' ? '#ffffff' : 'var(--dsh-color-text-secondary, #64748b)',
+                backgroundColor: reportType === 'monthly' ? 'var(--workbench-action-bg, #242424)' : 'transparent',
+                color: reportType === 'monthly' ? 'var(--workbench-action-fg, #ffffff)' : 'var(--dsh-color-text-secondary, #64748b)',
                 fontSize: '12px',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -244,7 +241,7 @@ export function PeriodicReportView({
                 transition: 'all 0.15s ease',
               }}
             >
-              <IconChart size={14} color={reportType === 'monthly' ? '#ffffff' : '#64748b'} />
+              <IconChart size={14} color={reportType === 'monthly' ? 'var(--workbench-action-fg, #ffffff)' : '#64748b'} />
               <span>工作月报</span>
             </button>
           </div>
@@ -260,9 +257,9 @@ export function PeriodicReportView({
                       padding: '4px 10px',
                       borderRadius: '4px',
                       border: '1px solid',
-                      borderColor: selectedWeek === w ? '#2563eb' : 'var(--dsh-color-border, #cbd5e1)',
-                      backgroundColor: selectedWeek === w ? '#eff6ff' : 'var(--dsh-color-bg-canvas, #ffffff)',
-                      color: selectedWeek === w ? '#2563eb' : 'var(--dsh-color-text-primary, #0f172a)',
+                      borderColor: selectedWeek === w ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-border, #cbd5e1)',
+                      backgroundColor: selectedWeek === w ? 'var(--dsh-color-bg-subtle, #f4f4f4)' : 'var(--dsh-color-bg-canvas, #ffffff)',
+                      color: selectedWeek === w ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-primary, #0f172a)',
                       fontSize: '12px',
                       cursor: 'pointer',
                       fontWeight: selectedWeek === w ? 600 : 400,
@@ -279,9 +276,9 @@ export function PeriodicReportView({
                       padding: '4px 10px',
                       borderRadius: '4px',
                       border: '1px solid',
-                      borderColor: selectedMonth === m ? '#2563eb' : 'var(--dsh-color-border, #cbd5e1)',
-                      backgroundColor: selectedMonth === m ? '#eff6ff' : 'var(--dsh-color-bg-canvas, #ffffff)',
-                      color: selectedMonth === m ? '#2563eb' : 'var(--dsh-color-text-primary, #0f172a)',
+                      borderColor: selectedMonth === m ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-border, #cbd5e1)',
+                      backgroundColor: selectedMonth === m ? 'var(--dsh-color-bg-subtle, #f4f4f4)' : 'var(--dsh-color-bg-canvas, #ffffff)',
+                      color: selectedMonth === m ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-primary, #0f172a)',
                       fontSize: '12px',
                       cursor: 'pointer',
                       fontWeight: selectedMonth === m ? 600 : 400,
@@ -328,7 +325,7 @@ export function PeriodicReportView({
             }}
           >
             <IconRefresh size={14} color="#64748b" />
-            <span>重新汇总统计</span>
+            <span>AI 重新整理</span>
           </button>
 
           <button
@@ -359,8 +356,8 @@ export function PeriodicReportView({
               style={{
                 padding: '6px 14px',
                 borderRadius: '6px',
-                backgroundColor: '#10b981',
-                color: '#ffffff',
+                backgroundColor: 'var(--workbench-action-bg, #242424)',
+                color: 'var(--workbench-action-fg, #ffffff)',
                 border: 'none',
                 fontSize: '12px',
                 fontWeight: 500,
@@ -368,10 +365,10 @@ export function PeriodicReportView({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                boxShadow: '0 1px 2px rgba(16,185,129,0.2)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
               }}
             >
-              <IconSave size={14} color="#ffffff" />
+              <IconSave size={14} color="currentColor" />
               <span>保存归档</span>
             </button>
           )}
@@ -381,8 +378,8 @@ export function PeriodicReportView({
             style={{
               padding: '6px 14px',
               borderRadius: '6px',
-              backgroundColor: copySuccess ? '#059669' : '#2563eb',
-              color: '#ffffff',
+              backgroundColor: 'var(--workbench-action-bg, #242424)',
+              color: 'var(--workbench-action-fg, #ffffff)',
               border: 'none',
               fontSize: '12px',
               fontWeight: 500,
@@ -390,81 +387,17 @@ export function PeriodicReportView({
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
               transition: 'background-color 0.2s',
             }}
           >
-            {copySuccess ? <IconCheck size={14} color="#ffffff" /> : <IconCopy size={14} color="#ffffff" />}
+            {copySuccess ? <IconCheck size={14} color="currentColor" /> : <IconCopy size={14} color="currentColor" />}
             <span>{copySuccess ? '已复制！' : `复制${reportType === 'weekly' ? '周报' : '月报'}`}</span>
           </button>
         </div>
       </div>
 
-      {/* Metrics Cards */}
-      {effectiveStats && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-          <div
-            style={{
-              padding: '14px 18px',
-              borderRadius: '8px',
-              backgroundColor: 'var(--dsh-color-bg-canvas, #ffffff)',
-              border: '1px solid var(--dsh-color-border-subtle, #e2e8f0)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
-              <IconTarget size={14} color="#10b981" />
-              <span>周期工作记录</span>
-            </div>
-            <div style={{ fontSize: '24px', fontWeight: 700, color: '#10b981' }}>
-              {effectiveStats.totalTasks} <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}>项</span>
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: '14px 18px',
-              borderRadius: '8px',
-              backgroundColor: 'var(--dsh-color-bg-canvas, #ffffff)',
-              border: '1px solid var(--dsh-color-border-subtle, #e2e8f0)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
-              <IconFolder size={14} color="#7c3aed" />
-              <span>涉及工程项目</span>
-            </div>
-            <div style={{ fontSize: '24px', fontWeight: 700, color: '#7c3aed' }}>
-              {effectiveStats.activeProjects} <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}>个</span>
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: '14px 18px',
-              borderRadius: '8px',
-              backgroundColor: 'var(--dsh-color-bg-canvas, #ffffff)',
-              border: '1px solid var(--dsh-color-border-subtle, #e2e8f0)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
-              <IconCalendarDays size={14} color="#059669" />
-              <span>活跃记录天数</span>
-            </div>
-            <div style={{ fontSize: '24px', fontWeight: 700, color: '#059669' }}>
-              {effectiveStats.loggedDays} <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}>天</span>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {loadError && currentMarkdown && <div role="alert" style={{padding:'10px 14px',fontSize:12,color:'var(--dsh-color-text-primary,#242424)',border:'1px solid var(--dsh-color-border-subtle,#ddd)',borderRadius:6,overflowWrap:'anywhere'}}>AI 整理失败，已保留原报告：{loadError}</div>}
       {/* Main Report View */}
       <div
         style={{
@@ -481,12 +414,12 @@ export function PeriodicReportView({
         {loading ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#64748b' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '15px', marginBottom: '8px' }}>
-              <IconSync size={18} color="#2563eb" spinning />
+              <IconSync size={18} color="var(--dsh-color-text-primary, #242424)" spinning />
               <span>正在汇总计算报告...</span>
             </div>
             <div style={{ fontSize: '12px', color: '#94a3b8' }}>正在整理周期内工作记录</div>
           </div>
-        ) : loadError ? (
+        ) : loadError && !currentMarkdown ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#ef4444' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '14px', marginBottom: '12px' }}>
               <IconAlertCircle size={18} color="#ef4444" />
@@ -494,12 +427,13 @@ export function PeriodicReportView({
             </div>
             <div>
               <button
-                onClick={handleRegenerate}
+                disabled={loading}
+            onClick={handleRegenerate}
                 style={{
                   padding: '6px 14px',
                   borderRadius: '6px',
-                  backgroundColor: '#2563eb',
-                  color: '#ffffff',
+                  backgroundColor: 'var(--workbench-action-bg, #242424)',
+                  color: 'var(--workbench-action-fg, #ffffff)',
                   border: 'none',
                   cursor: 'pointer',
                   fontSize: '12px',
@@ -508,7 +442,7 @@ export function PeriodicReportView({
                   gap: '6px',
                 }}
               >
-                <IconRefresh size={14} color="#ffffff" />
+                <IconRefresh size={14} color="currentColor" />
                 <span>重新加载</span>
               </button>
             </div>
@@ -546,7 +480,7 @@ export function PeriodicReportView({
               <MarkdownRenderer content={currentMarkdown} />
             ) : (
               <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>
-                暂无报告内容，点击右上角“重新汇总统计”
+                暂无报告内容，点击右上角“AI 重新整理”
               </div>
             )}
           </div>

@@ -354,6 +354,8 @@ export function getSourceIcon(source: string, size = 16) {
       return <IconSourceClaude size={size} />
     case 'codex':
       return <IconSourceCodex size={size} />
+    case 'zcode':
+      return <IconSourceManual size={size} />
     case 'gemini':
       return <IconSourceGemini size={size} />
     case 'zentao':

@@ -9,7 +9,7 @@ interface TasksViewProps {
   onDeleteTask: (id: string) => Promise<void>
   onCreateTask: (task: Partial<Task>) => Promise<void>
 }
-const sources: Record<string, string> = { dsh: 'DeepSeek Harness', claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', zentao: '禅道', manual: '手动记录' }
+const sources: Record<string, string> = { dsh: 'DeepSeek Harness', claude: 'Claude Code', codex: 'Codex', zcode: 'Zcode', gemini: 'Gemini CLI', zentao: '禅道', manual: '手动记录' }
 
 export function TasksView({ tasks, onDeleteTask, onCreateTask }: TasksViewProps) {
   const today = todayString()
@@ -46,7 +46,7 @@ export function TasksView({ tasks, onDeleteTask, onCreateTask }: TasksViewProps)
       .wr-composer textarea { display:block; flex:1; min-width:0; width:100%; height:34px; min-height:34px; max-height:160px; resize:vertical; border:0; background:transparent; color:var(--wr-text); padding:6px 4px; line-height:1.6; outline:none; }
       .wr-composer textarea::placeholder { color:var(--wr-muted); } .wr-composer-footer { display:flex; align-items:center; gap:10px; flex-shrink:0; }
       .wr-project { display:flex; align-items:center; gap:6px; min-width:0; color:var(--wr-muted); } .wr-project input { width:150px; max-width:100%; border:0; padding:4px; background:transparent; color:var(--wr-text); font-size:12px; }
-      .wr-save { display:flex; align-items:center; gap:5px; border:0; border-radius:6px; background:#3670d8; color:white; padding:7px 12px; font-size:12px!important; white-space:nowrap; } .wr-save:disabled { opacity:.45; cursor:default; }
+      .wr-save { display:flex; align-items:center; gap:5px; border:0; border-radius:6px; background:var(--workbench-action-bg,#242424); color:var(--workbench-action-fg,#fff); padding:7px 12px; font-size:12px!important; white-space:nowrap; } .wr-save:disabled { opacity:.45; cursor:default; }
       .wr-list { flex:1; min-height:0; overflow-y:auto; margin-top:16px; } .wr-count { display:flex; justify-content:space-between; color:var(--wr-muted); font-size:11px; padding:0 0 10px; border-bottom:1px solid var(--wr-line); }
       .wr-entry { padding:11px 2px; border-bottom:1px solid var(--wr-line); display:grid; grid-template-columns:24px minmax(0,1fr) minmax(160px,28%) 28px; column-gap:12px; align-items:center; }
       .wr-number { font-size:11px; font-variant-numeric:tabular-nums; color:var(--wr-muted); width:22px; flex-shrink:0; padding-top:4px; } .wr-body { display:contents; }

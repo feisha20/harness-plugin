@@ -126,7 +126,7 @@ export function WorkbenchApp() {
   // Daily Report Handlers
   const handleFetchDailyReport = useCallback(async (day: string, regenerate = false): Promise<DailyReport> => {
     const res = await fetch(`/api/workbench/reports/daily?day=${day}&regenerate=${regenerate}`)
-    if (!res.ok) throw new Error('Failed to fetch daily report')
+    if (!res.ok) { const body=await res.json().catch(()=>({})); throw new Error(body.error || 'AI 整理失败，请检查模型配置') }
     const report = (await res.json()) as DailyReport
     setSnapshot((prev) => {
       if (!prev) return prev
@@ -152,7 +152,7 @@ export function WorkbenchApp() {
   // Weekly & Monthly Report Handlers
   const handleFetchWeeklyReport = useCallback(async (weekKey: string, regenerate = false): Promise<PeriodicReport> => {
     const res = await fetch(`/api/workbench/reports/weekly?weekKey=${weekKey}&regenerate=${regenerate}`)
-    if (!res.ok) throw new Error('Failed to fetch weekly report')
+    if (!res.ok) { const body=await res.json().catch(()=>({})); throw new Error(body.error || 'AI 整理失败，请检查模型配置') }
     const report = (await res.json()) as PeriodicReport
     setSnapshot((prev) => {
       if (!prev) return prev
@@ -177,7 +177,7 @@ export function WorkbenchApp() {
 
   const handleFetchMonthlyReport = useCallback(async (monthKey: string, regenerate = false): Promise<PeriodicReport> => {
     const res = await fetch(`/api/workbench/reports/monthly?monthKey=${monthKey}&regenerate=${regenerate}`)
-    if (!res.ok) throw new Error('Failed to fetch monthly report')
+    if (!res.ok) { const body=await res.json().catch(()=>({})); throw new Error(body.error || 'AI 整理失败，请检查模型配置') }
     const report = (await res.json()) as PeriodicReport
     setSnapshot((prev) => {
       if (!prev) return prev
@@ -213,16 +213,20 @@ export function WorkbenchApp() {
     }
   }, [fetchSnapshot, showToast])
 
+  const [syncError, setSyncError] = useState<string | null>(null)
   const handleTriggerSync = useCallback(async () => {
     setSyncing(true)
+    setSyncError(null)
     try {
       const res = await fetch('/api/workbench/sync', { method: 'POST' })
       if (res.ok) {
-        const result = (await res.json()) as { message: string }
+        const result = (await res.json()) as { message: string; success?: boolean }
         await fetchSnapshot()
+        if (result.success === false) setSyncError(result.message)
         showToast(result.message || '多通道采集与事项抽取已完成！')
-      }
+      } else { setSyncError('同步请求失败，请检查服务状态') }
     } catch (err) {
+      setSyncError('同步请求失败，请检查服务连接')
       console.error('Sync failed:', err)
       showToast('采集同步失败，请检查各渠道权限')
     } finally {
@@ -244,6 +248,7 @@ export function WorkbenchApp() {
 
   return (
     <div
+      className="workbench-app"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -258,6 +263,8 @@ export function WorkbenchApp() {
       }}
     >
       <style>{`
+        .workbench-app { --workbench-action-bg:var(--dsh-color-text-primary,#242424); --workbench-action-fg:var(--dsh-color-bg-canvas,#ffffff); }
+        .workbench-app button:focus-visible { outline:2px solid var(--dsh-color-text-secondary,#777); outline-offset:3px; }
         @keyframes dsh-spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
@@ -284,7 +291,7 @@ export function WorkbenchApp() {
                 width: '32px',
                 height: '32px',
                 borderRadius: '8px',
-                backgroundColor: '#eff6ff',
+                backgroundColor: 'var(--dsh-color-bg-subtle, #f4f4f4)',
                 border: '1px solid #bfdbfe',
                 display: 'flex',
                 alignItems: 'center',
@@ -322,7 +329,7 @@ export function WorkbenchApp() {
                 borderRadius: '6px',
                 border: 'none',
                 backgroundColor: activeTab === 'tasks' ? '#ffffff' : 'transparent',
-                color: activeTab === 'tasks' ? '#2563eb' : 'var(--dsh-color-text-secondary, #64748b)',
+                color: activeTab === 'tasks' ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-secondary, #64748b)',
                 fontSize: '13px',
                 fontWeight: activeTab === 'tasks' ? 600 : 500,
                 cursor: 'pointer',
@@ -333,15 +340,15 @@ export function WorkbenchApp() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <IconTasks size={15} color={activeTab === 'tasks' ? '#2563eb' : '#64748b'} />
+              <IconTasks size={15} color={activeTab === 'tasks' ? 'var(--dsh-color-text-primary, #242424)' : '#64748b'} />
               <span>工作事项</span>
               <span
                 style={{
                   fontSize: '11px',
                   padding: '1px 6px',
                   borderRadius: '10px',
-                  backgroundColor: activeTab === 'tasks' ? '#eff6ff' : 'rgba(0,0,0,0.06)',
-                  color: activeTab === 'tasks' ? '#2563eb' : '#64748b',
+                  backgroundColor: activeTab === 'tasks' ? 'var(--dsh-color-bg-subtle, #f4f4f4)' : 'rgba(0,0,0,0.06)',
+                  color: activeTab === 'tasks' ? 'var(--dsh-color-text-primary, #242424)' : '#64748b',
                 }}
               >
                 {snapshot?.tasks.length || 0}
@@ -355,7 +362,7 @@ export function WorkbenchApp() {
                 borderRadius: '6px',
                 border: 'none',
                 backgroundColor: activeTab === 'daily' ? '#ffffff' : 'transparent',
-                color: activeTab === 'daily' ? '#2563eb' : 'var(--dsh-color-text-secondary, #64748b)',
+                color: activeTab === 'daily' ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-secondary, #64748b)',
                 fontSize: '13px',
                 fontWeight: activeTab === 'daily' ? 600 : 500,
                 cursor: 'pointer',
@@ -366,7 +373,7 @@ export function WorkbenchApp() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <IconDaily size={15} color={activeTab === 'daily' ? '#2563eb' : '#64748b'} />
+              <IconDaily size={15} color={activeTab === 'daily' ? 'var(--dsh-color-text-primary, #242424)' : '#64748b'} />
               <span>工作日报</span>
             </button>
 
@@ -377,7 +384,7 @@ export function WorkbenchApp() {
                 borderRadius: '6px',
                 border: 'none',
                 backgroundColor: activeTab === 'periodic' ? '#ffffff' : 'transparent',
-                color: activeTab === 'periodic' ? '#2563eb' : 'var(--dsh-color-text-secondary, #64748b)',
+                color: activeTab === 'periodic' ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-secondary, #64748b)',
                 fontSize: '13px',
                 fontWeight: activeTab === 'periodic' ? 600 : 500,
                 cursor: 'pointer',
@@ -388,7 +395,7 @@ export function WorkbenchApp() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <IconPeriodic size={15} color={activeTab === 'periodic' ? '#2563eb' : '#64748b'} />
+              <IconPeriodic size={15} color={activeTab === 'periodic' ? 'var(--dsh-color-text-primary, #242424)' : '#64748b'} />
               <span>周报与月报</span>
             </button>
 
@@ -399,7 +406,7 @@ export function WorkbenchApp() {
                 borderRadius: '6px',
                 border: 'none',
                 backgroundColor: activeTab === 'sources' ? '#ffffff' : 'transparent',
-                color: activeTab === 'sources' ? '#2563eb' : 'var(--dsh-color-text-secondary, #64748b)',
+                color: activeTab === 'sources' ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-secondary, #64748b)',
                 fontSize: '13px',
                 fontWeight: activeTab === 'sources' ? 600 : 500,
                 cursor: 'pointer',
@@ -410,15 +417,15 @@ export function WorkbenchApp() {
                 transition: 'all 0.15s ease',
               }}
             >
-              <IconSources size={15} color={activeTab === 'sources' ? '#2563eb' : '#64748b'} />
+              <IconSources size={15} color={activeTab === 'sources' ? 'var(--dsh-color-text-primary, #242424)' : '#64748b'} />
               <span>采集源管理</span>
               <span
                 style={{
                   fontSize: '11px',
                   padding: '1px 6px',
                   borderRadius: '10px',
-                  backgroundColor: activeTab === 'sources' ? '#eff6ff' : 'rgba(0,0,0,0.06)',
-                  color: activeTab === 'sources' ? '#2563eb' : '#64748b',
+                  backgroundColor: activeTab === 'sources' ? 'var(--dsh-color-bg-subtle, #f4f4f4)' : 'rgba(0,0,0,0.06)',
+                  color: activeTab === 'sources' ? 'var(--dsh-color-text-primary, #242424)' : '#64748b',
                 }}
               >
                 {snapshot?.sources.filter((s) => s.enabled).length || 0}
@@ -447,12 +454,13 @@ export function WorkbenchApp() {
               transition: 'background-color 0.15s',
             }}
           >
-            <IconSync size={14} color={syncing ? '#94a3b8' : '#2563eb'} spinning={syncing} />
-            <span>{syncing ? '正在采集采样中...' : '一键同步会话'}</span>
+            <IconSync size={14} color={syncing ? '#94a3b8' : 'var(--dsh-color-text-primary, #242424)'} spinning={syncing} />
+            <span>{syncing ? '正在采集采样中...' : '同步并生成概要'}</span>
           </button>
         </div>
       </div>
 
+      {syncError && <div role="alert" style={{padding:'10px 24px',fontSize:12,color:'var(--dsh-color-text-primary,#242424)',borderBottom:'1px solid var(--dsh-color-border-subtle,#ddd)',display:'flex',gap:12}}><span style={{flex:1,overflowWrap:'anywhere'}}>{syncError}</span><button onClick={()=>setSyncError(null)} aria-label="关闭同步错误" style={{border:0,background:'transparent',color:'inherit'}}>×</button></div>}
       {/* Viewport Content */}
       <div style={{ flex: 1, padding: '20px 24px', overflowY: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {activeTab === 'tasks' && snapshot && (
@@ -520,7 +528,7 @@ export function WorkbenchApp() {
             border: '1px solid rgba(255,255,255,0.1)',
           }}
         >
-          <IconCheck size={16} color="#10b981" />
+          {!syncError && <IconCheck size={16} color="#10b981" />}
           <span>{toastMessage}</span>
         </div>
       )}

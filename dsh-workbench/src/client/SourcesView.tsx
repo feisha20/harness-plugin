@@ -53,11 +53,11 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 600, color: 'var(--dsh-color-text-primary, #0f172a)' }}>
-            <IconSources size={18} color="#2563eb" />
+            <IconSources size={18} color="var(--dsh-color-text-primary, #242424)" />
             <span>多通道 AI 与工作流会话采集源</span>
           </div>
           <div style={{ fontSize: '12px', color: 'var(--dsh-color-text-secondary, #64748b)' }}>
-            自动监听并增量采样本地 AI 编码助手（DSH、Claude、Codex、Gemini）与项目管理系统（禅道），提取工作事项并关联会话依据。
+            自动监听并增量采样本地 AI 编码助手（DSH、Claude、Codex、Gemini、Zcode）与项目管理系统（禅道），提取工作事项并关联会话依据。
           </div>
         </div>
 
@@ -67,8 +67,9 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
           style={{
             padding: '8px 18px',
             borderRadius: '6px',
-            backgroundColor: syncing ? '#94a3b8' : '#2563eb',
-            color: '#ffffff',
+            backgroundColor: 'var(--workbench-action-bg, #242424)',
+            opacity: syncing ? 0.5 : 1,
+            color: 'var(--workbench-action-fg, #ffffff)',
             border: 'none',
             fontSize: '13px',
             fontWeight: 500,
@@ -76,10 +77,10 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
           }}
         >
-          <IconSync size={15} color="#ffffff" spinning={syncing} />
+          <IconSync size={15} color="currentColor" spinning={syncing} />
           <span>{syncing ? '正在全量采样与抽取中...' : '立即执行全量采集与增量抽取'}</span>
         </button>
       </div>
@@ -130,10 +131,10 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
                           width: '6px',
                           height: '6px',
                           borderRadius: '50%',
-                          backgroundColor: isAvailable ? '#10b981' : isScanning ? '#2563eb' : '#cbd5e1',
+                          backgroundColor: isAvailable ? '#10b981' : isScanning ? 'var(--dsh-color-text-primary, #242424)' : '#cbd5e1',
                         }}
                       />
-                      <span style={{ color: isAvailable ? '#059669' : isScanning ? '#2563eb' : '#64748b' }}>
+                      <span style={{ color: isAvailable ? '#059669' : isScanning ? 'var(--dsh-color-text-primary, #242424)' : '#64748b' }}>
                         {isAvailable ? '环境就绪 / 已连接' : isScanning ? '正在同步采集...' : '未就绪 / 本地未检出'}
                       </span>
                     </div>
@@ -142,7 +143,7 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
 
                 {/* Enable Switch */}
                 <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '6px' }}>
-                  <span style={{ fontSize: '12px', color: src.enabled ? '#2563eb' : '#94a3b8', fontWeight: 500 }}>
+                  <span style={{ fontSize: '12px', color: src.enabled ? 'var(--dsh-color-text-primary, #242424)' : '#94a3b8', fontWeight: 500 }}>
                     {src.enabled ? '已启用' : '已暂停'}
                   </span>
                   <input
@@ -192,7 +193,7 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
                         style={{
                           border: 'none',
                           background: 'transparent',
-                          color: '#2563eb',
+                          color: 'var(--dsh-color-text-primary, #242424)',
                           fontSize: '12px',
                           fontWeight: 500,
                           cursor: 'pointer',
@@ -201,7 +202,7 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
                           gap: '4px',
                         }}
                       >
-                        <IconEdit size={13} color="#2563eb" />
+                        <IconEdit size={13} color="var(--dsh-color-text-primary, #242424)" />
                         <span>配置 API 凭据</span>
                       </button>
                     </div>
@@ -238,7 +239,7 @@ export function SourcesView({ sources, onUpdateSource, onTriggerSync, syncing }:
                         </button>
                         <button
                           type="submit"
-                          style={{ padding: '4px 10px', borderRadius: '4px', backgroundColor: '#2563eb', color: '#ffffff', border: 'none', fontSize: '11px', cursor: 'pointer' }}
+                          style={{ padding: '4px 10px', borderRadius: '4px', backgroundColor: 'var(--workbench-action-bg, #242424)', color: 'var(--workbench-action-fg, #ffffff)', border: 'none', fontSize: '11px', cursor: 'pointer' }}
                         >
                           保存配置
                         </button>

@@ -91,6 +91,15 @@ export class WorkbenchStore {
         lastSyncAt: null,
       },
       {
+        id: 'zcode',
+        name: 'Zcode 会话',
+        enabled: true,
+        status: fs.existsSync(path.join(home, '.zcode/cli/db/db.sqlite')) ? 'available' : 'unavailable',
+        path: path.join(home, '.zcode/cli/db/db.sqlite'),
+        sessionCount: 0,
+        lastSyncAt: null,
+      },
+      {
         id: 'zentao',
         name: '禅道 Zentao 待办与缺陷',
         enabled: false,
@@ -210,6 +219,9 @@ export class WorkbenchStore {
         const raw = fs.readFileSync(this.storePath, 'utf8')
         const data = JSON.parse(raw) as WorkbenchSnapshot
         if (data && data.version === 1 && Array.isArray(data.tasks)) {
+          if (!data.sources.some(source => source.id === 'zcode')) {
+            data.sources.push(this.getDefaultSources().find(source => source.id === 'zcode')!)
+          }
           return data
         }
       }

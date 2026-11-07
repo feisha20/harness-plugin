@@ -1,6 +1,6 @@
 export type TaskStatus = 'pending' | 'in_progress' | 'completed'
 export type TaskPriority = 'high' | 'medium' | 'low'
-export type TaskSource = 'dsh' | 'claude' | 'codex' | 'gemini' | 'zentao' | 'manual'
+export type TaskSource = 'dsh' | 'claude' | 'codex' | 'gemini' | 'zcode' | 'zentao' | 'manual'
 
 export interface Evidence {
   id: string
@@ -14,6 +14,7 @@ export interface Evidence {
 export interface Task {
   id: string
   title: string
+  summaryHash?: string // 对话内容摘要缓存，正文变化后重新总结
   recordDate?: string // 工作归属日期，与状态无关
   status?: TaskStatus
   priority?: TaskPriority
@@ -62,6 +63,7 @@ export interface DailyReport {
   generatedAt: string
   items: DailyReportItem[]
   summaryMarkdown: string
+  aiOrganized?: boolean
   isEdited: boolean
 }
 
@@ -89,6 +91,7 @@ export interface PeriodicReport {
   stats: PeriodStats
   sections: PeriodicSection[]
   markdown: string
+  aiOrganized?: boolean
   isEdited: boolean
 }
 

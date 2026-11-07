@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { scanZcode, zcodeTranscript } from './zcode.ts'
+import { summarizeSessions, type SummaryGenerator } from './sessionSummary.ts'
 import type { Evidence, SourceConfig, Task, TaskSource } from '../shared/types.ts'
 
 export interface CollectorScanResult {
@@ -13,11 +15,11 @@ export interface CollectorScanResult {
 export class SessionCollector {
   private homeDir: string
 
-  constructor() {
+  constructor(private summarize?: SummaryGenerator) {
     this.homeDir = os.homedir()
   }
 
-  public async scanSource(source: SourceConfig): Promise<CollectorScanResult> {
+  public async scanSource(source: SourceConfig, previous:Task[] = []): Promise<CollectorScanResult> {
     switch (source.id) {
       case 'dsh':
         return this.scanDsh(source)
@@ -27,6 +29,13 @@ export class SessionCollector {
         return this.scanCodex(source)
       case 'gemini':
         return this.scanGemini(source)
+      case 'zcode': {
+        const result=scanZcode(source.path)
+        if (result.error) return result
+        if (!this.summarize) return {...result,extractedTasks:[],error:'未连接会话概要模型，请检查 DSH 默认模型配置'}
+        const summarized=await summarizeSessions(result.extractedTasks,new Map(result.extractedTasks.map(task=>[task.id,zcodeTranscript(task)])),previous,this.summarize)
+        return {...result,extractedTasks:summarized.tasks,...(summarized.failures ? {error:`${summarized.failures} 条会话概要生成失败，原记录保留。${summarized.error || '模型未返回有效的一句话概要'}`} : {})}
+      }
       case 'zentao':
         return this.scanZentao(source)
       case 'manual':

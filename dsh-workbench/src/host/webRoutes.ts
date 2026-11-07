@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { WorkbenchStore } from './store.ts'
 import { ReportEngine } from './reportEngine.ts'
+import { reorganizeReport } from './reportSummary.ts'
+import type { SummaryGenerator } from './sessionSummary.ts'
 import { SessionCollector } from './collector.ts'
 import type { DailyReport, PeriodicReport, SourceConfig, Task, TaskSource } from '../shared/types.ts'
 
@@ -34,7 +36,7 @@ function parseBody<T = unknown>(req: IncomingMessage): Promise<T> {
   })
 }
 
-export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: SessionCollector) {
+export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: SessionCollector, generateReport?:SummaryGenerator) {
   return async function workbenchHttpHandler(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -59,13 +61,13 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
         const weekKey = snapshot.activePeriod?.currentWeekKey || '2026-W45'
         const monthKey = snapshot.activePeriod?.currentMonthKey || '2026-11'
 
-        if (!snapshot.dailyReports[today] || !snapshot.dailyReports[today].isEdited) {
+        if (!snapshot.dailyReports[today] || (!snapshot.dailyReports[today].isEdited && !snapshot.dailyReports[today].aiOrganized)) {
           snapshot.dailyReports[today] = ReportEngine.generateDailyReport(today, snapshot.tasks)
         }
-        if (!snapshot.weeklyReports[weekKey] || !snapshot.weeklyReports[weekKey].isEdited) {
+        if (!snapshot.weeklyReports[weekKey] || (!snapshot.weeklyReports[weekKey].isEdited && !snapshot.weeklyReports[weekKey].aiOrganized)) {
           snapshot.weeklyReports[weekKey] = ReportEngine.generateWeeklyReport(weekKey, snapshot.tasks, snapshot.dailyReports)
         }
-        if (!snapshot.monthlyReports[monthKey] || !snapshot.monthlyReports[monthKey].isEdited) {
+        if (!snapshot.monthlyReports[monthKey] || (!snapshot.monthlyReports[monthKey].isEdited && !snapshot.monthlyReports[monthKey].aiOrganized)) {
           snapshot.monthlyReports[monthKey] = ReportEngine.generateMonthlyReport(monthKey, snapshot.tasks, snapshot.dailyReports)
         }
         store.save()
@@ -160,24 +162,27 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
         const snapshot = store.getSnapshot()
         let newCount = 0
         let updatedCount = 0
+        const errors:string[]=[]
 
         for (const src of snapshot.sources) {
           if (!src.enabled) continue
           src.status = 'scanning'
           store.save()
 
-          const result = await collector.scanSource(src)
+          const result = await collector.scanSource(src, snapshot.tasks)
           src.status = result.error ? 'error' : 'available'
           src.sessionCount = result.sessionCount
           src.lastSyncAt = new Date().toISOString()
           src.error = result.error || null
+          if (result.error) errors.push(`${src.name}：${result.error}`)
 
           for (const item of result.extractedTasks) {
-            const exists = snapshot.tasks.find((t) => t.id === item.id || t.title === item.title)
+            const exists = snapshot.tasks.find((t) => t.id === item.id || (item.source !== 'zcode' && t.title === item.title))
             if (!exists) {
               store.saveTask(item)
               newCount++
             } else {
+              if (item.source === 'zcode') store.saveTask({...exists,...item})
               updatedCount++
             }
           }
@@ -186,11 +191,11 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
         snapshot.lastSyncTime = new Date().toISOString()
         store.save()
         sendJson(res, 200, {
-          success: true,
+          success: errors.length === 0,
           scannedSources: snapshot.sources.filter((s) => s.enabled).length,
           newTasks: newCount,
           updatedTasks: updatedCount,
-          message: `同步完成：扫描了 ${snapshot.sources.length} 个采集源，新增 ${newCount} 项，更新 ${updatedCount} 项。`,
+          message: `${errors.length ? '同步存在失败' : '同步完成'}：新增 ${newCount} 项，更新 ${updatedCount} 项。${errors.join('；')}`,
         })
         return
       }
@@ -201,8 +206,9 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
           const day = query.get('day') || new Date().toISOString().slice(0, 10)
           const snapshot = store.getSnapshot()
           let report = snapshot.dailyReports[day]
-          if (!report || !report.isEdited || query.get('regenerate') === 'true') {
+          if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateDailyReport(day, snapshot.tasks)
+            if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
             store.saveDailyReport(report)
           }
           sendJson(res, 200, report)
@@ -228,8 +234,9 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
           const weekKey = query.get('weekKey') || store.getSnapshot().activePeriod?.currentWeekKey || '2026-W45'
           const snapshot = store.getSnapshot()
           let report = snapshot.weeklyReports[weekKey]
-          if (!report || !report.isEdited || query.get('regenerate') === 'true') {
+          if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateWeeklyReport(weekKey, snapshot.tasks, snapshot.dailyReports)
+            if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
             store.savePeriodicReport(report)
           }
           sendJson(res, 200, report)
@@ -255,8 +262,9 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
           const monthKey = query.get('monthKey') || store.getSnapshot().activePeriod?.currentMonthKey || '2026-11'
           const snapshot = store.getSnapshot()
           let report = snapshot.monthlyReports[monthKey]
-          if (!report || !report.isEdited || query.get('regenerate') === 'true') {
+          if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateMonthlyReport(monthKey, snapshot.tasks, snapshot.dailyReports)
+            if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
             store.savePeriodicReport(report)
           }
           sendJson(res, 200, report)
