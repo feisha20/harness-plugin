@@ -22,6 +22,7 @@ import { isAntigravityInteractionCall } from '../../domain/policy/antigravity-qu
 import { toolContent } from './tool-content.ts'
 import { generatedContextBlock } from '../../runtime/text-block-boundary.ts'
 import { ToolExecutionScheduler } from './tool-execution-scheduler.ts'
+import { executeHostTool, hostToolExecutionMode } from './host-tool-execution.ts'
 import { waitWithin } from '../../runtime/process/timeout.ts'
 import {
   collectLiveDiagnostic,
@@ -987,13 +988,13 @@ export async function createDshToolBridge(
           }
           releaseExecution = await executionScheduler.acquire(
             () =>
-              tools.executionMode({
+              hostToolExecutionMode(tools, {
                 callId: hostCallId as never,
                 name: definition.name,
                 arguments: args,
                 agent,
                 signal: dispatchSignal,
-              }).kind,
+              }),
             dispatchSignal,
           )
           if (
@@ -1092,7 +1093,7 @@ export async function createDshToolBridge(
           let result: Awaited<ReturnType<typeof tools.execute>>
           try {
             result = await agents.withInitiator(agent, () =>
-              tools.execute({
+              executeHostTool(tools, {
                 callId: hostCallId as never,
                 name: definition.name,
                 arguments: args,

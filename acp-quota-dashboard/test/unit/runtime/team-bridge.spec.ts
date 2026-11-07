@@ -76,6 +76,27 @@ afterEach(async () => {
   )
 })
 
+it('通过新版批次接口执行 MCP 工具并保留宿主结果', async () => {
+  const fixture = await setup(undefined, ['skill'], false)
+  const execute = vi.fn(async (input) => ({
+    results: input.calls.map((call: { id: string; arguments: string }) => ({
+      callId: call.id,
+      result: { isError: false, value: JSON.parse(call.arguments), content: [{ type: 'text', text: '技能已读取' }] },
+    })),
+    additionalContexts: [],
+  }))
+  const service = fixture.services.tools as Record<string, unknown>
+  service.selectExecutor = () => ({})
+  service.execute = execute
+  delete service.executionMode
+  fixture.lease.beginPrompt(new AbortController().signal)
+  const response = await fixture.client.callTool({ name: 'skill', arguments: { name: '插件开发' } })
+  expect(response.isError).not.toBe(true)
+  expect(response.content).toContainEqual({ type: 'text', text: '技能已读取' })
+  expect(execute).toHaveBeenCalledTimes(1)
+  expect(execute.mock.calls[0]![0].calls[0]).toMatchObject({ name: 'skill', arguments: '{"name":"插件开发"}' })
+})
+
 it.each([undefined, 'devin'])(
   'leaves Team creation policy native and scopes shared-catalog discovery for %s',
   async (wireProfile) => {
