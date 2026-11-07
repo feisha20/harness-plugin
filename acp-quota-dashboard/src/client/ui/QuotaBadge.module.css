@@ -1,0 +1,134 @@
+.anchor {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--dsw-radius-lg, 8px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.trigger:focus-visible {
+  outline: 2px solid var(--dsw-focus-ring-color, currentColor);
+  outline-offset: 2px;
+}
+.gauge {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+.track {
+  opacity: 0.16;
+}
+.week {
+  opacity: 0.55;
+}
+.panel {
+  position: fixed;
+  z-index: 1100;
+  box-sizing: border-box;
+  width: 248px;
+  max-width: calc(100vw - 24px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xl, 16px);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-overlay);
+  box-shadow: 0 6px 24px #00000018;
+  font-size: 12px;
+  line-height: 1.4;
+  transform: translateY(-100%);
+}
+.header {
+  padding-bottom: 0;
+  margin-bottom: 8px;
+}
+.title {
+  font-size: 12px;
+  font-weight: 600;
+}
+.muted {
+  color: var(--dsw-alias-label-caption);
+  font-size: 11px;
+}
+.row {
+  margin: 8px 0;
+}
+.summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bar {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dsw-alias-label-secondary);
+}
+.reset {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--dsw-alias-label-caption);
+}
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+.refresh {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.error {
+  color: var(--dsw-alias-label-secondary);
+  margin: 10px 0;
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.account {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--dsw-alias-label-caption);
+}

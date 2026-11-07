@@ -1,0 +1,37 @@
+# macOS 与编辑器
+.DS_Store
+.idea/
+.vscode/
+
+# 各插件的依赖与构建产物
+**/node_modules/
+**/.pnpm-store/
+**/lib/
+**/dist/
+**/.typert/
+**/coverage/
+*.tgz
+
+# 本机配置、账号与运行证据
+.env
+.env.*
+!.env.example
+**/.runtime/
+**/.local/
+*.log
+
+# 本地工具缓存与增量编译
+.vite/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+
+# 测试生成的报告和录制
+playwright-report/
+**/playwright/.cache/
+**/playwright/.auth/
+test-results/
+
+# macOS 与编辑器临时文件
+.AppleDouble
+*.swp
