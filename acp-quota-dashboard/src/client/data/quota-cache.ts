@@ -34,5 +34,5 @@ export function quotaAgentId(
 ): string | undefined {
   if (provider === undefined || !provider.startsWith('acp-')) return undefined
   const id = provider.slice(4)
-  return agents[id]?.runtime === 'antigravity' ? id : undefined
+  return ['antigravity', 'codex'].includes(agents[id]?.runtime ?? '') ? id : undefined
 }

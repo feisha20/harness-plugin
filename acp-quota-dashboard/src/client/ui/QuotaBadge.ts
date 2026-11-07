@@ -119,9 +119,12 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
       document.removeEventListener('keydown', escape)
     }
   }, [open])
-  const buckets = quota?.buckets.filter((bucket) => bucket.id.startsWith('gemini-')) ?? []
-  const five = buckets.find((bucket) => bucket.id === 'gemini-5h')?.remainingPercent
-  const week = buckets.find((bucket) => bucket.id === 'gemini-weekly')?.remainingPercent
+  const buckets =
+    quota?.buckets.filter((bucket) => bucket.id.startsWith('gemini-') || bucket.id.startsWith('codex-')) ?? []
+  const five = buckets.find((bucket) => bucket.id === 'gemini-5h' || bucket.id === 'codex-primary')?.remainingPercent
+  const week = buckets.find(
+    (bucket) => bucket.id === 'gemini-weekly' || bucket.id === 'codex-secondary',
+  )?.remainingPercent
   const circle = (radius: number, value: number | null | undefined, className?: string): ReactNode =>
     h('circle', {
       cx: 12,
@@ -136,10 +139,14 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
       transform: 'rotate(-90 12 12)',
       className,
     })
+  const isCodex = agentId.toLowerCase().includes('codex')
+  const providerName = isCodex ? 'Codex' : agentId.toLowerCase().includes('antigravity') ? 'Antigravity' : '官方'
   const label =
     quota === null
-      ? '查看会员额度'
-      : `会员额度：五小时剩余 ${five?.toFixed(1) ?? '未知'}%，周额度剩余 ${week?.toFixed(1) ?? '未知'}%`
+      ? `查看${providerName}会员额度`
+      : isCodex
+        ? `会员额度：主要额度剩余 ${five?.toFixed(1) ?? '未知'}%，次要额度剩余 ${week?.toFixed(1) ?? '未知'}%`
+        : `会员额度：五小时剩余 ${five?.toFixed(1) ?? '未知'}%，周额度剩余 ${week?.toFixed(1) ?? '未知'}%`
   return h(
     'span',
     { ref: anchor, className: css.anchor, onMouseEnter: keepOpen, onMouseLeave: closeSoon },
@@ -217,7 +224,7 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                 'div',
                 { className: css.heading },
                 h('span', { className: css.title }, '会员额度'),
-                h('span', { className: css.muted }, quota?.plan ?? 'Antigravity'),
+                h('span', { className: css.muted }, quota?.plan ?? providerName),
               ),
               h(
                 'div',
@@ -225,7 +232,15 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                 quota?.account ?? (busy ? '正在读取账号…' : '账号信息未提供'),
               ),
             ),
-            error ? h('p', { role: 'alert', className: css.error }, '暂时无法刷新，以下为上次读取结果。') : null,
+            error
+              ? h(
+                  'p',
+                  { role: 'alert', className: css.error },
+                  quota === null
+                    ? `额度读取失败，请确认 ${providerName} 官方 CLI 已登录。`
+                    : '暂时无法刷新，以下为上次读取结果。',
+                )
+              : null,
             quota === null
               ? h('p', { className: css.muted }, busy ? '正在读取官方额度…' : '暂无额度数据，请点击刷新')
               : buckets.map((bucket) =>
@@ -238,7 +253,12 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                       h(
                         'span',
                         null,
-                        bucket.id === 'gemini-5h' ? '五小时额度' : bucket.id === 'gemini-weekly' ? '周额度' : bucket.id,
+                        bucket.label ??
+                          (bucket.id === 'gemini-5h'
+                            ? '五小时额度'
+                            : bucket.id === 'gemini-weekly'
+                              ? '周额度'
+                              : bucket.id),
                       ),
                       h(
                         'span',
@@ -281,7 +301,7 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                 'span',
                 { className: css.muted },
                 quota === null
-                  ? '官方 CLI 状态行'
+                  ? `${providerName} 官方 CLI 额度查询`
                   : `读取于 ${new Date(quota.fetchedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
               ),
               h(

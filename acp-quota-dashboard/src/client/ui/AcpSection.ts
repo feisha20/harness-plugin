@@ -680,7 +680,7 @@ function AgentCard(props: {
       ),
     )
   }
-  if (config.runtime === 'antigravity' && panel.readQuota !== undefined) {
+  if (['antigravity', 'codex'].includes(config.runtime ?? '') && panel.readQuota !== undefined) {
     children.push(h(QuotaCard, { key: 'quota', read: () => panel.readQuota!(id) }))
   }
 

@@ -9,11 +9,11 @@ const value: QuotaView = {
   source: 'official-cli-statusline',
 }
 describe('额度仪表缓存与路由', () => {
-  it('只为实际配置为 Antigravity 的模型显示额度', () => {
+  it('为 Antigravity 和 Codex 显示额度', () => {
     const agents = { google: { runtime: 'antigravity' }, codex: { runtime: 'codex' } }
     expect(quotaAgentId('acp-google', agents)).toBe('google')
-    for (const id of ['deepseek', 'acp-codex', 'acp-missing', undefined])
-      expect(quotaAgentId(id, agents)).toBeUndefined()
+    expect(quotaAgentId('acp-codex', agents)).toBe('codex')
+    for (const id of ['deepseek', 'acp-missing', undefined]) expect(quotaAgentId(id, agents)).toBeUndefined()
   })
   it('合并并发请求，悬停复用缓存，手动刷新有冷却时间', async () => {
     let now = 0

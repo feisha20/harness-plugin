@@ -30,8 +30,7 @@ export function QuotaCard({ read }: { read(): Promise<QuotaView> }): ReactNode {
       const result = await read()
       if (generation.current === current) setValue(result)
     } catch {
-      if (generation.current === current)
-        setError('额度读取失败。请确认 agy 已登录、网络可用且已安装 Python3，稍后重试。')
+      if (generation.current === current) setError('额度读取失败。请确认对应官方 CLI 已登录且网络可用，稍后重试。')
     } finally {
       if (generation.current === current) setBusy(false)
     }
@@ -40,7 +39,7 @@ export function QuotaCard({ read }: { read(): Promise<QuotaView> }): ReactNode {
     'section',
     { 'aria-label': '会员额度' },
     h('h3', null, '会员额度'),
-    h('p', { className: css.hint }, '通过官方 CLI 状态行读取；不会发送模型请求。额度属于当前 CLI 登录账号。'),
+    h('p', { className: css.hint }, '通过官方 CLI读取；不会发送模型请求。额度属于当前 CLI 登录账号。'),
     h(
       Button,
       {
@@ -68,7 +67,7 @@ export function QuotaCard({ read }: { read(): Promise<QuotaView> }): ReactNode {
               h(
                 'p',
                 null,
-                NAMES[bucket.id] ?? bucket.id,
+                bucket.label ?? NAMES[bucket.id] ?? bucket.id,
                 '：',
                 bucket.disabled
                   ? '不可用'
@@ -83,7 +82,7 @@ export function QuotaCard({ read }: { read(): Promise<QuotaView> }): ReactNode {
                 : h('progress', {
                     max: 100,
                     value: bucket.remainingPercent,
-                    'aria-label': NAMES[bucket.id] ?? bucket.id,
+                    'aria-label': bucket.label ?? NAMES[bucket.id] ?? bucket.id,
                   }),
               h(
                 'p',
@@ -93,11 +92,7 @@ export function QuotaCard({ read }: { read(): Promise<QuotaView> }): ReactNode {
               ),
             ),
           ),
-          h(
-            'p',
-            { className: css.hint },
-            `读取时间：${new Date(value.fetchedAt).toLocaleString('zh-CN')} · 官方 CLI 状态行`,
-          ),
+          h('p', { className: css.hint }, `读取时间：${new Date(value.fetchedAt).toLocaleString('zh-CN')} · 官方 CLI`),
           h('p', { className: css.hint }, '第三方模型额度仅作账号信息展示，不代表此 ACP 客户端可调用这些模型。'),
         ),
   )

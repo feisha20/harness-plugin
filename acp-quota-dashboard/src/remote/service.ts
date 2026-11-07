@@ -38,6 +38,7 @@
 /// <reference types="node" />
 
 import os from 'node:os'
+import { readCodexQuota } from '../runtime/codex-quota.ts'
 import { readOfficialQuota } from '../runtime/quota.ts'
 import type { QuotaView } from '../contract/quota.ts'
 import { narrowSubprocessSeam } from '../runtime/process/subprocess.ts'
@@ -522,26 +523,30 @@ interface ResolvedDeps {
  * 不再经过 HTTP req/res 假件。
  */
 export class AcpRemoteService extends TypertRemoteService {
-  private readonly quotaState: { pending: Promise<QuotaView> | undefined; lastStarted: number } = {
-    pending: undefined,
-    lastStarted: 0,
-  }
+  private readonly quotaStates = new Map<string, { pending?: Promise<QuotaView>; lastStarted: number }>()
 
   /** 额度查询只允许本机界面，避免远程读取用户级订阅信息。 */
   @Remote
   async quota(agentId: string): Promise<QuotaView> {
     if (principalOf(this.ctx.invocation) !== undefined) throw badRequest('额度查询仅允许设备所有者')
     const config = this.resolved.registry.agents().get(agentId)
-    if (config?.runtime !== 'antigravity') throw badRequest('仅支持 Antigravity 额度查询')
+    if (!config || !['antigravity', 'codex'].includes(config.runtime ?? ''))
+      throw badRequest('仅支持 Antigravity 和 Codex 额度查询')
+    const quotaState = this.quotaStates.get(agentId) ?? { lastStarted: 0 }
+    this.quotaStates.set(agentId, quotaState)
     const seam = narrowSubprocessSeam(this.ctx.get('subprocess'))
     if (seam === undefined) throw badRequest('宿主未提供子进程服务')
-    if (this.quotaState.pending !== undefined) return this.quotaState.pending
-    if (Date.now() - this.quotaState.lastStarted < 15_000) throw badRequest('请稍后再刷新额度')
-    this.quotaState.lastStarted = Date.now()
-    this.quotaState.pending = readOfficialQuota(seam, config.command, { ...config.env }).finally(() => {
-      this.quotaState.pending = undefined
+    if (quotaState.pending !== undefined) return quotaState.pending
+    if (Date.now() - quotaState.lastStarted < 15_000) throw badRequest('请稍后再刷新额度')
+    quotaState.lastStarted = Date.now()
+    quotaState.pending = (
+      config.runtime === 'codex'
+        ? readCodexQuota(seam, { ...config.env }, config.command, config.args)
+        : readOfficialQuota(seam, config.command, { ...config.env })
+    ).finally(() => {
+      delete quotaState.pending
     })
-    return this.quotaState.pending
+    return quotaState.pending
   }
 
   private readonly resolved: ResolvedDeps
