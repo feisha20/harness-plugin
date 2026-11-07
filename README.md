@@ -7,6 +7,7 @@
 | 插件 | 目录 | 功能 |
 | --- | --- | --- |
 | ACP 会员额度仪表盘 | [acp-quota-dashboard](acp-quota-dashboard/) | 在模型旁显示 Google AI Pro 额度、重置时间和所属账号；保留 ACP Agent 适配能力 |
+| 个人工作台 | [dsh-workbench](dsh-workbench/) | 在左侧主菜单提供工作台入口，支持多通道会话采集、事项待办、日报、周报与月报自动生成 |
 
 ## 开发约定
 

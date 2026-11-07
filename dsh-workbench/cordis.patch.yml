@@ -1,0 +1,5 @@
+# @mywork/dsh-workbench patch layer for DeepSeek Harness profile
+- insert:
+    - id: dsh-workbench
+      name: '@mywork/dsh-workbench'
+      config: {}
