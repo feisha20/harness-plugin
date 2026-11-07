@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { DailyReport, PeriodicReport, Task } from '../shared/types.ts'
+import { copyReport } from '../shared/reportClipboard.ts'
 import { ReportEngine } from '../shared/reportEngine.ts'
 import { MarkdownRenderer } from './MarkdownRenderer.tsx'
 import {
@@ -117,7 +118,7 @@ export function PeriodicReportView({
       : ReportEngine.generateMonthlyReport(selectedMonth, tasks, dailyReports)
 
   const currentMarkdown = report?.isEdited ? (report.markdown || '') : synthesizedReport.markdown
-  const effectiveStats = report?.stats || synthesizedReport.stats
+  const effectiveStats = report?.isEdited ? report.stats : synthesizedReport.stats
 
   const handleRegenerate = async () => {
     setLoading(true)
@@ -158,10 +159,15 @@ export function PeriodicReportView({
     setIsEditing(false)
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(currentMarkdown)
-    setCopySuccess(true)
-    setTimeout(() => setCopySuccess(false), 2000)
+  const handleCopy = async () => {
+    setCopySuccess(false)
+    try {
+      await copyReport(currentMarkdown)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    } catch {
+      setLoadError('复制失败，请检查剪贴板权限后重试。')
+    }
   }
 
   // Quick period buttons
@@ -410,10 +416,10 @@ export function PeriodicReportView({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
               <IconTarget size={14} color="#10b981" />
-              <span>周期完成事项</span>
+              <span>周期工作记录</span>
             </div>
             <div style={{ fontSize: '24px', fontWeight: 700, color: '#10b981' }}>
-              {effectiveStats.completedTasks} <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}>项</span>
+              {effectiveStats.totalTasks} <span style={{ fontSize: '13px', fontWeight: 400, color: '#64748b' }}>项</span>
             </div>
           </div>
 
@@ -478,7 +484,7 @@ export function PeriodicReportView({
               <IconSync size={18} color="#2563eb" spinning />
               <span>正在汇总计算报告...</span>
             </div>
-            <div style={{ fontSize: '12px', color: '#94a3b8' }}>正在统计周期内待办与会话进展并生成周期总结</div>
+            <div style={{ fontSize: '12px', color: '#94a3b8' }}>正在整理周期内工作记录</div>
           </div>
         ) : loadError ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#ef4444' }}>

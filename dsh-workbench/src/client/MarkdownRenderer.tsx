@@ -282,15 +282,6 @@ export function MarkdownRenderer({ content, style }: MarkdownRendererProps) {
             gap: '6px',
           }}
         >
-          <span
-            style={{
-              width: '3px',
-              height: '14px',
-              borderRadius: '2px',
-              backgroundColor: '#3b82f6',
-              display: 'inline-block',
-            }}
-          />
           {title}
         </div>,
       )
@@ -435,7 +426,7 @@ export function MarkdownRenderer({ content, style }: MarkdownRendererProps) {
               display: 'inline-block',
             }}
           />
-          <span>{trimmed}</span>
+          <span>{trimmed.slice(1, -1)}</span>
         </div>,
       )
       continue

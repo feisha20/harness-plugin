@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { DailyReport, Task } from '../shared/types.ts'
+import { copyReport } from '../shared/reportClipboard.ts'
 import { ReportEngine } from '../shared/reportEngine.ts'
 import { MarkdownRenderer } from './MarkdownRenderer.tsx'
 import {
@@ -122,10 +123,15 @@ export function DailyReportView({
     setIsEditing(false)
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(currentMarkdown)
-    setCopySuccess(true)
-    setTimeout(() => setCopySuccess(false), 2000)
+  const handleCopy = async () => {
+    setCopySuccess(false)
+    try {
+      await copyReport(currentMarkdown)
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    } catch {
+      setLoadError('复制失败，请检查剪贴板权限后重试。')
+    }
   }
 
   // Quick workday dates

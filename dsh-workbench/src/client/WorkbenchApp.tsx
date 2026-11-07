@@ -105,6 +105,7 @@ export function WorkbenchApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(task),
       })
+      if (!res.ok) throw new Error('保存工作记录失败')
       if (res.ok) {
         const created = (await res.json()) as Task
         setSnapshot((prev) => {
@@ -114,10 +115,11 @@ export function WorkbenchApp() {
             tasks: [created, ...prev.tasks],
           }
         })
-        showToast('已创建新事项')
+        showToast('已添加工作记录')
       }
     } catch (err) {
-      console.error('Failed to create task:', err)
+      console.error('保存工作记录失败:', err)
+      throw err
     }
   }, [showToast])
 
@@ -296,7 +298,7 @@ export function WorkbenchApp() {
                 工作日志
               </div>
               <div style={{ fontSize: '11px', color: 'var(--dsh-color-text-muted, #94a3b8)' }}>
-                多通道任务归集与自动汇总
+                日常工作记录与报告整理
               </div>
             </div>
           </div>
@@ -332,7 +334,7 @@ export function WorkbenchApp() {
               }}
             >
               <IconTasks size={15} color={activeTab === 'tasks' ? '#2563eb' : '#64748b'} />
-              <span>待办事项</span>
+              <span>工作事项</span>
               <span
                 style={{
                   fontSize: '11px',

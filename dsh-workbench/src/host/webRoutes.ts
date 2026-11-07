@@ -83,14 +83,19 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
 
         if (req.method === 'POST') {
           const body = await parseBody<Partial<Task>>(req)
+          if (!body.title?.trim() || (body.recordDate && (!/^\d{4}-\d{2}-\d{2}$/.test(body.recordDate) || new Date(body.recordDate).toISOString().slice(0, 10) !== body.recordDate))) {
+            sendJson(res, 400, { error: '请输入工作内容和有效日期' })
+            return
+          }
           const newTask: Task = {
             id: body.id || `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            title: body.title || '新待办事项',
-            status: body.status || 'pending',
-            priority: body.priority || 'medium',
+            title: body.title || '工作记录',
+            recordDate: body.recordDate || store.getSnapshot().activePeriod?.today,
+            status: body.status,
+            priority: body.priority,
             source: body.source || 'manual',
             projectPath: body.projectPath,
-            isPinned: !!body.isPinned,
+            isPinned: body.isPinned,
             createdAt: body.createdAt || new Date().toISOString(),
             deadline: body.deadline,
           }

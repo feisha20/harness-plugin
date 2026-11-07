@@ -14,11 +14,12 @@ export interface Evidence {
 export interface Task {
   id: string
   title: string
-  status: TaskStatus
-  priority: TaskPriority
+  recordDate?: string // 工作归属日期，与状态无关
+  status?: TaskStatus
+  priority?: TaskPriority
   source: TaskSource
   projectPath?: string
-  isPinned: boolean
+  isPinned?: boolean
   createdAt: string
   completedAt?: string | null
   deadline?: string | null
