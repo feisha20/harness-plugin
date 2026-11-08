@@ -3,6 +3,8 @@ import type { DailyReport, Task } from '../shared/types.ts'
 import { copyReport } from '../shared/reportClipboard.ts'
 import { ReportEngine } from '../shared/reportEngine.ts'
 import { MarkdownRenderer } from './MarkdownRenderer.tsx'
+import { ReportOrganizingReveal, useReportOrganizingMotion } from './ReportOrganizingMotion.tsx'
+import { ReportIntake } from './ReportIntake.tsx'
 import {
   IconRefresh,
   IconEdit,
@@ -37,6 +39,8 @@ export function DailyReportView({
   )
   const [copySuccess, setCopySuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const { phase, organize, snapshot, viewportRef } = useReportOrganizingMotion()
+  const busy = loading || phase !== null
   const [loadError, setLoadError] = useState<string | null>(null)
 
   // 1. Sync report if dailyReports changes externally (e.g. initial snapshot arrives or background sync)
@@ -94,17 +98,17 @@ export function DailyReportView({
 
   const handleRegenerate = async () => {
     if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
-    setLoading(true)
     setLoadError(null)
     try {
-      const res = await onFetchDailyReport(selectedDay, true)
-      setReport(res)
-      setEditedMarkdown(res.summaryMarkdown)
+      await organize(async () => {
+        const res = await onFetchDailyReport(selectedDay, true)
+        setReport(res)
+        setEditedMarkdown(res.summaryMarkdown)
+        setIsEditing(false)
+      })
     } catch (err: unknown) {
       console.error('Failed to regenerate daily report:', err)
       setLoadError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -173,6 +177,7 @@ export function DailyReportView({
           {quickDays.map((q) => (
             <button
               key={q.key}
+              disabled={busy}
               onClick={() => setSelectedDay(q.key)}
               style={{
                 padding: '4px 10px',
@@ -191,6 +196,7 @@ export function DailyReportView({
           ))}
           <input
             type="date"
+            disabled={busy}
             value={selectedDay}
             onChange={(e) => setSelectedDay(e.target.value)}
             style={{
@@ -222,7 +228,7 @@ export function DailyReportView({
           )}
           <button
             onClick={handleRegenerate}
-            disabled={loading}
+            disabled={busy}
             style={{
               padding: '6px 12px',
               borderRadius: '6px',
@@ -231,7 +237,7 @@ export function DailyReportView({
               color: 'var(--dsh-color-text-primary, #0f172a)',
               fontSize: '12px',
               fontWeight: 500,
-              cursor: loading ? 'not-allowed' : 'pointer',
+              cursor: busy ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
@@ -239,10 +245,11 @@ export function DailyReportView({
             }}
           >
             <IconRefresh size={14} color="#64748b" />
-            <span>AI 重新整理</span>
+            <span>{phase === 'intake' ? '正在整理…' : 'AI 重新整理'}</span>
           </button>
 
           <button
+            disabled={busy}
             onClick={() => (isEditing ? setIsEditing(false) : handleStartEdit())}
             style={{
               padding: '6px 12px',
@@ -266,6 +273,7 @@ export function DailyReportView({
 
           {isEditing && (
             <button
+              disabled={busy}
               onClick={handleSave}
               style={{
                 padding: '6px 14px',
@@ -288,6 +296,7 @@ export function DailyReportView({
           )}
 
           <button
+            disabled={busy}
             onClick={handleCopy}
             style={{
               padding: '6px 14px',
@@ -314,6 +323,8 @@ export function DailyReportView({
       {loadError && currentMarkdown && <div role="alert" style={{padding:'10px 14px',fontSize:12,color:'var(--dsh-color-text-primary,#242424)',border:'1px solid var(--dsh-color-border-subtle,#ddd)',borderRadius:6,overflowWrap:'anywhere'}}>AI 整理失败，已保留原报告：{loadError}</div>}
       {/* Main Content Area */}
       <div
+        ref={viewportRef}
+        data-wr-report-viewport=""
         style={{
           flex: 1,
           overflowY: 'auto',
@@ -325,13 +336,14 @@ export function DailyReportView({
           padding: '20px',
         }}
       >
-        {loading ? (
+        {phase === 'intake' ? (
+          <ReportIntake snapshot={snapshot} />
+        ) : loading ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#64748b' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '15px', marginBottom: '8px' }}>
               <IconSync size={18} color="var(--dsh-color-text-primary, #242424)" spinning />
-              <span>正在生成汇总...</span>
+              <span>正在加载日报…</span>
             </div>
-            <div style={{ fontSize: '12px', color: '#94a3b8' }}>正在聚合各渠道会话并生成标准工作日报</div>
           </div>
         ) : loadError && !currentMarkdown ? (
           <div style={{ textAlign: 'center', padding: '48px', color: '#ef4444' }}>
@@ -341,8 +353,8 @@ export function DailyReportView({
             </div>
             <div>
               <button
-                disabled={loading}
-            onClick={handleRegenerate}
+                disabled={busy}
+                onClick={handleRegenerate}
                 style={{
                   padding: '6px 14px',
                   borderRadius: '6px',
@@ -391,7 +403,9 @@ export function DailyReportView({
             }}
           >
             {currentMarkdown ? (
-              <MarkdownRenderer content={currentMarkdown} reportTitle={`工作日报（${selectedDay}）`} report={currentReport} />
+              <ReportOrganizingReveal active={phase === 'reveal'}>
+                <MarkdownRenderer content={currentMarkdown} reportTitle={`工作日报（${selectedDay}）`} report={currentReport} />
+              </ReportOrganizingReveal>
             ) : (
               <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>
                 暂无日报内容，点击右上角“AI 重新整理”

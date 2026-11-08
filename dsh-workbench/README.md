@@ -71,7 +71,7 @@ DeepSeek Harness 宿主
 
 主模型调用失败、返回空白或未通过输出检查时尝试备用模型。两者都失败时保留原报告或原有概要，并显示调用错误。
 
-新整理的日报、周报和月报会在标题右侧显示实际使用的模型，切换时标明「备用模型」。历史报告缺少模型记录时显示「整理模型未记录」。
+新整理的日报、周报和月报会在标题右侧显示实际使用的模型，切换时标明「备用模型」。历史报告缺少模型记录时显示「整理模型未记录」。 点击「AI 重新整理」时，工作项依次沿金色旋涡弯曲卷入中央，模型返回后按新顺序展开。开启系统的减弱动态效果设置时仅显示整理状态。
 
 ## 🛠️ 构建与打包
 
@@ -90,7 +90,7 @@ npm run build:client
 npm run pack
 ```
 
-打包产物位于 `dist/mywork-dsh-workbench-0.1.27.tgz`。
+打包产物位于 `dist/mywork-dsh-workbench-0.1.30.tgz`。
 
 ---
 
@@ -99,10 +99,10 @@ npm run pack
 ### 方式一：通过 Harness 界面安装（推荐）
 1. 打开 DeepSeek Harness 桌面端 / Web 端。
 2. 点击左侧主菜单的 **插件**（Plugins）图标。
-3. 选择 **从本地文件安装**（Install from file...），选中 `dist/mywork-dsh-workbench-0.1.27.tgz`。
+3. 选择 **从本地文件安装**（Install from file...），选中 `dist/mywork-dsh-workbench-0.1.30.tgz`。
 4. 重启或刷新页面，左侧主菜单将出现 **工作日志** 入口。
 
 ### 方式二：通过 DSH 命令行添加
 ```bash
-dsh plugin add ./dist/mywork-dsh-workbench-0.1.27.tgz
+dsh plugin add ./dist/mywork-dsh-workbench-0.1.30.tgz
 ```

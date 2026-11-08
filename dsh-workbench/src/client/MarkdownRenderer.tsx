@@ -169,6 +169,7 @@ export function MarkdownRenderer({ content, reportTitle, report, style }: Markdo
         {currentList.items.map((item, idx) => (
           <div
             key={idx}
+            data-wr-report-row=""
             style={{
               display: 'flex',
               alignItems: 'flex-start',
