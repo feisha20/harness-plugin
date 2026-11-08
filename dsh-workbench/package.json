@@ -1,6 +1,6 @@
 {
   "name": "@mywork/dsh-workbench",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "DeepSeek Harness 个人工作台插件：采集源、待办、日报、周报与月报",
   "keywords": [
     "dsh",
@@ -16,6 +16,7 @@
   "type": "module",
   "files": [
     "lib",
+    "locale",
     "cordis.patch.yml",
     "README.md"
   ],
@@ -30,6 +31,7 @@
       "types": "./lib/client/index.d.ts",
       "default": "./lib/client.js"
     },
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
