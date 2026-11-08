@@ -1,8 +1,9 @@
 import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { QuotaView } from '../../contract/quota.ts'
+import type { AcpTranslate } from './AcpSection.ts'
 import css from './QuotaBadge.module.css'
 
 interface QuotaBadgeWire {
@@ -16,7 +17,9 @@ interface QuotaBadgeWire {
 export function QuotaBadge({
   useProjection,
   wire,
-}: PropsRuntime<'conversation.input.right'> & { wire: QuotaBadgeWire }): ReactNode {
+  t,
+}: PropsRuntime<'conversation.input.right'> &
+  PropsLocale<'acpActivity'> & { wire: QuotaBadgeWire }): ReactNode {
   const selection = useProjection('modelSelection')
   const [defaultProvider, setDefault] = useState<string | undefined>()
   const [, setRevision] = useState(0)
@@ -35,10 +38,19 @@ export function QuotaBadge({
   }, [wire])
   const current = selection?.next ?? selection?.lastUsed
   const agentId = wire.resolveAgent(current?.provider ?? defaultProvider)
-  return agentId === undefined ? null : h(LoadedBadge, { key: agentId, agentId, wire })
+  if (agentId === undefined || t === undefined) return null
+  return h(LoadedBadge, { key: agentId, agentId, wire, t: t as AcpTranslate })
 }
 
-function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire }): ReactNode {
+function LoadedBadge({
+  agentId,
+  wire,
+  t,
+}: {
+  agentId: string
+  wire: QuotaBadgeWire
+  t: AcpTranslate
+}): ReactNode {
   const [quota, setQuota] = useState<QuotaView | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
@@ -140,13 +152,23 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
       className,
     })
   const isCodex = agentId.toLowerCase().includes('codex')
-  const providerName = isCodex ? 'Codex' : agentId.toLowerCase().includes('antigravity') ? 'Antigravity' : '官方'
+  const providerName = isCodex
+    ? t('quotaProviderCodex')
+    : agentId.toLowerCase().includes('antigravity')
+      ? t('quotaProviderAntigravity')
+      : t('quotaProviderOfficial')
   const label =
     quota === null
-      ? `查看${providerName}会员额度`
+      ? t('quotaBadgeAriaView', { provider: providerName })
       : isCodex
-        ? `会员额度：主要额度剩余 ${five?.toFixed(1) ?? '未知'}%，次要额度剩余 ${week?.toFixed(1) ?? '未知'}%`
-        : `会员额度：五小时剩余 ${five?.toFixed(1) ?? '未知'}%，周额度剩余 ${week?.toFixed(1) ?? '未知'}%`
+        ? t('quotaBadgeAriaCodex', {
+            primary: five !== null && five !== undefined ? five.toFixed(1) : t('quotaUnknown'),
+            secondary: week !== null && week !== undefined ? week.toFixed(1) : t('quotaUnknown'),
+          })
+        : t('quotaBadgeAriaGemini', {
+            five: five !== null && five !== undefined ? five.toFixed(1) : t('quotaUnknown'),
+            week: week !== null && week !== undefined ? week.toFixed(1) : t('quotaUnknown'),
+          })
   return h(
     'span',
     { ref: anchor, className: css.anchor, onMouseEnter: keepOpen, onMouseLeave: closeSoon },
@@ -203,7 +225,7 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
               ref: panel,
               id,
               role: 'dialog',
-              'aria-label': '会员额度详情',
+              'aria-label': t('quotaBadgeDetailTitle'),
               className: css.panel,
               style: { left: position.left, top: position.top, maxHeight: position.maxHeight },
               onMouseEnter: keepOpen,
@@ -223,13 +245,13 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
               h(
                 'div',
                 { className: css.heading },
-                h('span', { className: css.title }, '会员额度'),
+                h('span', { className: css.title }, t('quotaTitle')),
                 h('span', { className: css.muted }, quota?.plan ?? providerName),
               ),
               h(
                 'div',
                 { className: css.account, title: quota?.account ?? undefined },
-                quota?.account ?? (busy ? '正在读取账号…' : '账号信息未提供'),
+                quota?.account ?? (busy ? t('quotaBadgeReadingAccount') : t('quotaBadgeNoAccount')),
               ),
             ),
             error
@@ -237,12 +259,12 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                   'p',
                   { role: 'alert', className: css.error },
                   quota === null
-                    ? `额度读取失败，请确认 ${providerName} 官方 CLI 已登录。`
-                    : '暂时无法刷新，以下为上次读取结果。',
+                    ? t('quotaBadgeLoginRequired', { provider: providerName })
+                    : t('quotaBadgeStaleResult'),
                 )
               : null,
             quota === null
-              ? h('p', { className: css.muted }, busy ? '正在读取官方额度…' : '暂无额度数据，请点击刷新')
+              ? h('p', { className: css.muted }, busy ? t('quotaBadgeReading') : t('quotaBadgeEmpty'))
               : buckets.map((bucket) =>
                   h(
                     'div',
@@ -255,19 +277,19 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                         null,
                         bucket.label ??
                           (bucket.id === 'gemini-5h'
-                            ? '五小时额度'
+                            ? t('quotaBadge5h')
                             : bucket.id === 'gemini-weekly'
-                              ? '周额度'
+                              ? t('quotaBadgeWeekly')
                               : bucket.id),
                       ),
                       h(
                         'span',
                         { className: css.value },
                         bucket.disabled
-                          ? '不可用'
+                          ? t('quotaDisabled')
                           : bucket.remainingPercent === null
-                            ? '未知'
-                            : `剩余 ${bucket.remainingPercent.toFixed(2)}%`,
+                            ? t('quotaUnknown')
+                            : t('quotaRemainingPercent', { percent: bucket.remainingPercent.toFixed(2) }),
                       ),
                     ),
                     h(
@@ -281,16 +303,18 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                     h(
                       'div',
                       { className: css.reset },
-                      '重置：',
-                      bucket.resetTime === null
-                        ? '未知'
-                        : new Date(bucket.resetTime).toLocaleString('zh-CN', {
-                            month: 'numeric',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false,
-                          }),
+                      t('quotaBadgeResetPrefix', {
+                        time:
+                          bucket.resetTime === null
+                            ? t('quotaUnknown')
+                            : new Date(bucket.resetTime).toLocaleString('zh-CN', {
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false,
+                              }),
+                      }),
                     ),
                   ),
                 ),
@@ -301,8 +325,14 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                 'span',
                 { className: css.muted },
                 quota === null
-                  ? `${providerName} 官方 CLI 额度查询`
-                  : `读取于 ${new Date(quota.fetchedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
+                  ? t('quotaBadgeOfficialCliQuery', { provider: providerName })
+                  : t('quotaBadgeReadAt', {
+                      time: new Date(quota.fetchedAt).toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                      }),
+                    }),
               ),
               h(
                 'button',
@@ -314,7 +344,7 @@ function LoadedBadge({ agentId, wire }: { agentId: string; wire: QuotaBadgeWire 
                     void refresh(true)
                   },
                 },
-                busy ? '刷新中…' : '刷新额度',
+                t(busy ? 'quotaRefreshing' : 'quotaRefresh'),
               ),
             ),
           ),

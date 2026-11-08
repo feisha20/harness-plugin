@@ -154,7 +154,13 @@ async function registerUi(ctx: ClientContext): Promise<void> {
   }
   ctx.slots.inject('conversation.input.right', () =>
     ctx.slots.register(
-      { name: 'conversation.input.right', id: 'dsh-acp-quota-badge', order: 90, inject: () => ({ wire: quotaWire }) },
+      {
+        name: 'conversation.input.right',
+        id: 'dsh-acp-quota-badge',
+        order: 90,
+        locale: 'acpActivity',
+        inject: () => ({ wire: quotaWire }),
+      },
       QuotaBadge,
     ),
   )
