@@ -7,7 +7,8 @@
 ## 🌟 核心功能
 
 ### 1. 🔌 多通道会话采集源 (Data Sources)
-- **DeepSeek Harness 本机会话**：自动扫描本端会话历史与转录日志（`brain/*/transcript.jsonl`），提取会话关键目标与完成动作。
+- **DeepSeek Harness 本机会话**：只读扫描 `~/.dsh/sessions` 下的 `session.v4.jsonl.zstd` 和旧版 `session.jsonl.zstd`，支持自定义会话目录。排除空会话、子代理、种子会话及环境/技能注入，仅统计有效用户会话；按会话与北京时间日期生成一句话中文概要，保留真实项目、时间和原话证据，不自动标记工作完成。正文未变时复用概要，模型失败保留已有记录并显示错误。旧版误指向 Antigravity brain 的默认路径会自动迁移，并移除两条内置 DSH 演示事项。
+  - Harness 会话解压依赖 `zstd` 命令（macOS 可运行 `brew install zstd`）。自动查找 PATH 与 Homebrew 默认位置，完整读取多帧追加日志；缺少工具或日志损坏时明确报错。
 - **Claude Code 会话**：监听并解析本机 Claude Code 日志（`~/.claude`）。
 - **Codex 桌面端 / CLI 会话**：只读扫描 Codex 用户目录下的 `sessions` 和 `archived_sessions` 中的 JSONL 日志；默认 `~/.codex`，支持 `CODEX_HOME` 或采集源自定义路径。排除子代理及环境注入消息，按会话和北京时间日期合并，复用模型生成一句话概要，保留真实项目、时间和原话证据。首次同步会整理历史会话，后续正文未变化时复用概要缓存；模型不可用时明确报错并保留原记录。
 - **Gemini CLI 会话**：接入 Gemini CLI 历史会话快照（`~/.gemini`）。

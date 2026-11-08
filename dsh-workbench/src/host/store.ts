@@ -58,9 +58,9 @@ export class WorkbenchStore {
         id: 'dsh',
         name: 'DeepSeek Harness 会话',
         enabled: true,
-        status: 'available',
-        path: path.join(home, '.gemini/antigravity-cli/brain'),
-        sessionCount: 12,
+        status: fs.existsSync(path.join(home, '.dsh/sessions')) ? 'available' : 'unavailable',
+        path: path.join(home, '.dsh/sessions'),
+        sessionCount: 0,
         lastSyncAt: null,
       },
       {
@@ -132,27 +132,6 @@ export class WorkbenchStore {
 
     const initialTasks: Task[] = [
       {
-        id: 'task-dsh-workbench-init',
-        title: '开发 DeepSeek Harness 工作台插件并接入左侧导航',
-        status: 'in_progress',
-        priority: 'high',
-        source: 'dsh',
-        projectPath: '/Users/linjt/Documents/projects/harness-plugin',
-        isPinned: true,
-        createdAt: `${today}T09:30:00+08:00`,
-        deadline: today,
-        evidence: [
-          {
-            id: 'ev-1',
-            sessionId: 'dsh-session-init',
-            source: 'dsh',
-            projectPath: '/Users/linjt/Documents/projects/harness-plugin',
-            timestamp: `${today}T09:35:00+08:00`,
-            quote: '方案b，完全重新开发：实现采集源、待办、日报、周报、月报',
-          },
-        ],
-      },
-      {
         id: 'task-mywork-home-audit',
         title: '调研 mywork-home 架构与采集源规范（Claude/Codex/Zcode/禅道）',
         status: 'completed',
@@ -163,17 +142,6 @@ export class WorkbenchStore {
         createdAt: `${today}T08:00:00+08:00`,
         completedAt: `${today}T11:20:00+08:00`,
         deadline: today,
-      },
-      {
-        id: 'task-dsh-sidebar-slot',
-        title: '分析 DSH sidebar.panellist 与 main 插槽注册机制',
-        status: 'completed',
-        priority: 'medium',
-        source: 'dsh',
-        projectPath: '/Applications/DeepSeek Harness.app',
-        isPinned: false,
-        createdAt: `${today}T10:15:00+08:00`,
-        completedAt: `${today}T12:00:00+08:00`,
       },
       {
         id: 'task-daily-report-engine',
@@ -222,6 +190,18 @@ export class WorkbenchStore {
           if (!data.sources.some(source => source.id === 'zcode')) {
             data.sources.push(this.getDefaultSources().find(source => source.id === 'zcode')!)
           }
+          const dsh = data.sources.find(source => source.id === 'dsh')
+          const oldDshPath = path.join(os.homedir(), '.gemini/antigravity-cli/brain')
+          if (dsh && (!dsh.path || path.normalize(dsh.path) === oldDshPath)) {
+            dsh.path = path.join(os.homedir(), '.dsh/sessions')
+            dsh.sessionCount = 0
+            dsh.lastSyncAt = null
+            dsh.error = null
+            dsh.progress = '采集路径已修正，等待同步真实会话'
+            dsh.status = fs.existsSync(dsh.path) ? 'available' : 'unavailable'
+          }
+          // 仅清理旧版本内置的两条 DSH 演示记录，不影响真实采集及手工事项。
+          data.tasks = data.tasks.filter(task => !(task.source === 'dsh' && ['task-dsh-workbench-init', 'task-dsh-sidebar-slot'].includes(task.id)))
           const codex = data.sources.find(source => source.id === 'codex')
           if (codex?.name === 'Codex CLI 历史') codex.name = 'Codex 桌面端 / CLI 会话'
           return data

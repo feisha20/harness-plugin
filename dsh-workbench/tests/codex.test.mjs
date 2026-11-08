@@ -7,16 +7,16 @@ import {scanCodex, codexTranscript} from '../lib/host/codex.js'
 import {SessionCollector} from '../lib/host/collector.js'
 import {createWorkbenchHttpHandler} from '../lib/host/webRoutes.js'
 
-test('同步按 Codex 记录 ID 写入，跨日同概要不丢失，变化后持久化更新',async()=>{
-  const snapshot={tasks:[],sources:[{id:'codex',enabled:true}]}
+for (const source of ['codex','dsh']) test(`同步按 ${source} 记录 ID 写入，跨日同概要不丢失，变化后持久化更新`,async()=>{
+  const snapshot={tasks:[],sources:[{id:source,enabled:true}]}
   const store={getSnapshot:()=>snapshot,save:()=>{},saveTask:item=>{
     const index=snapshot.tasks.findIndex(task=>task.id===item.id)
     if(index<0) snapshot.tasks.push(item); else snapshot.tasks[index]=item
   }}
   let revision=0
   const collector={scanSource:async()=>({sessionCount:1,extractedTasks:[
-    {id:'day1',source:'codex',title:'排查接口',summaryHash:String(revision)},
-    {id:'day2',source:'codex',title:'排查接口',summaryHash:'second'}
+    {id:'day1',source,title:'排查接口',summaryHash:String(revision)},
+    {id:'day2',source,title:'排查接口',summaryHash:'second'}
   ]})}
   const handler=createWorkbenchHttpHandler(store,collector)
   const req={method:'POST',url:'/api/workbench/sync',headers:{}}

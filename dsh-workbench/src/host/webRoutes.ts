@@ -207,7 +207,7 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
           if (result.error) errors.push(`${src.name}：${result.error}`)
 
           for (const item of result.extractedTasks) {
-            const isSessionRecord = item.source === 'zcode' || item.source === 'codex'
+            const isSessionRecord = item.source === 'zcode' || item.source === 'codex' || item.source === 'dsh'
             const exists = snapshot.tasks.find((t) => t.id === item.id || (!isSessionRecord && t.title === item.title))
             if (!exists) {
               store.saveTask(item)

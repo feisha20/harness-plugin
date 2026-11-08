@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { scanZcode, zcodeTranscript } from './zcode.ts'
 import { scanCodex, codexTranscript } from './codex.ts'
+import { scanDsh, dshTranscript } from './dsh.ts'
 import { summarizeSessions, type SummaryGenerator, type SummaryProgress } from './sessionSummary.ts'
 import type { Evidence, SourceConfig, Task, TaskSource } from '../shared/types.ts'
 
@@ -22,8 +23,14 @@ export class SessionCollector {
 
   public async scanSource(source: SourceConfig, previous:Task[] = [], onProgress?:(sessionCount:number, progress:SummaryProgress)=>void): Promise<CollectorScanResult> {
     switch (source.id) {
-      case 'dsh':
-        return this.scanDsh(source)
+      case 'dsh': {
+        const result = await scanDsh(source.path || path.join(this.homeDir, '.dsh', 'sessions'))
+        if (!result.extractedTasks.length) return result
+        if (!this.summarize) return {...result, extractedTasks: [], error: [result.error, '未连接会话概要模型，请检查 DSH 默认模型配置'].filter(Boolean).join('；')}
+        const summarized = await summarizeSessions(result.extractedTasks, new Map(result.extractedTasks.map(task => [task.id, dshTranscript(task)])), previous, this.summarize, progress => onProgress?.(result.sessionCount, progress))
+        const error = [result.error, summarized.failures ? `${summarized.failures} 条会话概要生成失败，原记录保留。${summarized.error || '模型未返回有效的一句话概要'}` : ''].filter(Boolean).join('；')
+        return {...result, extractedTasks: summarized.tasks, ...(error ? {error} : {})}
+      }
       case 'claude':
         return this.scanClaude(source)
       case 'codex': {
@@ -51,78 +58,6 @@ export class SessionCollector {
           extractedTasks: [],
           sessionCount: 0,
         }
-    }
-  }
-
-  private scanDsh(source: SourceConfig): CollectorScanResult {
-    const brainDir = path.join(this.homeDir, '.gemini', 'antigravity-cli', 'brain')
-    const extractedTasks: Task[] = []
-    let sessionCount = 0
-
-    try {
-      if (fs.existsSync(brainDir)) {
-        const entries = fs.readdirSync(brainDir, { withFileTypes: true })
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue
-          sessionCount++
-          const transcriptPath = path.join(
-            brainDir,
-            entry.name,
-            '.system_generated',
-            'logs',
-            'transcript.jsonl',
-          )
-          if (fs.existsSync(transcriptPath)) {
-            const lines = fs.readFileSync(transcriptPath, 'utf8').split('\n').filter(Boolean)
-            for (const line of lines.slice(-20)) {
-              try {
-                const item = JSON.parse(line)
-                if (item.type === 'USER_INPUT' && item.content) {
-                  const text = String(item.content).trim()
-                  if (text.length > 5 && text.length < 80 && !text.includes('<USER_REQUEST>')) {
-                    extractedTasks.push({
-                      id: `dsh-${entry.name.slice(0, 8)}-${Date.now()}`,
-                      title: text,
-                      status: 'completed',
-                      priority: 'medium',
-                      source: 'dsh',
-                      createdAt: item.created_at || new Date().toISOString(),
-                      completedAt: new Date().toISOString(),
-                      evidence: [
-                        {
-                          id: `ev-dsh-${Date.now()}`,
-                          sessionId: entry.name,
-                          source: 'dsh',
-                          projectPath: '/Users/linjt/Documents/projects/harness-plugin',
-                          timestamp: item.created_at || new Date().toISOString(),
-                          quote: text,
-                        },
-                      ],
-                      isPinned: false,
-                    })
-                    break // one representative task per session
-                  }
-                }
-              } catch {
-                // ignore line json parse error
-              }
-            }
-          }
-        }
-      }
-    } catch (err: unknown) {
-      return {
-        source: 'dsh',
-        extractedTasks,
-        sessionCount,
-        error: String(err),
-      }
-    }
-
-    return {
-      source: 'dsh',
-      extractedTasks,
-      sessionCount,
     }
   }
 
