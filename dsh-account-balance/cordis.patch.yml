@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-account-balance
+      name: '@local/dsh-account-balance'
+      config: {}

@@ -1,0 +1,13 @@
+{
+  "meta": {
+    "title": "Account balance",
+    "description": "Displays account balance in the bottom-left corner of the sidebar."
+  },
+  "balance": "Balance",
+  "bonus": "Bonus",
+  "loading": "Loading...",
+  "signedOut": "Not signed in",
+  "refresh": "Refresh balance",
+  "topUp": "Top up",
+  "error": "Failed to load balance"
+}

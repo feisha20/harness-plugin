@@ -1,0 +1,13 @@
+{
+  "meta": {
+    "title": "账户余额",
+    "description": "在侧边栏左下角显示 DeepSeek 账户余额与赠金。"
+  },
+  "balance": "余额",
+  "bonus": "赠金",
+  "loading": "加载中...",
+  "signedOut": "未登录",
+  "refresh": "刷新余额",
+  "topUp": "去充值",
+  "error": "获取余额失败"
+}
