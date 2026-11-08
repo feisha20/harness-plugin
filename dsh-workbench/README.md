@@ -63,6 +63,16 @@ DeepSeek Harness 宿主
 
 ---
 
+## 模型设置
+
+在工作日志顶部打开「模型设置」，选择主模型和可选的备用模型后保存。该设置用于新生成的会话概要和日报、周报、月报的「AI 重新整理」。历史概要仍按会话正文复用缓存。 日报、周报和月报的整理请求仅发送工作概要、项目、日期和报告模板。 报告整理的输出预算由所选模型的适配器决定。
+
+模型列表来自 DSH 已启用的提供方。选择「使用 DSH 默认路由」时沿用旧版规则。若 DSH 默认模型来自 ACP，工作日志自动选用普通模型。要使用 Antigravity，请同时安装本仓库的 ACP 适配器 `0.2.1-rc.4.1+quota.4.2` 或更新版本，并在工作日志中明确选择 Antigravity 提供方下的具体模型。Antigravity 请求使用独立的短会话，会将待整理资料发送给所选服务。
+
+主模型调用失败、返回空白或未通过输出检查时尝试备用模型。两者都失败时保留原报告或原有概要，并显示调用错误。
+
+新整理的日报、周报和月报会在标题右侧显示实际使用的模型，切换时标明「备用模型」。历史报告缺少模型记录时显示「整理模型未记录」。
+
 ## 🛠️ 构建与打包
 
 进入插件目录：
@@ -80,7 +90,7 @@ npm run build:client
 npm run pack
 ```
 
-打包产物位于 `dist/mywork-dsh-workbench-0.1.0.tgz`。
+打包产物位于 `dist/mywork-dsh-workbench-0.1.27.tgz`。
 
 ---
 
@@ -89,10 +99,10 @@ npm run pack
 ### 方式一：通过 Harness 界面安装（推荐）
 1. 打开 DeepSeek Harness 桌面端 / Web 端。
 2. 点击左侧主菜单的 **插件**（Plugins）图标。
-3. 选择 **从本地文件安装**（Install from file...），选中 `dist/mywork-dsh-workbench-0.1.0.tgz`。
+3. 选择 **从本地文件安装**（Install from file...），选中 `dist/mywork-dsh-workbench-0.1.27.tgz`。
 4. 重启或刷新页面，左侧主菜单将出现 **工作日志** 入口。
 
 ### 方式二：通过 DSH 命令行添加
 ```bash
-dsh plugin add ./dist/mywork-dsh-workbench-0.1.0.tgz
+dsh plugin add ./dist/mywork-dsh-workbench-0.1.27.tgz
 ```

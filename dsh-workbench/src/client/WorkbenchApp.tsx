@@ -11,6 +11,7 @@ import { TasksView } from './TasksView.tsx'
 import { DailyReportView } from './DailyReportView.tsx'
 import { PeriodicReportView } from './PeriodicReportView.tsx'
 import { SourcesView } from './SourcesView.tsx'
+import { ModelSettingsView } from './ModelSettingsView.tsx'
 import {
   IconTasks,
   IconDaily,
@@ -22,7 +23,7 @@ import {
 import { WorkbenchIcon } from './WorkbenchIcon.tsx'
 
 export function WorkbenchApp() {
-  const [activeTab, setActiveTab] = useState<'tasks' | 'daily' | 'periodic' | 'sources'>('tasks')
+  const [activeTab, setActiveTab] = useState<'tasks' | 'daily' | 'periodic' | 'sources' | 'models'>('tasks')
   const [snapshot, setSnapshot] = useState<WorkbenchSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [requestSyncing, setSyncing] = useState(false)
@@ -305,6 +306,8 @@ export function WorkbenchApp() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px 16px',
           padding: '12px 24px',
           borderBottom: '1px solid var(--dsh-color-border-subtle, #e2e8f0)',
           backgroundColor: 'var(--dsh-color-bg-canvas, #ffffff)',
@@ -312,7 +315,7 @@ export function WorkbenchApp() {
         }}
       >
         {/* Brand & Tabs */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 24px', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div
               style={{
@@ -344,6 +347,7 @@ export function WorkbenchApp() {
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
+              flexWrap: 'wrap',
               backgroundColor: 'var(--dsh-color-bg-subtle, #f1f5f9)',
               padding: '3px',
               borderRadius: '8px',
@@ -459,6 +463,24 @@ export function WorkbenchApp() {
                 {snapshot?.sources.filter((s) => s.enabled).length || 0}
               </span>
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('models')}
+              aria-current={activeTab === 'models' ? 'page' : undefined}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: activeTab === 'models' ? 'var(--dsh-color-bg-canvas, #ffffff)' : 'transparent',
+                color: activeTab === 'models' ? 'var(--dsh-color-text-primary, #242424)' : 'var(--dsh-color-text-secondary, #64748b)',
+                fontSize: '13px',
+                fontWeight: activeTab === 'models' ? 600 : 500,
+                cursor: 'pointer',
+                boxShadow: activeTab === 'models' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+              }}
+            >
+              模型设置
+            </button>
           </div>
         </div>
 
@@ -533,6 +555,7 @@ export function WorkbenchApp() {
             syncing={syncing}
           />
         )}
+        {activeTab === 'models' && <ModelSettingsView />}
       </div>
 
       {/* Toast Popup */}

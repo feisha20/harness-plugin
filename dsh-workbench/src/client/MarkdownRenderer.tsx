@@ -1,8 +1,10 @@
 import React from 'react'
+import type { DailyReport } from '../shared/types.ts'
 
 interface MarkdownRendererProps {
   content: string
-  className?: string
+  reportTitle: string
+  report?: Pick<DailyReport, 'aiOrganized' | 'aiAttribution' | 'isEdited'> | null
   style?: React.CSSProperties
 }
 
@@ -135,10 +137,17 @@ function renderInlineText(text: string): React.ReactNode[] {
   return nodes
 }
 
-export function MarkdownRenderer({ content, style }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, reportTitle, report, style }: MarkdownRendererProps) {
   if (!content) return null
 
   const lines = content.split('\n')
+  const firstLine = lines.findIndex(line => line.trim())
+  const title = lines[firstLine]?.trim().match(/^(?:#{1,2}\s+)?(工作(?:日报|周报|月报).*)$/)?.[1]
+  if (title) lines.splice(firstLine, 1)
+  const attribution = report?.aiAttribution
+  const credit = report?.aiOrganized && (attribution
+    ? `由 ${attribution.model} 整理${attribution.usedFallback ? '（备用模型）' : ''}${report.isEdited ? ' · 已手动微调' : ''}`
+    : '整理模型未记录')
   const elements: React.ReactNode[] = []
   let inCodeBlock = false
   let codeBuffer: string[] = []
@@ -373,34 +382,6 @@ export function MarkdownRenderer({ content, style }: MarkdownRendererProps) {
       continue
     }
 
-    // Report Title line (e.g. "工作日报（2026-11-07）")
-    if (
-      trimmed.startsWith('工作日报') ||
-      trimmed.startsWith('工作周报') ||
-      trimmed.startsWith('工作月报')
-    ) {
-      flushList()
-      elements.push(
-        <div
-          key={`title-${elements.length}`}
-          style={{
-            fontSize: '17px',
-            fontWeight: 700,
-            color: 'var(--dsh-color-text-primary, #0f172a)',
-            marginBottom: '14px',
-            paddingBottom: '8px',
-            borderBottom: '1px solid var(--dsh-color-border-subtle, #e2e8f0)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span>{trimmed}</span>
-        </div>,
-      )
-      continue
-    }
-
     // Section Category items like "【今日完成事项】" or "【项目名称】"
     if (trimmed.startsWith('【') && trimmed.endsWith('】')) {
       flushList()
@@ -487,6 +468,36 @@ export function MarkdownRenderer({ content, style }: MarkdownRendererProps) {
         ...style,
       }}
     >
+      {(title || credit) && (
+        <div style={{
+          fontSize: '17px',
+          fontWeight: 700,
+          color: 'var(--dsh-color-text-primary, #0f172a)',
+          marginBottom: '14px',
+          paddingBottom: '8px',
+          borderBottom: '1px solid var(--dsh-color-border-subtle, #e2e8f0)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'baseline',
+          gap: '4px 16px',
+        }}>
+          <span>{title || reportTitle}</span>
+          {credit && (
+            <span
+              title={attribution ? `${attribution.provider}/${attribution.model}` : undefined}
+              style={{
+                marginInlineStart: 'auto',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: 'var(--dsh-color-text-secondary, #64748b)',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {credit}
+            </span>
+          )}
+        </div>
+      )}
       {elements}
     </div>
   )

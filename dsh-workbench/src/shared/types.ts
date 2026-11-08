@@ -65,6 +65,7 @@ export interface DailyReport {
   items: DailyReportItem[]
   summaryMarkdown: string
   aiOrganized?: boolean
+  aiAttribution?: ReportAiAttribution
   isEdited: boolean
 }
 
@@ -93,11 +94,40 @@ export interface PeriodicReport {
   sections: PeriodicSection[]
   markdown: string
   aiOrganized?: boolean
+  aiAttribution?: ReportAiAttribution
   isEdited: boolean
+}
+
+export interface ModelRoute {
+  provider: string
+  model: string
+}
+
+export interface ReportAiAttribution extends ModelRoute {
+  usedFallback: boolean
+}
+
+export interface ModelSettings {
+  primary: ModelRoute | null
+  fallback: ModelRoute | null
+}
+
+export interface ModelCatalogProvider {
+  id: string
+  name: string
+  models: Array<{ id: string; name: string }>
+  error?: string
+}
+
+export const defaultModelSettings: ModelSettings = { primary: null, fallback: null }
+
+export function sameModel(left: ModelRoute | null, right: ModelRoute | null): boolean {
+  return left === right || (left !== null && right !== null && left.provider === right.provider && left.model === right.model)
 }
 
 export interface WorkbenchSnapshot {
   version: 1
+  modelSettings?: ModelSettings
   tasks: Task[]
   sources: SourceConfig[]
   dailyReports: Record<string, DailyReport>

@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import type {
   DailyReport,
+  ModelSettings,
   PeriodicReport,
   SourceConfig,
   Task,
@@ -220,16 +221,22 @@ export class WorkbenchStore {
       this.snapshot = snapshot
     }
     try {
-      const dir = path.dirname(this.storePath)
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true })
-      }
-      const tmpPath = `${this.storePath}.tmp.${Date.now()}`
-      fs.writeFileSync(tmpPath, JSON.stringify(this.snapshot, null, 2), 'utf8')
-      fs.renameSync(tmpPath, this.storePath)
+      this.write(this.snapshot)
     } catch (err) {
       console.error('Failed to save workbench store:', err)
     }
+  }
+
+  private write(snapshot: WorkbenchSnapshot): void {
+    fs.mkdirSync(path.dirname(this.storePath), { recursive: true })
+    const tmpPath = `${this.storePath}.tmp.${Date.now()}`
+    fs.writeFileSync(tmpPath, JSON.stringify(snapshot, null, 2), 'utf8')
+    fs.renameSync(tmpPath, this.storePath)
+  }
+
+  public saveModelSettings(modelSettings: ModelSettings): void {
+    this.write({ ...this.snapshot, modelSettings })
+    this.snapshot.modelSettings = modelSettings
   }
 
   public getSnapshot(): WorkbenchSnapshot {

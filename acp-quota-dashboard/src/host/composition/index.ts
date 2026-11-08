@@ -10,6 +10,8 @@ import { installLegacySettingsImport } from './legacy-settings.ts'
 import { Config } from './config.ts'
 export { Config }
 import { installInstalledProfileRegistry } from './installed-profile-registry.ts'
+import { installAcpTextGeneration } from './text-generation.ts'
+import { resolveSubprocessSeam } from './subprocess.ts'
 
 export const name = 'dsh-acp-adapter'
 // Wait for the host-owned seams before creating routes. This avoids freezing a
@@ -33,7 +35,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['settings'], (child) => {
     child.effect(() => child.settings.configure({ auto: false }, ctx.fiber))
   })
-  installInstalledProfileRegistry(ctx, config, { installRemote: true })
+  const subprocess = resolveSubprocessSeam(ctx)
+  const registry = installInstalledProfileRegistry(ctx, config, { installRemote: true, subprocess })
+  installAcpTextGeneration(ctx, registry, subprocess)
   installLegacySettingsImport(ctx)
 }
 

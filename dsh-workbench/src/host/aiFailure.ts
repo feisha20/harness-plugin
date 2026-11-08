@@ -4,7 +4,7 @@ import type { FinishReason, TokenUsage } from '@deepseek-ai/dsh-llm'
 export function safeAiError(message:string):string {
  return message.replace(/Bearer\s+\S+/gi,'Bearer [已隐藏]').replace(/sk-[A-Za-z0-9_-]+/g,'[密钥已隐藏]').replace(/(api[_-]?key|token|authorization)(["'\s:=]+)[^\s,;"']+/gi,'$1$2[已隐藏]').slice(0,700)
 }
-export function assertAiFinish(finish:FinishReason,route:{provider:string;model:string},maxTokens:number,usage?:TokenUsage):void {
+export function assertAiFinish(finish:FinishReason,route:{provider:string;model:string},maxTokens?:number,usage?:TokenUsage):void {
  if(finish.kind==='stop') return
  let reason:string
  let code:string
@@ -13,7 +13,8 @@ export function assertAiFinish(finish:FinishReason,route:{provider:string;model:
   reason=finish.failure.message
  } else if(finish.kind==='max-tokens') {
   code='MAX_TOKENS'
-  reason=`输出达到上限 ${maxTokens} tokens${usage ? `，实际输出 ${usage.outputTokens}` : ''}`
+  const limit=maxTokens === undefined ? '达到模型服务的输出限制' : `达到本次请求的输出预算 ${maxTokens} tokens`
+  reason=`${limit}${usage ? `，实际输出 ${usage.outputTokens} tokens` : ''}`
  } else { code='UNEXPECTED_FINISH';reason=`收到非文本终止类型 ${finish.kind}` }
  const error=new Error(safeAiError(`AI 整理失败 [${route.provider}/${route.model}] ${code}：${reason}`)) as Error & {code:string}
  error.code=code

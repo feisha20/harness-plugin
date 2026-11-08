@@ -366,7 +366,7 @@ function isResourceExhaustion(error: acp.RequestError): boolean {
  * `DEFAULT_SESSION_CLEANUP_TIMEOUT_MS` 预算（超预算 poison 的是这条将被拆除的
  * 短连接，无副作用外溢）。
  */
-async function probeSessionCleanup(
+export async function cleanupAcpSession(
   conn: AcpClientConnection,
   capabilities: acp.AgentCapabilities | undefined,
   sessionId: string,
@@ -1136,7 +1136,7 @@ export class AcpClientConnection {
     const cleanupResults: AcpProbeCleanup[] = []
     const cleanupSessions = async (): Promise<AcpProbeCleanup> => {
       while (cleanupResults.length < createdSessions.length) {
-        cleanupResults.push(await probeSessionCleanup(conn, capabilities, createdSessions[cleanupResults.length]!))
+        cleanupResults.push(await cleanupAcpSession(conn, capabilities, createdSessions[cleanupResults.length]!))
       }
       const first = cleanupResults[0] ?? { close: 'not-advertised' as const, delete: 'not-advertised' as const }
       const messages = cleanupResults.flatMap((cleanup) => (cleanup.message === undefined ? [] : [cleanup.message]))

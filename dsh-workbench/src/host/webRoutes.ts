@@ -3,15 +3,16 @@ import { URL } from 'node:url'
 import { WorkbenchStore } from './store.ts'
 import { ReportEngine } from './reportEngine.ts'
 import { reorganizeReport } from './reportSummary.ts'
-import type { SummaryGenerator } from './sessionSummary.ts'
 import { SessionCollector } from './collector.ts'
 import { safeAiError } from './aiFailure.ts'
-import type { DailyReport, PeriodicReport, SourceConfig, Task, TaskSource } from '../shared/types.ts'
+import type { createModelRouter, ModelGenerator } from './modelRouter.ts'
+import { defaultModelSettings, sameModel, type DailyReport, type ModelRoute, type ModelSettings, type PeriodicReport, type SourceConfig, type Task, type TaskSource } from '../shared/types.ts'
 
 function sendJson(res: ServerResponse, statusCode: number, data: unknown): void {
   const body = JSON.stringify(data)
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -37,7 +38,23 @@ function parseBody<T = unknown>(req: IncomingMessage): Promise<T> {
   })
 }
 
-export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: SessionCollector, generateReport?:SummaryGenerator) {
+function parseModelRoute(value: unknown): ModelRoute | null {
+  if (value === null) return null
+  if (typeof value !== 'object' || !value) throw new Error('请选择有效的模型')
+  const { provider, model } = value as Partial<ModelRoute>
+  if (typeof provider !== 'string' || typeof model !== 'string'
+    || !provider.trim() || !model.trim() || provider.length > 1024 || model.length > 1024) {
+    throw new Error('请选择有效的模型')
+  }
+  return { provider, model }
+}
+
+export function createWorkbenchHttpHandler(
+  store: WorkbenchStore,
+  collector: SessionCollector | (() => SessionCollector),
+  generateReport?: ModelGenerator,
+  models?: Pick<ReturnType<typeof createModelRouter>, 'catalog' | 'hasModel'>,
+) {
   let syncRunning = false
   // 重启后没有仍在运行的同步，不能沿用磁盘上的“采集中”。
   for (const source of store.getSnapshot().sources) {
@@ -64,6 +81,55 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
     const query = fullUrl.searchParams
 
     try {
+      const changesAiState = (pathname === '/api/workbench/model-settings' && req.method === 'PATCH')
+        || (pathname === '/api/workbench/sync' && req.method === 'POST')
+        || (pathname.startsWith('/api/workbench/reports/') && query.get('regenerate') === 'true')
+      const origin = req.headers.origin
+      if (changesAiState && (req.headers['sec-fetch-site'] === 'cross-site'
+        || (origin && ![`http://${host}`, `https://${host}`].includes(origin)))) {
+        sendJson(res, 403, { error: '请从工作日志页面发起该操作' })
+        return
+      }
+
+      if (pathname === '/api/workbench/model-settings' && models) {
+        const current = () => store.getSnapshot().modelSettings ?? defaultModelSettings
+        if (req.method === 'GET') {
+          const catalog = await models.catalog()
+          sendJson(res, 200, { settings: current(), catalog })
+          return
+        }
+        if (req.method === 'PATCH') {
+          let settings: ModelSettings
+          try {
+            const body = await parseBody<Partial<ModelSettings>>(req)
+            settings = { primary: parseModelRoute(body.primary), fallback: parseModelRoute(body.fallback) }
+          } catch {
+            sendJson(res, 400, { error: '请选择有效的主模型与备用模型' })
+            return
+          }
+          if (settings.primary && sameModel(settings.primary, settings.fallback)) {
+            sendJson(res, 400, { error: '主模型和备用模型需要使用不同的模型' })
+            return
+          }
+          const previous = current()
+          for (const slot of ['primary', 'fallback'] as const) {
+            const route = settings[slot]
+            if (!route || sameModel(route, previous[slot])) continue
+            if (!await models.hasModel(route).catch(() => false)) {
+              sendJson(res, 400, { error: '所选模型当前不可用，请刷新模型列表后重试' })
+              return
+            }
+          }
+          if (previous !== current()) {
+            sendJson(res, 409, { error: '模型设置已更新，请刷新后重试' })
+            return
+          }
+          store.saveModelSettings(settings)
+          sendJson(res, 200, settings)
+          return
+        }
+      }
+
       // 1. Snapshot
       if (pathname === '/api/workbench/snapshot' && req.method === 'GET') {
         const snapshot = store.getSnapshot()
@@ -181,6 +247,7 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
         }
         syncRunning = true
         try {
+        const activeCollector = typeof collector === 'function' ? collector() : collector
         const snapshot = store.getSnapshot()
         let newCount = 0
         let updatedCount = 0
@@ -193,7 +260,7 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
           src.error = null
           store.save()
 
-          const result = await collector.scanSource(src, snapshot.tasks, (sessionCount, progress) => {
+          const result = await activeCollector.scanSource(src, snapshot.tasks, (sessionCount, progress) => {
             src.sessionCount = sessionCount
             src.progress = `概要处理 ${progress.processed}/${progress.total} 条，缓存复用 ${progress.cached} 条${progress.failed ? `，失败 ${progress.failed} 条` : ''}`
             store.save()
@@ -344,7 +411,7 @@ export function createWorkbenchHttpHandler(store: WorkbenchStore, collector: Ses
       sendJson(res, 404, { error: 'Not Found', pathname })
     } catch (err: unknown) {
       console.error('Workbench API Error:', err)
-      sendJson(res, 500, { error: String(err) })
+      sendJson(res, 500, { error: safeAiError(String(err)) })
     }
   }
 }

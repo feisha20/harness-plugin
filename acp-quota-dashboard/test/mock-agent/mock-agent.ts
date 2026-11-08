@@ -42,6 +42,7 @@ const FIXED_TIMESTAMP = '2026-01-01T00:00:00.000Z'
 const KNOWN_SCENARIOS = new Set([
   'regression',
   'happy',
+  'text-only',
   'minimal-caps',
   'rich-content',
   'no-config-options',
@@ -845,6 +846,13 @@ function handlePrompt(request: MockRequest) {
   switch (state.scenario) {
     case 'regression':
       return void regressionTurn(session, msg, { sendUpdate, sendAgentRequest, respond, log })
+    case 'text-only':
+      return void runUpdateTurn(session, msg, [
+        {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '整理了测试资料' },
+        },
+      ])
     case 'minimal-caps':
       return void runUpdateTurn(session, msg, MINIMAL_TURN_UPDATES)
     case 'rich-content':

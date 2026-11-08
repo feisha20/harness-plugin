@@ -4,6 +4,14 @@
 
 User-facing changes and upgrade notes. See [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases) for publication dates, exact installation instructions, and checksums. Historical entries were reconstructed from tag diffs; npm packages were not republished.
 
+## 0.2.1-rc.4.1+quota.4.3
+
+- 工作日志使用 Antigravity 的 Gemini 3.8 Flash 整理概要和报告时，在模型支持的情况下使用低推理档，缩短等待。
+
+## 0.2.1-rc.4.1+quota.4.2
+
+- 工作日志可以复用已配置的 Antigravity ACP 模型生成会话概要和报告。每次整理使用独立会话，精确确认所选模型，拒绝工具权限请求和交互请求。
+
 ## 0.2.1-rc.4.1
 
 ### 中文

@@ -114,7 +114,9 @@ export function PeriodicReportView({
       ? ReportEngine.generateWeeklyReport(selectedWeek, tasks, dailyReports)
       : ReportEngine.generateMonthlyReport(selectedMonth, tasks, dailyReports)
 
-  const currentMarkdown = (report?.isEdited || report?.aiOrganized) ? (report.markdown || '') : synthesizedReport.markdown
+  const cachedReport = reportType === 'weekly' ? weeklyReports[activeKey] : monthlyReports[activeKey]
+  const currentReport = report?.type === reportType && report.periodKey === activeKey ? report : cachedReport
+  const currentMarkdown = (currentReport?.isEdited || currentReport?.aiOrganized) ? (currentReport.markdown || '') : synthesizedReport.markdown
 
   const handleRegenerate = async () => {
     if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
@@ -141,7 +143,7 @@ export function PeriodicReportView({
   }
 
   const handleSave = async () => {
-    const base = report || synthesizedReport
+    const base = currentReport || synthesizedReport
     const updated: PeriodicReport = {
       ...base,
       markdown: editedMarkdown,
@@ -477,7 +479,7 @@ export function PeriodicReportView({
             }}
           >
             {currentMarkdown ? (
-              <MarkdownRenderer content={currentMarkdown} />
+              <MarkdownRenderer content={currentMarkdown} reportTitle={synthesizedReport.title} report={currentReport} />
             ) : (
               <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>
                 暂无报告内容，点击右上角“AI 重新整理”

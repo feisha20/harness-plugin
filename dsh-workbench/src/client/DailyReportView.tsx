@@ -89,7 +89,8 @@ export function DailyReportView({
 
   // Computed synthesized markdown if not manually edited
   const synthesizedReport = ReportEngine.generateDailyReport(selectedDay, tasks)
-  const currentMarkdown = (report?.isEdited || report?.aiOrganized) ? (report.summaryMarkdown || '') : synthesizedReport.summaryMarkdown
+  const currentReport = report?.day === selectedDay ? report : dailyReports[selectedDay]
+  const currentMarkdown = (currentReport?.isEdited || currentReport?.aiOrganized) ? (currentReport.summaryMarkdown || '') : synthesizedReport.summaryMarkdown
 
   const handleRegenerate = async () => {
     if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
@@ -113,7 +114,7 @@ export function DailyReportView({
   }
 
   const handleSave = async () => {
-    const base = report || synthesizedReport
+    const base = currentReport || synthesizedReport
     const updated: DailyReport = {
       ...base,
       summaryMarkdown: editedMarkdown,
@@ -390,7 +391,7 @@ export function DailyReportView({
             }}
           >
             {currentMarkdown ? (
-              <MarkdownRenderer content={currentMarkdown} />
+              <MarkdownRenderer content={currentMarkdown} reportTitle={`工作日报（${selectedDay}）`} report={currentReport} />
             ) : (
               <div style={{ color: '#94a3b8', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>
                 暂无日报内容，点击右上角“AI 重新整理”
