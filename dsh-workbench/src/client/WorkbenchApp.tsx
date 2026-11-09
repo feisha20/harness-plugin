@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import type {
   DailyReport,
   PeriodicReport,
@@ -21,6 +21,7 @@ import {
   IconCheck,
 } from './Icons.tsx'
 import { WorkbenchIcon } from './WorkbenchIcon.tsx'
+import { shouldAutoSync, AUTO_SYNC_RETRY_MS } from '../shared/autoSync.ts'
 
 export function WorkbenchApp() {
   const [activeTab, setActiveTab] = useState<'tasks' | 'daily' | 'periodic' | 'sources' | 'models'>('tasks')
@@ -30,6 +31,8 @@ export function WorkbenchApp() {
   const [backendSyncing, setBackendSyncing] = useState(false)
   const syncing = requestSyncing || backendSyncing
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const autoSyncing = useRef(false)
+  const autoSyncAttemptedAt = useRef(0)
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg)
@@ -262,6 +265,44 @@ export function WorkbenchApp() {
       setSyncing(false)
     }
   }, [fetchSnapshot, showToast])
+
+  // 打开工作日志页时按需补一次采集：没有同步记录或距上次同步超过 30 分钟才触发。
+  const lastSyncTime = snapshot?.lastSyncTime ?? null
+  const hasEnabledSources = snapshot?.sources.some(source => source.enabled) ?? false
+  const handleAutoSync = useCallback(async () => {
+    if (autoSyncing.current) return
+    autoSyncing.current = true
+    autoSyncAttemptedAt.current = Date.now()
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/workbench/sync', { method: 'POST' })
+      // 已有同步在进行（409）或请求失败时保留页面现状；手动同步仍可重试。
+      if (!res.ok) return
+      const result = (await res.json()) as { message: string; success?: boolean }
+      await fetchSnapshot()
+      showToast(result.message || '已自动同步今日工作记录')
+    } catch {
+      // 网络或服务暂不可用：保留已有内容，下次打开页面再补。
+    } finally {
+      autoSyncing.current = false
+      setSyncing(false)
+    }
+  }, [fetchSnapshot, showToast])
+
+  useEffect(() => {
+    const check = () => {
+      if (loading || !hasEnabledSources || requestSyncing || backendSyncing) return
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - autoSyncAttemptedAt.current < AUTO_SYNC_RETRY_MS) return
+      if (!shouldAutoSync(lastSyncTime)) return
+      void handleAutoSync()
+    }
+    check()
+    // 面板在后台标签页打开时先不采集，回到前台再补一次。
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [loading, hasEnabledSources, requestSyncing, backendSyncing, lastSyncTime, handleAutoSync])
 
   if (loading) {
     return (
