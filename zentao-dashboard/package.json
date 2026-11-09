@@ -1,6 +1,6 @@
 {
   "name": "@local/zentao-dashboard",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "type": "module",
   "description": "禅道测试经理看板：冲刺交付、线上问题与处理风险",
