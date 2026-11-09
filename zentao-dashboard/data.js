@@ -4,11 +4,12 @@ const run = promisify(execFile);
 const script = process.env.ZENTAO_QA_SCRIPT || '/Users/linjt/.agents/skills/zentao-qa/scripts/zentao_qa.py';
 const config = process.env.ZENTAO_QA_CONFIG;
 const cache = new Map();
+export const CACHE_TTL_MS = 10 * 60 * 1000;
 export async function read(resource, scope, id) {
   const args = [script, ...(config ? ['--config', config] : []), 'read', resource, '--all'];
   if (scope) args.push('--scope', scope, '--scope-id', String(id));
   const key = args.join('|'), hit = cache.get(key);
-  if (hit && Date.now() - hit.at < 60000) return hit.promise;
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.promise;
   const promise = run('python3', args, { timeout: 120000, maxBuffer: 32 * 1024 * 1024 })
     .then(({stdout}) => {
       const data = JSON.parse(stdout);

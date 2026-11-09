@@ -1,4 +1,4 @@
-import { read, pick, fields } from './data.js';
+import { read, pick, fields, CACHE_TTL_MS } from './data.js';
 import { globalSnapshot, invalidateGlobal } from './global.js';
 import { preferences } from './preferences.js';
 export const inject = ['webServer','tools'];
@@ -43,7 +43,7 @@ export function apply(ctx) {
           data = {warnings:[]};
           results.forEach((r,i)=>{const n=names[i]; if(r.status==='fulfilled')data[n]=pick(r.value,fields[n]);else {data[n]=null;data.warnings.push(n+'：读取失败，未计入统计');}});
         } else return send(400,{error:'查询类型无效'});
-        send(200,{...data,readAt:new Date().toISOString(),cacheSeconds:60});
+        send(200,{...data,readAt:new Date().toISOString(),cacheSeconds:CACHE_TTL_MS/1000});
       } catch(e) {send(502,{error:e.message});}
     }
   }));

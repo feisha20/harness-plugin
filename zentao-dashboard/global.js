@@ -1,4 +1,4 @@
-import { read, pick, fields, isOnline, daysOpen } from './data.js';
+import { read, pick, fields, isOnline, daysOpen, CACHE_TTL_MS } from './data.js';
 import { preferences } from './preferences.js';
 
 // 限制并发，避免全局汇总同时压满禅道接口。
@@ -77,7 +77,7 @@ let snapshot, running, generation=0;
 export function invalidateGlobal() { generation++; snapshot=undefined; running=undefined; }
 export function globalSnapshot() {
   const ignored=preferences.list(), key=JSON.stringify(ignored), revision=generation;
-  if (snapshot && snapshot.key===key && Date.now()-snapshot.at<60000) return Promise.resolve(snapshot.value);
+  if (snapshot && snapshot.key===key && Date.now()-snapshot.at<CACHE_TTL_MS) return Promise.resolve(snapshot.value);
   if (!running || running.key!==key) {
     const job=collectGlobal(read,Date.now(),ignored).then(value=>{if(revision===generation)snapshot={key,at:Date.now(),value};return value;}).finally(()=>{if(running===job)running=null;});
     job.key=key;running=job;
