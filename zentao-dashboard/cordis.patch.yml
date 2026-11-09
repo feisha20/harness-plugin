@@ -1,0 +1,4 @@
+- insert:
+    - id: zentao-dashboard
+      name: '@local/zentao-dashboard'
+      config: {}
