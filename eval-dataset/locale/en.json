@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Eval Dataset",
+    "description": "Fetch KuaiBuddy conversations from yesterday and extract high-value test cases as evaluation dataset"
+  }
+}

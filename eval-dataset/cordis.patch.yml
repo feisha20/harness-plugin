@@ -1,0 +1,4 @@
+- insert:
+    - id: eval-dataset
+      name: '@local/eval-dataset'
+      config: {}
