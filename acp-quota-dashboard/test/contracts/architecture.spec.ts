@@ -166,6 +166,9 @@ const ALLOWED_SRC_ESCAPES: Readonly<Record<string, readonly string[]>> = {
 
 /** Exact shared pure-leaf edges; do not widen layer-level import permissions. */
 const ALLOWED_CROSS_FILE_EDGES = new Set([
+  // 无依赖用量白名单校验在接收与持久化边界复用。
+  'runtime/session/session-runtime.ts->contract/reported-usage.ts',
+  'persistence/options-snapshot.ts->contract/reported-usage.ts',
   'protocol/v1/connection.ts->contract/redaction.ts',
   'domain/observability/redaction.ts->contract/redaction.ts',
   'runtime/session/session-runtime.ts->contract/live-diagnostic-trace.ts',

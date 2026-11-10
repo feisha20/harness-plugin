@@ -1,3 +1,4 @@
+import type { AcpReportedUsage } from '../../contract/reported-usage.ts'
 /** ACP profile as an ordinary DSH LLM provider route. */
 /// <reference types="node" />
 
@@ -203,6 +204,7 @@ interface AgentSessionSnapshotView {
   readonly configOptions: readonly AgentSessionConfigOptionView[] | null
   readonly modes: readonly AgentSessionModeView[] | null
   readonly currentModeId: string | null
+  readonly reportedUsage?: AcpReportedUsage | null
   readonly contextUsage: {
     readonly used: number
     readonly size: number
@@ -667,6 +669,7 @@ export interface AcpProfileRuntime {
   readonly configOptions?: readonly acp.SessionConfigOption[] | undefined
   readonly currentModeId?: string | undefined
   readonly modes?: acp.SessionModeState | undefined
+  readonly reportedUsage?: AcpReportedUsage | undefined
   readonly contextUsage?: AcpRuntimeContextUsage | undefined
   readonly lastRestoreRefreshedCancelledSession?: boolean | undefined
   /** A failed automatic turn retained by this exact runtime until Host settlement. */
@@ -1368,6 +1371,7 @@ export class AcpProfileAdapter extends LlmAdapter {
       sessionId,
       profileId: this.profileId,
       freshness: 'stale',
+      reportedUsage: snapshot.reportedUsage ?? null,
       editable: false,
       configOptions,
       modes: snapshot.modes?.availableModes ?? null,
@@ -1712,6 +1716,7 @@ export class AcpProfileAdapter extends LlmAdapter {
       sessionId,
       profileId: this.profileId,
       freshness: 'live',
+      reportedUsage: runtime.reportedUsage ?? null,
       editable: runtime.isBusy !== true,
       configOptions: options,
       modes,
@@ -1753,6 +1758,7 @@ export class AcpProfileAdapter extends LlmAdapter {
           profileLaunchIdentityHash(this.profileId, profile),
           Date.now(),
           {
+            reportedUsage: runtime.reportedUsage ?? null,
             contextUsage: runtime.contextUsage === undefined ? null : runtime.contextUsage,
             modes:
               runtime.modes === undefined
@@ -2807,6 +2813,7 @@ export class AcpProfileAdapter extends LlmAdapter {
                 profileLaunchIdentityHash(self.profileId, profile),
                 Date.now(),
                 {
+                  reportedUsage: runtime.reportedUsage ?? null,
                   contextUsage: runtime.contextUsage === undefined ? null : runtime.contextUsage,
                   modes:
                     runtime.modes === undefined

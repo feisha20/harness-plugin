@@ -1,3 +1,4 @@
+import { reportedUsageOf, type AcpReportedUsage } from '../../contract/reported-usage.ts'
 /**
  * Minimal ACP session owner used by the provider adapter.
  *
@@ -529,6 +530,7 @@ export class AcpSessionRuntime {
   private configSnapshot: acp.SessionConfigOption[] | undefined
   private currentMode: string | undefined
   private modeSnapshot: acp.SessionModeState | undefined
+  private reportedUsageSnapshot: AcpReportedUsage | undefined
   private usageSnapshot: AcpRuntimeContextUsage | undefined
   private promptOrdinal = 0
   private configWrite: Promise<void> = Promise.resolve()
@@ -602,6 +604,9 @@ export class AcpSessionRuntime {
     return this.modeSnapshot
   }
   /** ACP context occupancy/cumulative cost; intentionally not DSH TokenUsage. */
+  get reportedUsage(): AcpReportedUsage | undefined {
+    return this.reportedUsageSnapshot
+  }
   get contextUsage(): AcpRuntimeContextUsage | undefined {
     return this.usageSnapshot
   }
@@ -1110,6 +1115,7 @@ export class AcpSessionRuntime {
       let promptError: unknown
       try {
         promptResponse = await prompting
+        this.reportedUsageSnapshot = reportedUsageOf(promptResponse.usage)
         return promptResponse
       } catch (error) {
         promptError = error
@@ -1357,6 +1363,7 @@ export class AcpSessionRuntime {
         this.configSnapshot = undefined
         this.currentMode = undefined
         this.modeSnapshot = undefined
+        this.reportedUsageSnapshot = undefined
         this.usageSnapshot = undefined
       }
     }

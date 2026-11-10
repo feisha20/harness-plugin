@@ -21,12 +21,14 @@ async function fixture(
   sessionNewUpdates: 'none' | 'both' | 'child' = 'none',
   responseConfig: 'code' | 'empty' | 'omitted' = 'code',
   responseMode: 'code' | 'null' | 'omitted' = 'code',
+  reportUsage = false,
 ) {
   const script = `
     const send = value => process.stdout.write(JSON.stringify(value)+'\\n');
     const option = value => [{id:'mode',name:'Mode',type:'select',currentValue:value,options:[{value:'code',name:'Code'},{value:'plan',name:'Plan'}]}];
     const update = (sessionId, update) => send({jsonrpc:'2.0',method:'session/update',params:{sessionId,update}});
     let writing = false;
+    let promptCount = 0;
     require('node:readline').createInterface({input:process.stdin}).on('line', line => {
       const r = JSON.parse(line), reply = result => send({jsonrpc:'2.0',id:r.id,result});
       if(r.method==='initialize') reply({protocolVersion:1,agentCapabilities:{}});
@@ -54,7 +56,7 @@ async function fixture(
           update('child',{sessionUpdate:'current_mode_update',currentModeId:'plan'});
           update('child',{sessionUpdate:'usage_update',used:900,size:1000});
         }
-        reply({stopReason:'end_turn'});
+        reply({stopReason:'end_turn',usage: ${reportUsage} && promptCount++ === 0 ? {totalTokens:120,inputTokens:20,outputTokens:10,cachedReadTokens:90,_meta:{secret:'ignored'}} : null});
       }
     });`
   const argv = [process.execPath, '-e', script]
@@ -258,4 +260,13 @@ it('forwards successful Host-result evidence and separates bridge instructions i
   forwarded?.()
   expect(callbackCount).toBe(1)
   expect(echoed).toContain('generated bridge instructions\n\noriginal user content')
+})
+
+it('保存轮末用量白名单，下一轮未上报时清空，并与上下文占用分开', async () => {
+  const runtime = await fixture(false, undefined, undefined, false, 'none', 'code', 'code', true)
+  await runtime.prompt([{ type: 'text', text: '一' }], () => {})
+  expect(runtime.reportedUsage).toEqual({ totalTokens: 120, inputTokens: 20, outputTokens: 10, cachedReadTokens: 90 })
+  expect(runtime.contextUsage).toMatchObject({ used: 100, size: 1000 })
+  await runtime.prompt([{ type: 'text', text: '二' }], () => {})
+  expect(runtime.reportedUsage).toBeUndefined()
 })

@@ -1,3 +1,4 @@
+import { AcpUsageFooter } from './ui/AcpUsageFooter.ts'
 /** Native browser integration for ACP sessions and activity. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -468,6 +469,18 @@ async function registerUi(ctx: ClientContext): Promise<void> {
         }),
       },
       AcpRecoveryDock,
+    ),
+  )
+  ctx.slots.inject('conversation.composer.dock', () =>
+    ctx.slots.register(
+      {
+        name: 'conversation.composer.dock',
+        id: 'dsh-acp-usage',
+        order: 80,
+        locale: 'acpActivity',
+        inject: () => ({ remote: acpRemote, streamFactory: ctx.remote, ownsRoute: managedRoutes.owns }),
+      },
+      AcpUsageFooter,
     ),
   )
   ctx.slots.inject('conversation.input.left', () =>

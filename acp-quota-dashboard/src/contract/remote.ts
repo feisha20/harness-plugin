@@ -1,3 +1,4 @@
+import type { AcpReportedUsage } from './reported-usage.ts'
 /**
  * dshAcp Remote 边界的 wire contract：host 与 client 共享的收窄载荷
  * 类型词汇，typert strict codec 的生成输入。本层是零 import 叶子（分层守卫见
@@ -464,6 +465,7 @@ export interface AcpAgentSessionSnapshotView {
   readonly configOptions: readonly AcpConfigOption[] | null
   readonly modes: readonly AcpAgentModeView[] | null
   readonly currentModeId: string | null
+  readonly reportedUsage?: AcpReportedUsage | null
   readonly contextUsage: AcpContextUsageView | null
   readonly note: string | null
 }

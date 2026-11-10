@@ -1,3 +1,4 @@
+import { reportedUsageOf, type AcpReportedUsage } from '../contract/reported-usage.ts'
 /**
  * Bounded option snapshot codec used by sidecar cold-start presentation.
  *
@@ -56,6 +57,7 @@ export interface AcpOptionsSnapshotRecord {
   readonly updatedAt: number
   readonly fingerprint: string
   /** Last ACP context occupancy; never mapped to DSH TokenUsage. */
+  readonly reportedUsage?: AcpReportedUsage | null
   readonly contextUsage?: {
     readonly used: number
     readonly size: number
@@ -196,7 +198,7 @@ export function acpOptionsSnapshotOf(
   currentModeId: string | undefined,
   fingerprint: string,
   updatedAt: number,
-  extras?: Pick<AcpOptionsSnapshotRecord, 'contextUsage' | 'modes'>,
+  extras?: Pick<AcpOptionsSnapshotRecord, 'contextUsage' | 'modes' | 'reportedUsage'>,
 ): AcpOptionsSnapshotRecord {
   const options: AcpOptionsSnapshotOption[] = []
   for (const option of configOptions ?? []) {
@@ -213,6 +215,7 @@ export function acpOptionsSnapshotOf(
     modes: SnapshotModes | null | undefined,
     contextUsage: SnapshotContextUsage | null | undefined,
   ): AcpOptionsSnapshotRecord => ({
+    reportedUsage: reportedUsageOf(extras?.reportedUsage) ?? null,
     options: list,
     currentModeId: stableCurrentModeId,
     updatedAt,
@@ -370,6 +373,7 @@ export function toOptionsSnapshotRecord(raw: unknown): AcpOptionsSnapshotRecord 
     modes = { currentModeId: raw.modes.currentModeId as string, availableModes }
   } else if (raw.modes === null) modes = null
   return {
+    reportedUsage: reportedUsageOf(raw.reportedUsage) ?? null,
     options,
     currentModeId: raw.currentModeId as string | null,
     updatedAt: raw.updatedAt,
