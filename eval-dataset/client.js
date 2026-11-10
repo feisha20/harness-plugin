@@ -956,97 +956,171 @@ window.__ModuleLoader__.load({
   color: #cf1322;
 }
 
-/* Badcase Badges & Severity */
+/* Badcase Badges & Severity - Refined & Restrained */
 .ed-severity-badge {
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 7px;
+  padding: 1.5px 6px;
   border-radius: 4px;
-  line-height: 1.3;
+  line-height: 1.35;
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  letter-spacing: 0.2px;
 }
 .ed-severity-critical {
-  background: #fff0f0;
-  border: 1px solid #ffccc7;
-  color: #cf1322;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  color: #dc2626;
 }
 .ed-severity-high {
-  background: #fff7e6;
-  border: 1px solid #ffd591;
-  color: #d46b08;
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: #d97706;
 }
 .ed-severity-medium {
-  background: #e6f7ff;
-  border: 1px solid #91d5ff;
-  color: #096dd9;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  color: #2563eb;
 }
 .ed-badcase-type-tag {
   font-size: 11px;
-  padding: 2px 6px;
+  padding: 1.5px 6px;
   background: var(--ed-bg-layer2);
   border: 1px solid var(--ed-border1);
   border-radius: 4px;
   color: var(--ed-text2);
 }
-
-/* Badcase Diagnostics */
-.ed-diag-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+.ed-badcase-count-tag {
+  font-size: 10.5px;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: #dc2626;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
 }
-.ed-diag-card {
-  border-radius: 8px;
-  padding: 12px 16px;
+.ed-badcase-card-desc {
+  font-size: 11.5px;
+  color: var(--ed-text2);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+/* Badcase Diagnostics - Clean Unified Dossier */
+.ed-diag-panel {
   background: var(--ed-bg-base);
   border: 1px solid var(--ed-border1);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
-.ed-diag-card-critical {
-  border-left: 4px solid #f53f3f;
-  background: #fffafa;
+.ed-diag-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ed-border1);
 }
-.ed-diag-card-high {
-  border-left: 4px solid #ff7d00;
-  background: #fffbf5;
+.ed-diag-section:last-child {
+  border-bottom: none;
 }
-.ed-diag-card-medium {
-  border-left: 4px solid #1e80ff;
-  background: #f7faff;
+.ed-diag-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
-.ed-diag-card-success {
-  border-left: 4px solid #00b42a;
-  background: #f6fdf8;
-}
-.ed-diag-title {
+.ed-diag-section-title {
   font-size: 12px;
   font-weight: 650;
   color: var(--ed-text1);
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 7px;
+  letter-spacing: 0.2px;
 }
-.ed-diag-content {
+.ed-diag-section-tag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.ed-diag-text {
   font-size: 12.5px;
   color: var(--ed-text1);
   line-height: 1.6;
 }
-.ed-diag-evidence {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11.5px;
-  background: #fafafa;
-  border: 1px solid var(--ed-border1);
-  padding: 10px 12px;
+.ed-diag-action-box {
+  background: color-mix(in srgb, var(--ed-accent) 4%, var(--ed-bg-base));
+  border: 1px solid color-mix(in srgb, var(--ed-accent) 18%, transparent);
   border-radius: 6px;
+  padding: 10px 14px;
+  margin-top: 4px;
+}
+.ed-diag-action-text {
+  font-size: 12.5px;
+  color: var(--ed-text1);
+  line-height: 1.6;
+}
+.ed-diag-evidence-terminal {
+  background: var(--ed-bg-layer1);
+  border: 1px solid var(--ed-border1);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.ed-diag-evidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--ed-bg-layer2);
+  border-bottom: 1px solid var(--ed-border1);
+  font-size: 11px;
+  color: var(--ed-text2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.ed-diag-evidence-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  padding: 10px 12px;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 180px;
+  max-height: 170px;
   overflow-y: auto;
-  color: #cf1322;
+  color: #b91c1c;
+  line-height: 1.5;
+  background: var(--ed-bg-base);
+}
+
+/* Meta Chips in Header */
+.ed-meta-chips-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ed-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1.5px 7px;
+  background: var(--ed-bg-layer1);
+  border: 1px solid var(--ed-border1);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--ed-text2);
+  line-height: 1.4;
 }
 `;
 
@@ -2230,6 +2304,7 @@ ${b.evidence}
                       const isSelected = selectedBadcaseId === b.id;
                       const isChecked = selectedBadcaseIds.has(b.id);
                       const sevClass = b.severity === '严重' ? 'critical' : (b.severity === '高' ? 'high' : 'medium');
+                      const cleanPhenomenon = (b.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, '');
                       return h('div', {
                         key: b.id,
                         className: `ed-case-card ${isSelected ? 'active' : ''}`,
@@ -2244,49 +2319,38 @@ ${b.evidence}
                             }),
                             h('span', { className: `ed-severity-badge ed-severity-${sevClass}` }, b.severity),
                             h('span', { className: 'ed-badcase-type-tag' }, b.badcaseTypeName),
+                            b.toolFailuresCount > 0 && h('span', { className: 'ed-badcase-count-tag' }, `${b.toolFailuresCount}次报错`),
                             b.stepCount >= 100 && h('span', {
                               style: {
                                 fontSize: '10px',
-                                color: '#cf1322',
-                                background: '#fff1f0',
-                                border: '1px solid #ffa39e',
+                                color: '#d97706',
+                                background: 'rgba(217, 119, 6, 0.08)',
+                                border: '1px solid rgba(217, 119, 6, 0.25)',
                                 borderRadius: '4px',
                                 padding: '1px 5px',
                                 fontWeight: '600'
                               }
-                            }, `🚨 ${b.stepCount}步超限`),
-                            b.toolFailuresCount >= 2 && h('span', {
-                              style: {
-                                fontSize: '10px',
-                                color: '#d4380d',
-                                background: '#fff2e8',
-                                border: '1px solid #ffbb96',
-                                borderRadius: '4px',
-                                padding: '1px 5px',
-                                fontWeight: '600'
-                              }
-                            }, `❌ 失败${b.toolFailuresCount}次`),
+                            }, `${b.stepCount}步超限`),
                             b.sampleRepetitions > 1 && h('span', {
                               style: {
                                 fontSize: '10px',
-                                color: '#c41d7f',
-                                background: '#fff0f6',
-                                border: '1px solid #ffd6e7',
+                                color: 'var(--ed-text2)',
+                                background: 'var(--ed-bg-layer2)',
+                                border: '1px solid var(--ed-border1)',
                                 borderRadius: '4px',
-                                padding: '1px 5px',
-                                fontWeight: '600'
+                                padding: '1px 5px'
                               },
-                              title: `已聚合合并 ${b.sampleRepetitions} 条相近报错`
-                            }, `合并 x${b.sampleRepetitions}`)
+                              title: `已聚合合并 ${b.sampleRepetitions} 条相近用例`
+                            }, `x${b.sampleRepetitions}`)
                           ),
                           b.toolCallsCount > 0 && h('span', {
-                            style: { fontSize: '10px', color: 'var(--ed-warn)', fontWeight: '600' }
-                          }, `🔧 ${b.toolCallsCount}次工具`)
+                            style: { fontSize: '10.5px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums' }
+                          }, `${b.toolCallsCount}次工具`)
                         ),
                         h('div', { className: 'ed-card-title' }, b.title),
-                        h('div', { style: { fontSize: '11.5px', color: '#cf1322', marginTop: '2px', lineHeight: '1.4' } }, `🚨 ${b.phenomenon}`),
-                        h('div', { className: 'ed-card-meta', style: { marginTop: '4px' } },
-                          h('span', null, `${b.turnsCount} 轮提问 · ${b.stepCount || 0} 步交互 · ${b.modelId || 'M3.1'}`),
+                        h('div', { className: 'ed-badcase-card-desc' }, cleanPhenomenon),
+                        h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
+                          h('span', null, `${b.turnsCount} 轮 · ${b.stepCount || 0} 步 · ${b.modelId || 'M3.1'}`),
                           h('span', null, (b.createdAt || '').slice(11, 16))
                         )
                       );
@@ -2427,33 +2491,24 @@ ${b.evidence}
                     h('div', { key: 'b_head', className: 'ed-detail-header' },
                       h('div', { className: 'ed-detail-title' },
                         h('h2', null, activeBadcase.title),
-                        h('div', { className: 'ed-detail-sub', style: { flexWrap: 'wrap', gap: '8px' } },
+                        h('div', { className: 'ed-meta-chips-row' },
                           h('span', { className: `ed-severity-badge ed-severity-${activeBadcase.severity === '严重' ? 'critical' : (activeBadcase.severity === '高' ? 'high' : 'medium')}` }, activeBadcase.severity),
                           h('span', { className: 'ed-badcase-type-tag' }, activeBadcase.badcaseTypeName),
-                          ...(activeBadcase.defectTags || []).filter(t => t !== activeBadcase.badcaseTypeName).map((t, idx) => h('span', {
-                            key: idx,
-                            style: {
-                              fontSize: '11px',
-                              padding: '2px 6px',
-                              background: '#fff1f0',
-                              border: '1px solid #ffa39e',
-                              borderRadius: '4px',
-                              color: '#cf1322',
-                              fontWeight: '550'
-                            }
-                          }, `⚠️ ${t}`)),
-                          h('span', null, `ID: ${activeBadcase.id}`),
-                          h('span', null, `会话: ${activeBadcase.sessionId}`),
-                          h('span', null, `步数: ${activeBadcase.stepCount || activeBadcase.messages?.length || 0}步`),
-                          activeBadcase.toolFailuresCount > 0 && h('span', { style: { color: '#cf1322', fontWeight: '600' } }, `报错: ${activeBadcase.toolFailuresCount}次`),
-                          h('span', null, `时间: ${activeBadcase.createdAt}`)
+                          activeBadcase.toolFailuresCount > 0 && h('span', {
+                            className: 'ed-meta-chip',
+                            style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' }
+                          }, h(Glyph, { kind: 'alertCircle', size: 12 }), `报错 ${activeBadcase.toolFailuresCount} 次`),
+                          h('span', { className: 'ed-meta-chip' }, `交互 ${activeBadcase.stepCount || 0} 步 / ${activeBadcase.turnsCount || 1} 轮`),
+                          h('span', { className: 'ed-meta-chip' }, `模型: ${activeBadcase.modelId || 'M3.1'}`),
+                          h('span', { className: 'ed-meta-chip', title: activeBadcase.sessionId }, `会话: ${(activeBadcase.sessionId || '').slice(0, 20)}...`),
+                          h('span', { className: 'ed-meta-chip' }, activeBadcase.createdAt || '')
                         )
                       ),
                       h('div', { style: { display: 'flex', gap: '8px' } },
                         h('button', {
-                          className: 'ed-btn ed-btn-primary',
+                          className: 'ed-btn',
                           onClick: () => copyBadcaseReport(activeBadcase)
-                        }, h(Glyph, { kind: 'copy', size: 12 }), copied === 'badcase_report' ? '已复制诊断报告' : '复制诊断归因报告'),
+                        }, h(Glyph, { kind: 'copy', size: 12 }), copied === 'badcase_report' ? '已复制报告' : '复制诊断报告'),
                         h('button', {
                           className: 'ed-btn',
                           onClick: () => copyToClipboard(JSON.stringify(activeBadcase, null, 2), 'badcase_json')
@@ -2476,42 +2531,74 @@ ${b.evidence}
                     // Badcase Body
                     h('div', { key: 'b_body', className: 'ed-detail-body' },
                       badcaseTab === 'diag' ? [
-                        // Diagnostic Cards
-                        h('div', { key: 'diag_grid', className: 'ed-diag-grid' },
+                        // Unified Diagnostic Dossier Panel
+                        h('div', { key: 'diag_panel', className: 'ed-diag-panel' },
                           // 1. Phenomenon
-                          h('div', { className: `ed-diag-card ed-diag-card-${activeBadcase.severity === '严重' ? 'critical' : 'high'}` },
-                            h('div', { className: 'ed-diag-title' },
-                              h(Glyph, { kind: 'alertCircle', size: 14 }),
-                              '1. 故障现象与触发点 (Phenomenon)'
+                          h('div', { className: 'ed-diag-section' },
+                            h('div', { className: 'ed-diag-section-head' },
+                              h('div', { className: 'ed-diag-section-title' },
+                                h(Glyph, { kind: 'alertCircle', size: 14 }),
+                                '1. 故障现象与触发点 (Phenomenon)'
+                              ),
+                              h('span', {
+                                className: 'ed-diag-section-tag',
+                                style: { background: 'rgba(220,38,38,0.08)', color: '#dc2626' }
+                              }, activeBadcase.badcaseTypeName)
                             ),
-                            h('div', { className: 'ed-diag-content' }, activeBadcase.phenomenon)
+                            h('div', { className: 'ed-diag-text' }, (activeBadcase.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, ''))
                           ),
 
                           // 2. Suspected Cause
-                          h('div', { className: 'ed-diag-card ed-diag-card-high' },
-                            h('div', { className: 'ed-diag-title' },
-                              h(Glyph, { kind: 'filter', size: 14 }),
-                              '2. 疑似根因归因 (Suspected Root Cause)'
+                          h('div', { className: 'ed-diag-section' },
+                            h('div', { className: 'ed-diag-section-head' },
+                              h('div', { className: 'ed-diag-section-title' },
+                                h(Glyph, { kind: 'filter', size: 14 }),
+                                '2. 疑似根因归因 (Suspected Root Cause)'
+                              ),
+                              h('span', {
+                                className: 'ed-diag-section-tag',
+                                style: { background: 'var(--ed-bg-layer2)', color: 'var(--ed-text2)' }
+                              }, '技术归因')
                             ),
-                            h('div', { className: 'ed-diag-content' }, activeBadcase.suspectedCause)
+                            h('div', { className: 'ed-diag-text' }, activeBadcase.suspectedCause)
                           ),
 
                           // 3. Remediation
-                          h('div', { className: 'ed-diag-card ed-diag-card-success' },
-                            h('div', { className: 'ed-diag-title' },
-                              h(Glyph, { kind: 'tool', size: 14 }),
-                              '3. 修复与优化建议 (Actionable Remediation)'
+                          h('div', { className: 'ed-diag-section' },
+                            h('div', { className: 'ed-diag-section-head' },
+                              h('div', { className: 'ed-diag-section-title' },
+                                h(Glyph, { kind: 'tool', size: 14 }),
+                                '3. 修复与优化建议 (Actionable Remediation)'
+                              ),
+                              h('span', {
+                                className: 'ed-diag-section-tag',
+                                style: { background: 'rgba(16,185,129,0.08)', color: '#059669' }
+                              }, '推荐方案')
                             ),
-                            h('div', { className: 'ed-diag-content' }, activeBadcase.recommendation)
+                            h('div', { className: 'ed-diag-action-box' },
+                              h('div', { className: 'ed-diag-action-text' }, activeBadcase.recommendation)
+                            )
                           ),
 
                           // 4. Evidence
-                          h('div', { className: 'ed-diag-card' },
-                            h('div', { className: 'ed-diag-title' },
-                              h(Glyph, { kind: 'dataset', size: 14 }),
-                              '4. 关键证据与报错触发信息 (Trigger Evidence)'
+                          h('div', { className: 'ed-diag-section' },
+                            h('div', { className: 'ed-diag-section-head' },
+                              h('div', { className: 'ed-diag-section-title' },
+                                h(Glyph, { kind: 'dataset', size: 14 }),
+                                '4. 关键证据与报错触发信息 (Trigger Evidence)'
+                              ),
+                              h('button', {
+                                className: 'ed-copy-btn',
+                                onClick: () => copyToClipboard(activeBadcase.evidence, 'b_evidence')
+                              }, copied === 'b_evidence' ? '已复制' : '复制证据')
                             ),
-                            h('div', { className: 'ed-diag-evidence' }, activeBadcase.evidence)
+                            h('div', { className: 'ed-diag-evidence-terminal' },
+                              h('div', { className: 'ed-diag-evidence-head' },
+                                h('span', null, 'EXCEPTION_STACK / CONTEXT_PAYLOAD'),
+                                h('span', null, `${(activeBadcase.evidence || '').length} 字符`)
+                              ),
+                              h('div', { className: 'ed-diag-evidence-code' }, activeBadcase.evidence || '（未记录具体证据信息）')
+                            )
                           )
                         ),
 
