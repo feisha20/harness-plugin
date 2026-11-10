@@ -1,15 +1,87 @@
+export function cleanPromptText(text) {
+  if (!text) return '';
+  return text
+    .replace(/<div\s+style="display:none"[^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<div\b[\s\S]*/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/<[^>]*$/g, '')
+    .trim();
+}
+
 export function isNoiseSession(session) {
   const title = (session.title || '').trim();
   if (!title) return true;
   // Automated shell commands / probes
-  if (/^(cat >|python|ls |cd |rm |echo |curl |export |\/tmp|head |wc |grep |find )/i.test(title)) {
+  if (/^(cat >|python|ls |cd |rm |echo |curl |export |\/tmp|head |wc |grep |find |id; whoami|uname )/i.test(title)) {
+    return true;
+  }
+  // Sandbox exploration scripts
+  if (/(沙箱终端|在沙箱里执行|跑一段数据处理脚本.*先做环境确认|grep -E .Cap)/i.test(title)) {
     return true;
   }
   // Trivial echoes
-  if (/^(ping|test|pong|1|ok)$/i.test(title)) {
+  if (/^(ping|test|pong|1|ok|思考久一点)$/i.test(title)) {
     return true;
   }
   return false;
+}
+
+export function isNoisePrompt(prompt) {
+  const c = cleanPromptText(prompt);
+  if (c.length < 3) return true;
+  if (/^(1|ok|test|ping|思考久一点)$/i.test(c)) return true;
+  if (/(沙箱终端|在沙箱里执行|跑一段数据处理脚本.*先做环境确认|grep -E .Cap|id; whoami|cat \/proc)/i.test(c)) return true;
+  return false;
+}
+
+export function normalizePrompt(p) {
+  let s = cleanPromptText(p).toLowerCase();
+  if (/^{\s*"diagnosismessageid"/i.test(s)) {
+    return '<DIAGNOSIS_ACTION>';
+  }
+  s = s.replace(/输出\s*\d+\s*字.*?作文[^\n]*/g, '输出作文《*》');
+  s = s.replace(/.*预生产\s*#\d+.*(合成|skill|资源|样本)[^\n]*/gi, '预生产合成测试');
+  s = s.replace(/帮我诊断.*机器人对话[^\n]*/g, '帮我诊断机器人对话，并给出配置修改方案');
+  s = s.replace(/.*优化内容.*整合到系统提示词[^\n]*/g, '优化内容整合到系统提示词');
+  s = s.replace(/.*息肉(术后|切了|切除)[^\n]*/g, '息肉术后转微话术');
+  s = s.replace(/.*(肛门瘙痒|屁眼痒痒).*转微话术[^\n]*/g, '肛门瘙痒转微话术');
+  s = s.replace(/帮我创建一个口腔咨询接待流程.*流程名称叫[「“][^」”]+[」”][^\n]*/g, '帮我创建一个口腔咨询接待流程');
+  s = s.replace(/《[^》]+》/g, '《*》');
+  s = s.replace(/「[^」]+」/g, '「*」');
+  s = s.replace(/“[^”]+”/g, '"*"');
+  s = s.replace(/#\d+/g, '#ID');
+  s = s.replace(/20\d\d-\d\d-\d\d( \d\d:\d\d:\d\d)?/g, '<DATE>');
+  s = s.replace(/\d{4,}|\d+\.\d+/g, '<NUM>');
+  s = s.replace(/recid[:：]\s*\w+/gi, 'recid:<ID>');
+  return s.trim();
+}
+
+function getBigrams(str) {
+  const s = str.replace(/\s+/g, '');
+  const set = new Set();
+  for (let i = 0; i < s.length - 1; i++) {
+    set.add(s.slice(i, i + 2));
+  }
+  return set;
+}
+
+export function isSimilarPrompt(p1, p2) {
+  const n1 = normalizePrompt(p1);
+  const n2 = normalizePrompt(p2);
+  if (n1 === n2) return true;
+  if (n1.startsWith(n2) || n2.startsWith(n1)) {
+    const minLen = Math.min(n1.length, n2.length);
+    if (minLen >= 10) return true;
+  }
+  const b1 = getBigrams(n1);
+  const b2 = getBigrams(n2);
+  if (b1.size === 0 || b2.size === 0) return false;
+  let intersection = 0;
+  for (const bg of b1) {
+    if (b2.has(bg)) intersection++;
+  }
+  const jaccard = intersection / (b1.size + b2.size - intersection);
+  return jaccard >= 0.40;
 }
 
 export function scoreAndCategorizeSession(session, messages) {
@@ -22,8 +94,9 @@ export function scoreAndCategorizeSession(session, messages) {
     return null;
   }
 
-  const primaryPrompt = userMsgs[0].content.trim();
-  if (!primaryPrompt || primaryPrompt.length < 3) {
+  const rawPrompt = userMsgs[0].content || '';
+  const primaryPrompt = cleanPromptText(rawPrompt);
+  if (!primaryPrompt || primaryPrompt.length < 3 || isNoisePrompt(primaryPrompt)) {
     return null;
   }
 
@@ -104,11 +177,15 @@ export function scoreAndCategorizeSession(session, messages) {
   }
 
   const toolNames = [...new Set(toolMsgs.map(t => t.toolName).filter(Boolean))];
+  const cleanTitle = cleanPromptText(session.title || '');
+  const displayTitle = (cleanTitle && cleanTitle.length >= 3 && !isNoisePrompt(cleanTitle))
+    ? cleanTitle
+    : primaryPrompt.slice(0, 40);
 
   return {
     id: `eval_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
     sessionId: session.sessionId,
-    title: session.title || primaryPrompt.slice(0, 30),
+    title: displayTitle,
     category,
     valueScore: score,
     valueReasons: reasons,
@@ -137,25 +214,39 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
     }
   }
 
-  // Deduplicate near-identical cases (e.g. repeated test runs of same scenario)
-  const grouped = new Map();
+  // Cluster similar / near-identical cases
+  const clusters = [];
   for (const item of rawCases) {
-    // Key by simplified prompt
-    const key = item.userPrompt.slice(0, 40).trim();
-    if (!grouped.has(key)) {
-      grouped.set(key, []);
+    let added = false;
+    for (const cluster of clusters) {
+      if (isSimilarPrompt(cluster.representative.userPrompt, item.userPrompt)) {
+        cluster.items.push(item);
+        // Retain the representative with higher score or longer reference answer
+        if (
+          item.valueScore > cluster.representative.valueScore ||
+          (item.valueScore === cluster.representative.valueScore &&
+            item.referenceAnswer.length > cluster.representative.referenceAnswer.length)
+        ) {
+          cluster.representative = item;
+        }
+        added = true;
+        break;
+      }
     }
-    grouped.get(key).push(item);
+    if (!added) {
+      clusters.push({ representative: item, items: [item] });
+    }
   }
 
   const finalCases = [];
-  for (const [, group] of grouped) {
-    // Pick the one with highest value score and longest answer
-    group.sort((a, b) => b.valueScore - a.valueScore || b.referenceAnswer.length - a.referenceAnswer.length);
-    const best = { ...group[0] };
-    if (group.length > 1) {
-      best.sampleRepetitions = group.length;
-      best.valueReasons.push(`同场景高频样本 (昨日出现 ${group.length} 次)`);
+  for (const cluster of clusters) {
+    const best = { ...cluster.representative };
+    if (cluster.items.length > 1) {
+      best.sampleRepetitions = cluster.items.length;
+      best.valueReasons = [
+        ...best.valueReasons,
+        `同场景高频样本 (去重合并 ${cluster.items.length} 条相近用例)`
+      ];
     }
     finalCases.push(best);
   }

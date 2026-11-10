@@ -80,31 +80,106 @@ window.__ModuleLoader__.load({
   flex-wrap: wrap;
 }
 
-/* Environment selector */
-.ed-env-badge {
-  display: flex;
+/* Custom Environment Dropdown */
+.ed-env-dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+}
+.ed-env-trigger {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
   background: var(--ed-bg-base);
   border: 1px solid var(--ed-border1);
   border-radius: 6px;
-  padding: 3px 8px;
-}
-.ed-env-badge select {
-  border: none;
-  background: transparent;
-  color: inherit;
+  color: var(--ed-text1);
   font: inherit;
   font-size: 12px;
-  font-weight: 600;
-  outline: none;
+  font-weight: 550;
   cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.ed-env-trigger:hover {
+  background: var(--ed-bg-layer2);
+  border-color: var(--ed-border2);
+}
+.ed-env-trigger.open {
+  border-color: var(--ed-accent);
+  box-shadow: 0 0 0 2px rgba(30, 128, 255, 0.15);
+}
+.ed-env-label {
+  letter-spacing: 0.1px;
+}
+.ed-env-chevron {
+  color: var(--ed-text2);
+  transition: transform 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+}
+.ed-env-chevron.open {
+  transform: rotate(180deg);
+}
+.ed-env-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  min-width: 156px;
+  background: var(--ed-bg-base);
+  border: 1px solid var(--ed-border1);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.05);
+  padding: 4px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: edFadeIn 0.15s cubic-bezier(0, 0, 0.2, 1);
+}
+@keyframes edFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ed-env-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--ed-text1);
+  cursor: pointer;
+  transition: background 0.12s ease;
+  user-select: none;
+}
+.ed-env-menu-item:hover {
+  background: var(--ed-bg-layer2);
+}
+.ed-env-menu-item.selected {
+  background: rgba(30, 128, 255, 0.08);
+  color: var(--ed-accent);
+  font-weight: 600;
+}
+.ed-env-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ed-env-item-check {
+  color: var(--ed-accent);
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
 }
 .ed-env-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   display: inline-block;
+  flex-shrink: 0;
 }
 .ed-env-dot-prod { background: var(--ed-success); box-shadow: 0 0 0 2px rgba(0, 180, 42, 0.2); }
 .ed-env-dot-test { background: var(--ed-warn); box-shadow: 0 0 0 2px rgba(255, 125, 0, 0.2); }
@@ -908,7 +983,8 @@ window.__ModuleLoader__.load({
         check: 'M5 13l4 4L19 7',
         copy: 'M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.242a2 2 0 0 0-.602-1.43L16.08 2.57A2 2 0 0 0 14.65 2H10a2 2 0 0 0-2 2z',
         gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4 1.4l1.6 1.2c.2.1.2.4.1.6l-1.5 2.6c-.1.2-.4.3-.6.2l-1.9-.8c-.4.3-.8.6-1.3.8l-.3 2c0 .2-.3.4-.5.4h-3c-.2 0-.5-.2-.5-.4l-.3-2c-.5-.2-.9-.5-1.3-.8l-1.9.8c-.2.1-.5 0-.6-.2l-1.5-2.6c-.1-.2 0-.5.1-.6l1.6-1.2c-.1-.5-.1-1 0-1.5l-1.6-1.2c-.2-.1-.2-.4-.1-.6l1.5-2.6c.1-.2.4-.3.6-.2l1.9.8c.4-.3.8-.6 1.3-.8l.3-2c0-.2.3-.4.5-.4h3c.2 0 .5.2.5.4l.3 2c.5.2.9.5 1.3.8l1.9-.8c.2-.1.5 0 .6.2l1.5 2.6c.1.2 0 .5-.1.6l-1.6 1.2c.1.5.1 1 0 1.5z',
-        close: 'M18 6L6 18M6 6l12 12'
+        close: 'M18 6L6 18M6 6l12 12',
+        chevronDown: 'M6 9l6 6 6-6'
       };
       return h('svg', {
         width: size, height: size, viewBox: '0 0 24 24',
@@ -963,6 +1039,20 @@ window.__ModuleLoader__.load({
           const [activeTab, setActiveTab] = React.useState('case');
           const [answerViewMode, setAnswerViewMode] = React.useState('preview');
           const [copied, setCopied] = React.useState('');
+          const [envMenuOpen, setEnvMenuOpen] = React.useState(false);
+          const envDropdownRef = React.useRef(null);
+
+          // Close dropdown on outside click
+          React.useEffect(() => {
+            if (!envMenuOpen) return;
+            function handleOutside(e) {
+              if (envDropdownRef.current && !envDropdownRef.current.contains(e.target)) {
+                setEnvMenuOpen(false);
+              }
+            }
+            document.addEventListener('mousedown', handleOutside);
+            return () => document.removeEventListener('mousedown', handleOutside);
+          }, [envMenuOpen]);
 
           // 1. Load configuration on startup
           const loadConfig = React.useCallback(async () => {
@@ -1188,16 +1278,46 @@ window.__ModuleLoader__.load({
                   )
                 ),
                 h('div', { className: 'ed-header-actions' },
-                  // Environment selector
-                  h('div', { className: 'ed-env-badge' },
-                    h('span', { className: `ed-env-dot ${currentEnv === 'prod' ? 'ed-env-dot-prod' : (currentEnv === 'test' ? 'ed-env-dot-test' : 'ed-env-dot-dev')}` }),
-                    h('select', {
-                      value: currentEnv,
-                      onChange: e => handleEnvChange(e.target.value)
+                  // Environment selector (Custom Dropdown)
+                  h('div', { className: 'ed-env-dropdown-wrapper', ref: envDropdownRef },
+                    h('button', {
+                      type: 'button',
+                      className: `ed-env-trigger ${envMenuOpen ? 'open' : ''}`,
+                      onClick: () => setEnvMenuOpen(!envMenuOpen),
+                      title: '切换运行环境'
                     },
-                      h('option', { value: 'test' }, '测试环境 (tkf)'),
-                      h('option', { value: 'prod' }, '生产环境 (prd)'),
-                      h('option', { value: 'dev' }, '开发环境 (dkf)')
+                      h('span', { className: `ed-env-dot ${currentEnv === 'prod' ? 'ed-env-dot-prod' : (currentEnv === 'test' ? 'ed-env-dot-test' : 'ed-env-dot-dev')}` }),
+                      h('span', { className: 'ed-env-label' },
+                        currentEnv === 'prod' ? '生产环境 (prd)' : (currentEnv === 'test' ? '测试环境 (tkf)' : '开发环境 (dkf)')
+                      ),
+                      h('span', { className: `ed-env-chevron ${envMenuOpen ? 'open' : ''}` },
+                        h(Glyph, { kind: 'chevronDown', size: 12 })
+                      )
+                    ),
+                    envMenuOpen && h('div', { className: 'ed-env-menu' },
+                      [
+                        { id: 'test', label: '测试环境 (tkf)', dotClass: 'ed-env-dot-test' },
+                        { id: 'prod', label: '生产环境 (prd)', dotClass: 'ed-env-dot-prod' },
+                        { id: 'dev', label: '开发环境 (dkf)', dotClass: 'ed-env-dot-dev' }
+                      ].map(opt => {
+                        const isSelected = currentEnv === opt.id;
+                        return h('div', {
+                          key: opt.id,
+                          className: `ed-env-menu-item ${isSelected ? 'selected' : ''}`,
+                          onClick: () => {
+                            setEnvMenuOpen(false);
+                            handleEnvChange(opt.id);
+                          }
+                        },
+                          h('div', { className: 'ed-env-item-left' },
+                            h('span', { className: `ed-env-dot ${opt.dotClass}` }),
+                            h('span', null, opt.label)
+                          ),
+                          isSelected && h('span', { className: 'ed-env-item-check' },
+                            h(Glyph, { kind: 'check', size: 13 })
+                          )
+                        );
+                      })
                     )
                   ),
                   // Environment Settings Button
@@ -1343,7 +1463,19 @@ window.__ModuleLoader__.load({
                             onChange: e => toggleSelectOne(c.id, e)
                           }),
                           h('span', { className: `ed-score-badge ${scoreClass}` }, `${c.valueScore}分`),
-                          h('span', { className: 'ed-category-tag' }, c.category)
+                          h('span', { className: 'ed-category-tag' }, c.category),
+                          c.sampleRepetitions > 1 && h('span', {
+                            style: {
+                              fontSize: '10px',
+                              color: 'var(--ed-text2)',
+                              background: 'var(--ed-bg-layer2)',
+                              border: '1px solid var(--ed-border1)',
+                              borderRadius: '4px',
+                              padding: '1px 5px',
+                              fontWeight: '600'
+                            },
+                            title: `已去重合并 ${c.sampleRepetitions} 条相近或相同对话`
+                          }, `去重 x${c.sampleRepetitions}`)
                         ),
                         c.toolCallsCount > 0 && h('span', {
                           style: { fontSize: '10px', color: 'var(--ed-accent)', fontWeight: '600' }
