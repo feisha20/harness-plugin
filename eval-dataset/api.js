@@ -4,30 +4,56 @@ import path from 'node:path';
 const CONFIG_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), 'config.json');
 
 const DEFAULT_CONFIG = {
-  activeEnv: 'test',
+  activeEnv: 'prod',
   environments: {
-    test: {
-      name: '测试环境',
-      url: 'https://tkf-kuaibuddy.kuaishang.cn',
-      key: '198270-Test'
-    },
     prod: {
       name: '生产环境',
+      tag: 'prd',
       url: 'https://kuaibuddy.kuaishang.cn',
-      key: ''
+      key: '',
+      companyId: '',
+      username: '',
+      password: ''
+    },
+    preprod: {
+      name: '预生产环境',
+      tag: 'pre',
+      url: 'https://test-kuaibuddy.dingningtalk.com',
+      key: '',
+      companyId: '232679',
+      username: 'testpro',
+      password: ''
+    },
+    test: {
+      name: '测试环境',
+      tag: 'tkf',
+      url: 'https://tkf-kuaibuddy.kuaishang.cn',
+      key: '198270-Test',
+      companyId: '198270',
+      username: '',
+      password: ''
     },
     dev: {
       name: '开发环境',
+      tag: 'dkf',
       url: 'https://dkf-kuaibuddy.kuaishang.cn',
-      key: ''
-    },
-    custom: {
-      name: '自定义环境',
-      url: '',
-      key: ''
+      key: '',
+      companyId: '',
+      username: '',
+      password: ''
     }
   }
 };
+
+export function normalizeApiUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    return u.origin;
+  } catch {
+    return url.replace(/\/work\/.*$/, '').replace(/\/+$/, '');
+  }
+}
 
 export function getConfig() {
   try {
@@ -63,11 +89,16 @@ export function saveConfig(updates) {
 // Get credentials from config or env fallback
 export function getCredentials(targetEnv, overrideCreds) {
   const cfg = getConfig();
-  const envKey = targetEnv || cfg.activeEnv || 'test';
-  const envData = cfg.environments[envKey] || cfg.environments.test;
+  const envKey = targetEnv || cfg.activeEnv || 'prod';
+  const envData = cfg.environments[envKey] || cfg.environments.prod || cfg.environments.test;
 
-  let url = overrideCreds?.url || envData.url;
-  let key = overrideCreds?.key || envData.key;
+  let url = overrideCreds?.url || envData?.url;
+  let key = overrideCreds?.key || envData?.key;
+
+  // Preprod shares the same database and staff key as prod
+  if (!key && envKey === 'preprod') {
+    key = cfg.environments.prod?.key;
+  }
 
   // Fallback to process.env or ~/.zshrc if test env and key is empty
   if (!key && envKey === 'test') {
@@ -85,11 +116,24 @@ export function getCredentials(targetEnv, overrideCreds) {
     if (!key) key = '198270-Test';
   }
 
+  const defaultUrls = {
+    prod: 'https://kuaibuddy.kuaishang.cn',
+    preprod: 'https://test-kuaibuddy.dingningtalk.com',
+    test: 'https://tkf-kuaibuddy.kuaishang.cn',
+    dev: 'https://dkf-kuaibuddy.kuaishang.cn'
+  };
+
+  const finalUrl = normalizeApiUrl(url || defaultUrls[envKey] || defaultUrls.prod);
+
   return {
     env: envKey,
-    envName: envData.name || envKey,
-    url: url || (envKey === 'prod' ? 'https://kuaibuddy.kuaishang.cn' : 'https://tkf-kuaibuddy.kuaishang.cn'),
-    key: key || ''
+    envName: envData?.name || envKey,
+    tag: envData?.tag || envKey,
+    url: finalUrl,
+    key: key || '',
+    companyId: envData?.companyId || '',
+    username: envData?.username || '',
+    password: envData?.password || ''
   };
 }
 

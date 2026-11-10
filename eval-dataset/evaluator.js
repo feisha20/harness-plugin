@@ -84,6 +84,302 @@ export function isSimilarPrompt(p1, p2) {
   return jaccard >= 0.40;
 }
 
+/**
+ * Detect Badcase from session and conversation messages
+ * 核心识别维度：
+ * 1. 步骤超过100步 (step_limit_exceeded) - 死循环、步数失控未收敛
+ * 2. 工具调用高频失败 (frequent_tool_failures) - 单会话工具失败 >= 2 次
+ * 3. 任务中断 / 异常截断 (task_interrupted) - 生成中途退出、任务意外中断
+ * 4. 输出结果不满足用户需求 (requirement_unmet) - 答非所问、不满足需求、未按指令执行
+ * 5. 机械重复问诊/负反馈 (user_complaint) - 重复问诊、转人工、用户抗议
+ * 6. 业务规则/配置未生效 (config_mismatch) - 流程规则未触发、分配错误、排班有错
+ * 7. 服务/回复异常 (response_anomaly) - 服务开小差、网络异常
+ * 8. 单次工具调用异常 (tool_error) - 偶发工具 5xx/超时报错
+ */
+export function detectBadcase(session, messages) {
+  const userMsgs = messages.filter(m => m.role === 'user');
+  const assistantMsgs = messages.filter(m => m.role === 'assistant');
+  const toolMsgs = messages.filter(m => m.role === 'tool' || m.toolName);
+
+  if (userMsgs.length === 0 && (!session.title || isNoiseSession(session))) {
+    return null;
+  }
+
+  const rawTitle = session.title || '';
+  const cleanTitle = cleanPromptText(rawTitle);
+
+  // 收集所有异常/失败的工具调用
+  const failedToolMsgs = [];
+  for (const tm of toolMsgs) {
+    const text = tm.content || tm.toolResult || '';
+    if (/(error|exception|failed|fail|timeout|timed out|超时|500|403|401|拒绝连接|连接失败|权限不足|ECONNREFUSED|ETIMEDOUT)/i.test(text)) {
+      failedToolMsgs.push(tm);
+    }
+  }
+
+  // 1. 步骤超过 100 步 (步数超限 / 死循环)
+  const isStepExceeded = messages.length >= 100 || toolMsgs.length >= 100;
+
+  // 2. 工具调用高频失败 (>= 2 次)
+  const isFrequentToolFail = failedToolMsgs.length >= 2;
+
+  // 3. 任务中断 / 异常退出
+  let isTaskInterrupted = false;
+  let interruptEvidence = '';
+  for (const um of userMsgs) {
+    const text = cleanPromptText(um.content || '');
+    if (/(写一半退出|任务中断|中途退出|异常退出|写一半不写了|中断后继续|为什么退出了|中断退出|生成中断)/.test(text)) {
+      isTaskInterrupted = true;
+      interruptEvidence = text;
+      break;
+    }
+  }
+  if (!isTaskInterrupted && /(写一半退出|任务中断|中途退出)/.test(cleanTitle)) {
+    isTaskInterrupted = true;
+    interruptEvidence = cleanTitle;
+  }
+
+  // 4. 输出结果不满足用户需求
+  let isRequirementUnmet = false;
+  let unmetEvidence = '';
+  for (const um of userMsgs) {
+    const text = cleanPromptText(um.content || '');
+    if (/(不满足需求|不是我要的|不是这个意思|答非所问|牛头不对马嘴|没达到要求|不对劲|根本没解决|还是不行|没有按要求|未按指令|漏掉了|完全错误|这写的什么|这算的什么|根本不对)/.test(text)) {
+      const match = text.match(/(不满足需求|不是我要的|不是这个意思|答非所问|牛头不对马嘴|没达到要求|不对劲|根本没解决|还是不行|没有按要求|未按指令|漏掉了|完全错误|这写的什么|这算的什么|根本不对)/)[0];
+      isRequirementUnmet = true;
+      unmetEvidence = `命中负向反馈: "${match}" - 原文: ${text}`;
+      break;
+    }
+  }
+
+  // 5. 机械重复问诊与用户负反馈
+  let isUserComplaint = false;
+  let complaintEvidence = '';
+  for (const um of userMsgs) {
+    const text = cleanPromptText(um.content || '');
+    if (/(不要重复问诊|上文问过|上文已经问过|已问过|别再问|不要再问|前面说过了|胡说|转人工|叫人工|人工客服|别瞎说|听不懂)/.test(text)) {
+      const match = text.match(/(不要重复问诊|上文问过|上文已经问过|已问过|别再问|不要再问|前面说过了|胡说|转人工|叫人工|人工客服|别瞎说|听不懂)/)[0];
+      isUserComplaint = true;
+      complaintEvidence = `命中负向抗议: "${match}" - 原文: ${text}`;
+      break;
+    }
+  }
+
+  // 6. 业务规则/配置未生效
+  let isConfigMismatch = false;
+  let mismatchEvidence = '';
+  for (const um of userMsgs) {
+    const text = cleanPromptText(um.content || '');
+    if (/(为什么.*不生效|为什么.*没生效|加进去不生效|为什么没有分配|分错|没分给|未按规则|为什么还会报联|明明设置了|为什么会有两个人值班|排班.*有错|为什么仍收到|哪里设置不对|怎么没生效|不按规则)/.test(text)) {
+      isConfigMismatch = true;
+      mismatchEvidence = text;
+      break;
+    }
+  }
+
+  // 7. 服务/回复异常 (大模型或系统报错)
+  let isResponseAnomaly = false;
+  let anomalyEvidence = '';
+  for (const am of assistantMsgs) {
+    const text = am.content || '';
+    if (/(服务开小差|遇到问题|网络开小差|稍后重试|发生未知错误|抱歉.*请重试|无法完成你的请求)/.test(text)) {
+      isResponseAnomaly = true;
+      anomalyEvidence = text;
+      break;
+    }
+  }
+
+  // 8. 单次工具报错
+  const isSingleToolError = failedToolMsgs.length === 1;
+
+  // 汇总所有命中的缺陷标签
+  const defectTags = [];
+  if (isStepExceeded) defectTags.push('步骤超过100步');
+  if (isFrequentToolFail) defectTags.push(`工具高频失败(${failedToolMsgs.length}次)`);
+  else if (isSingleToolError) defectTags.push('工具调用异常');
+  if (isTaskInterrupted) defectTags.push('任务中断');
+  if (isRequirementUnmet) defectTags.push('输出不满足需求');
+  if (isUserComplaint) defectTags.push('机械重复/负反馈');
+  if (isConfigMismatch) defectTags.push('规则/配置未生效');
+  if (isResponseAnomaly) defectTags.push('服务/回复异常');
+
+  // 若无任何缺陷命中，且标题无投诉特征，则非 Badcase
+  if (defectTags.length === 0) {
+    if (/(为什么.*不生效|不要重复问诊|上文问过|未分配|分错|哪里设置不对|任务中断|写一半退出)/.test(cleanTitle)) {
+      let t = 'config_mismatch';
+      let tn = '规则/配置未生效';
+      if (/(不要重复|上文问过)/.test(cleanTitle)) { t = 'user_complaint'; tn = '机械重复/负反馈'; }
+      else if (/(任务中断|写一半退出)/.test(cleanTitle)) { t = 'task_interrupted'; tn = '任务中断/异常截断'; }
+      return {
+        isBadcase: true,
+        badcaseType: t,
+        badcaseTypeName: tn,
+        severity: t === 'task_interrupted' ? '严重' : '高',
+        defectTags: [tn],
+        phenomenon: `会话明确指向异常诉求: "${cleanTitle}"`,
+        suspectedCause: '业务规则未触发、流程中断或配置覆盖冲突',
+        recommendation: '检查工作流逻辑与提示词负向约束，纳入重点回归集',
+        evidence: cleanTitle,
+        evidenceRole: 'session',
+        stepCount: messages.length,
+        toolCallsCount: toolMsgs.length,
+        toolFailuresCount: 0
+      };
+    }
+    return null;
+  }
+
+  // 优先判定归类 (按严重度与核心事故定级)
+  if (isStepExceeded) {
+    return {
+      isBadcase: true,
+      badcaseType: 'step_limit_exceeded',
+      badcaseTypeName: '步骤超限/死循环',
+      severity: '严重',
+      defectTags,
+      phenomenon: `会话交互步数达到 ${messages.length} 步 (工具调用 ${toolMsgs.length} 次)，超过 100 步阈值，疑似死循环或推理未收敛`,
+      suspectedCause: '智能体未设置步数熔断上限，或在连续重试动作中缺少退出/跳出收敛条件',
+      recommendation: '增加任务单会话最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户',
+      evidence: `总交互步数: ${messages.length} 步 | 工具调用: ${toolMsgs.length} 次`,
+      evidenceRole: 'system',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isFrequentToolFail) {
+    const failedTools = [...new Set(failedToolMsgs.map(t => t.toolName || 'Tool'))];
+    return {
+      isBadcase: true,
+      badcaseType: 'frequent_tool_failures',
+      badcaseTypeName: '工具调用高频失败',
+      severity: '严重',
+      defectTags,
+      phenomenon: `单会话内工具调用累计失败 ${failedToolMsgs.length} 次（涉及工具: ${failedTools.join('、')}），工具链严重受阻`,
+      suspectedCause: '外部依赖服务接口异常、权限凭证失效，或模型未能正确根据报错自我纠正入参 Schema 导致连续失败',
+      recommendation: '引入工具调用断路器 (Circuit Breaker) 与连续失败回退机制；补齐工具入参的静态 Schema 校验与 Few-shot 样例',
+      evidence: (failedToolMsgs[0].content || failedToolMsgs[0].toolResult || '').slice(0, 300),
+      evidenceRole: 'tool',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isTaskInterrupted) {
+    return {
+      isBadcase: true,
+      badcaseType: 'task_interrupted',
+      badcaseTypeName: '任务中断/异常截断',
+      severity: '严重',
+      defectTags,
+      phenomenon: '任务执行中途退出或长文本生成被异常截断，未能完整交付预期结果',
+      suspectedCause: '网关 SSE 长连接中断、执行进程被沙箱超时杀死、Token 预算耗尽 (Length Finish) 或上游服务主动终止',
+      recommendation: '为长时生成与多步骤任务增加 Checkpoint 进度持久化与断点续跑机制；增大 max_tokens 预算与网络保活心跳',
+      evidence: interruptEvidence.slice(0, 300),
+      evidenceRole: 'user',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isRequirementUnmet) {
+    return {
+      isBadcase: true,
+      badcaseType: 'requirement_unmet',
+      badcaseTypeName: '输出不满足需求',
+      severity: '高',
+      defectTags,
+      phenomenon: `用户明确反馈模型生成结果或方案不满足业务需求（${unmetEvidence.slice(0, 80)}）`,
+      suspectedCause: '大模型意图理解与指令对齐偏差 (Instruction Following Deficit)，未精准识别核心约束条件，或缺乏前置意图澄清确认',
+      recommendation: '在系统提示词增加强约束要求（如输出前进行条件复核清单）；在模糊需求场景下触发主动反问（Ask User Clarification）',
+      evidence: unmetEvidence.slice(0, 300),
+      evidenceRole: 'user',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isUserComplaint) {
+    return {
+      isBadcase: true,
+      badcaseType: 'user_complaint',
+      badcaseTypeName: '机械重复/负反馈',
+      severity: '高',
+      defectTags,
+      phenomenon: `用户产生负向抱怨或抗议机械重复问诊（${complaintEvidence.slice(0, 80)}）`,
+      suspectedCause: '多轮状态记忆缺失或提示词未配置负向约束，导致重复追问已提过的问题',
+      recommendation: '在系统提示词增加负向约束「严禁重复追问访客上文已提及或已问过的信息」，并优化槽位记忆',
+      evidence: complaintEvidence.slice(0, 300),
+      evidenceRole: 'user',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isConfigMismatch) {
+    return {
+      isBadcase: true,
+      badcaseType: 'config_mismatch',
+      badcaseTypeName: '规则/配置未生效',
+      severity: '高',
+      defectTags,
+      phenomenon: '用户反馈配置的规则、分配机制或排班未按预期生效',
+      suspectedCause: 'START 触发条件不匹配、优先级覆盖冲突或缺少兜底机制',
+      recommendation: '检查规则触发词泛化边界与路由优先级，排查客服接待在线状态与排班判定',
+      evidence: mismatchEvidence.slice(0, 300),
+      evidenceRole: 'user',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isResponseAnomaly) {
+    return {
+      isBadcase: true,
+      badcaseType: 'response_anomaly',
+      badcaseTypeName: '服务/回复异常',
+      severity: '严重',
+      defectTags,
+      phenomenon: '大模型或客服引擎返回系统故障与异常中断提示',
+      suspectedCause: '网关超时、上游模型服务抖动或上下文超出最大 Token 限制',
+      recommendation: '缩减上下文轮数，增加模型输出流式断线重连与优雅兜底提示',
+      evidence: anomalyEvidence.slice(0, 300),
+      evidenceRole: 'assistant',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: failedToolMsgs.length
+    };
+  }
+
+  if (isSingleToolError) {
+    const tm = failedToolMsgs[0];
+    const text = tm.content || tm.toolResult || '';
+    return {
+      isBadcase: true,
+      badcaseType: 'tool_error',
+      badcaseTypeName: '工具调用异常',
+      severity: '严重',
+      defectTags,
+      phenomenon: `工具 [${tm.toolName || 'Tool'}] 调用执行失败或抛出异常`,
+      suspectedCause: '工具接口入参格式不合规、接口超时或目标后台服务抛出 5xx/鉴权错误',
+      recommendation: '在系统提示词增加参数格式示例校验，增加工具超时重试机制与降级策略',
+      evidence: text.slice(0, 300),
+      evidenceRole: 'tool',
+      stepCount: messages.length,
+      toolCallsCount: toolMsgs.length,
+      toolFailuresCount: 1
+    };
+  }
+
+  return null;
+}
+
 export function scoreAndCategorizeSession(session, messages) {
   const userMsgs = messages.filter(m => m.role === 'user');
   const assistantMsgs = messages.filter(m => m.role === 'assistant');
@@ -204,24 +500,65 @@ export function scoreAndCategorizeSession(session, messages) {
 export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
   const validSessions = sessions.filter(s => !isNoiseSession(s));
   const rawCases = [];
+  const rawBadcases = [];
 
   for (const session of validSessions) {
     const msgs = messagesMap.get(session.sessionId) || [];
     if (msgs.length === 0) continue;
+
+    // 1. Evaluate Badcase for regression suite
+    const bad = detectBadcase(session, msgs);
+    if (bad) {
+      const userMsgs = msgs.filter(m => m.role === 'user');
+      const assistantMsgs = msgs.filter(m => m.role === 'assistant');
+      const toolMsgs = msgs.filter(m => m.role === 'tool' || m.toolName);
+      const rawPrompt = userMsgs[0]?.content || session.title || '';
+      const prompt = cleanPromptText(rawPrompt);
+      const cleanTitle = cleanPromptText(session.title || '');
+      const displayTitle = (cleanTitle && cleanTitle.length >= 3 && !isNoisePrompt(cleanTitle))
+        ? cleanTitle
+        : prompt.slice(0, 40);
+
+      rawBadcases.push({
+        id: `bad_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
+        sessionId: session.sessionId,
+        title: displayTitle,
+        badcaseType: bad.badcaseType,
+        badcaseTypeName: bad.badcaseTypeName,
+        severity: bad.severity,
+        defectTags: bad.defectTags || [bad.badcaseTypeName],
+        phenomenon: bad.phenomenon,
+        suspectedCause: bad.suspectedCause,
+        recommendation: bad.recommendation,
+        evidence: bad.evidence,
+        evidenceRole: bad.evidenceRole,
+        stepCount: bad.stepCount || msgs.length,
+        userPrompt: prompt,
+        referenceAnswer: assistantMsgs[assistantMsgs.length - 1]?.content || '',
+        turnsCount: Math.max(1, userMsgs.length),
+        toolCallsCount: toolMsgs.length,
+        toolFailuresCount: bad.toolFailuresCount || 0,
+        toolNames: [...new Set(toolMsgs.map(t => t.toolName).filter(Boolean))],
+        modelId: session.modelId || 'MiniMax-M3.1-Flash',
+        createdAt: session.createdAt,
+        messages: msgs
+      });
+    }
+
+    // 2. Evaluate Gold Benchmark Cases
     const evaluated = scoreAndCategorizeSession(session, msgs);
     if (evaluated && evaluated.valueScore >= minScore) {
       rawCases.push(evaluated);
     }
   }
 
-  // Cluster similar / near-identical cases
+  // Cluster similar / near-identical cases (Gold Benchmark)
   const clusters = [];
   for (const item of rawCases) {
     let added = false;
     for (const cluster of clusters) {
       if (isSimilarPrompt(cluster.representative.userPrompt, item.userPrompt)) {
         cluster.items.push(item);
-        // Retain the representative with higher score or longer reference answer
         if (
           item.valueScore > cluster.representative.valueScore ||
           (item.valueScore === cluster.representative.valueScore &&
@@ -251,8 +588,40 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
     finalCases.push(best);
   }
 
-  // Sort by score descending
+  // Sort Gold Cases by score descending
   finalCases.sort((a, b) => b.valueScore - a.valueScore);
+
+  // Cluster similar Badcases
+  const badcaseClusters = [];
+  for (const item of rawBadcases) {
+    let added = false;
+    for (const cluster of badcaseClusters) {
+      if (
+        cluster.representative.badcaseType === item.badcaseType &&
+        isSimilarPrompt(cluster.representative.userPrompt, item.userPrompt)
+      ) {
+        cluster.items.push(item);
+        added = true;
+        break;
+      }
+    }
+    if (!added) {
+      badcaseClusters.push({ representative: item, items: [item] });
+    }
+  }
+
+  const finalBadcases = [];
+  for (const cluster of badcaseClusters) {
+    const rep = { ...cluster.representative };
+    if (cluster.items.length > 1) {
+      rep.sampleRepetitions = cluster.items.length;
+    }
+    finalBadcases.push(rep);
+  }
+
+  // Sort Badcases: 严重 > 高 > 中
+  const severityRank = { '严重': 3, '高': 2, '中': 1 };
+  finalBadcases.sort((a, b) => (severityRank[b.severity] || 0) - (severityRank[a.severity] || 0));
 
   const categoryBreakdown = {};
   let totalScore = 0;
@@ -261,23 +630,70 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
     totalScore += c.valueScore;
   }
 
+  const badcaseBreakdown = {};
+  for (const b of finalBadcases) {
+    badcaseBreakdown[b.badcaseTypeName] = (badcaseBreakdown[b.badcaseTypeName] || 0) + 1;
+  }
+
   return {
     summary: {
       totalRawSessions: sessions.length,
       noiseFilteredOut: sessions.length - validSessions.length,
       evaluatedCandidates: validSessions.length,
       extractedCount: finalCases.length,
+      badcasesCount: finalBadcases.length,
       withToolCallsCount: finalCases.filter(c => c.toolCallsCount > 0).length,
       avgScore: finalCases.length ? Math.round(totalScore / finalCases.length) : 0,
-      categoryBreakdown
+      categoryBreakdown,
+      badcaseBreakdown
     },
-    cases: finalCases
+    cases: finalCases,
+    badcases: finalBadcases
   };
 }
 
-export function exportFormat(cases, format = 'json') {
+export function exportFormat(items, format = 'json', type = 'cases') {
+  if (type === 'badcases') {
+    if (format === 'jsonl') {
+      return items.map(b => JSON.stringify({
+        id: b.id,
+        sessionId: b.sessionId,
+        type: b.badcaseType,
+        typeName: b.badcaseTypeName,
+        severity: b.severity,
+        defectTags: b.defectTags,
+        phenomenon: b.phenomenon,
+        suspectedCause: b.suspectedCause,
+        recommendation: b.recommendation,
+        evidence: b.evidence,
+        stepCount: b.stepCount,
+        prompt: b.userPrompt,
+        reference_answer: b.referenceAnswer,
+        tools: b.toolNames,
+        toolFailuresCount: b.toolFailuresCount,
+        turns: b.turnsCount,
+        messages: b.messages
+      })).join('\n');
+    }
+
+    if (format === 'alpaca') {
+      const alpacaData = items.map(b => ({
+        instruction: b.userPrompt,
+        input: `【缺陷类型】${b.badcaseTypeName} (${(b.defectTags || []).join(' / ')})\n【故障现象】${b.phenomenon}\n【疑似根因】${b.suspectedCause}\n【关键证据】${b.evidence}`,
+        output: `【修复建议】\n${b.recommendation}\n\n【预期参考回复】\n${b.referenceAnswer || '针对此异常情况，应避免机械重复或配置未生效问题，准确匹配业务分支或正确调用工具。'}`,
+        system: '你是一个智能客服系统质量回归专家，针对历史 Badcase 执行严格定向回归，防止相同缺陷复现。',
+        category: b.badcaseTypeName,
+        severity: b.severity
+      }));
+      return JSON.stringify(alpacaData, null, 2);
+    }
+
+    return JSON.stringify(items, null, 2);
+  }
+
+  // Gold Benchmark Cases
   if (format === 'jsonl') {
-    return cases.map(c => JSON.stringify({
+    return items.map(c => JSON.stringify({
       id: c.id,
       prompt: c.userPrompt,
       reference_answer: c.referenceAnswer,
@@ -290,7 +706,7 @@ export function exportFormat(cases, format = 'json') {
   }
 
   if (format === 'alpaca') {
-    const alpacaData = cases.map(c => ({
+    const alpacaData = items.map(c => ({
       instruction: c.userPrompt,
       input: c.turnsCount > 1 ? c.messages.slice(0, -1).map(m => `${m.role}: ${m.content}`).join('\n') : '',
       output: c.referenceAnswer,
@@ -302,5 +718,5 @@ export function exportFormat(cases, format = 'json') {
   }
 
   // default standard json
-  return JSON.stringify(cases, null, 2);
+  return JSON.stringify(items, null, 2);
 }

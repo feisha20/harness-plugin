@@ -1,25 +1,41 @@
 {
   "activeEnv": "prod",
   "environments": {
-    "test": {
-      "name": "测试环境",
-      "url": "https://tkf-kuaibuddy.kuaishang.cn",
-      "key": "198270-Test"
-    },
     "prod": {
       "name": "生产环境",
+      "tag": "prd",
       "url": "https://kuaibuddy.kuaishang.cn",
-      "key": "linjt-20260930"
+      "key": "linjt-20260930",
+      "companyId": "",
+      "username": "",
+      "password": ""
+    },
+    "preprod": {
+      "name": "预生产环境",
+      "tag": "pre",
+      "url": "https://test-kuaibuddy.dingningtalk.com",
+      "key": "linjt-20260930",
+      "companyId": "232679",
+      "username": "testpro",
+      "password": "Aa123456"
+    },
+    "test": {
+      "name": "测试环境",
+      "tag": "tkf",
+      "url": "https://tkf-kuaibuddy.kuaishang.cn",
+      "key": "198270-Test",
+      "companyId": "198270",
+      "username": "",
+      "password": ""
     },
     "dev": {
       "name": "开发环境",
+      "tag": "dkf",
       "url": "https://dkf-kuaibuddy.kuaishang.cn",
-      "key": ""
-    },
-    "custom": {
-      "name": "自定义环境",
-      "url": "",
-      "key": ""
+      "key": "",
+      "companyId": "",
+      "username": "",
+      "password": ""
     }
   }
 }

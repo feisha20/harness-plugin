@@ -50,7 +50,8 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
     envName: creds.envName,
     readAt: new Date().toISOString(),
     summary: dataset.summary,
-    cases: dataset.cases
+    cases: dataset.cases,
+    badcases: dataset.badcases || []
   };
 
   datasetCache.set(cacheKey, result);
@@ -72,13 +73,13 @@ export function apply(ctx) {
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'detail', 'export', 'get_config'],
-          description: '操作类型: list 查看提取的评测集概览; detail 查看单条会话详情; export 导出评测集; get_config 查看当前环境配置'
+          enum: ['list', 'detail', 'export', 'get_config', 'badcases'],
+          description: '操作类型: list 查看提取的评测集概览; badcases 查看 Badcase 诊断与归因列表; detail 查看单条会话详情; export 导出评测集/回归集; get_config 查看当前环境配置'
         },
         env: {
           type: 'string',
-          enum: ['test', 'prod', 'dev', 'custom'],
-          description: '指定运行环境 (test: 测试环境, prod: 生产环境, dev: 开发环境)'
+          enum: ['test', 'prod', 'preprod', 'dev', 'custom'],
+          description: '指定运行环境 (test: 测试环境, prod: 生产环境, preprod: 预生产环境, dev: 开发环境)'
         },
         date: {
           type: 'string',
@@ -91,6 +92,15 @@ export function apply(ctx) {
         category: {
           type: 'string',
           description: '按分类筛选 (如: 异常排障与诊断、配置与操作指导、业务概念与规则、工具调用评测)'
+        },
+        badcaseType: {
+          type: 'string',
+          description: '按 Badcase 类型筛选 (tool_error, config_mismatch, user_complaint, response_anomaly)'
+        },
+        exportType: {
+          type: 'string',
+          enum: ['cases', 'badcases'],
+          description: '导出类型: cases 评测用例集, badcases 回归测试集'
         },
         sessionId: {
           type: 'string',
@@ -151,6 +161,38 @@ export function apply(ctx) {
         };
       }
 
+      if (args.action === 'badcases') {
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
+        let badcases = data.badcases || [];
+        if (args.badcaseType) {
+          badcases = badcases.filter(b => b.badcaseType === args.badcaseType || b.badcaseTypeName === args.badcaseType);
+        }
+        const limit = args.limit || 20;
+        return {
+          date: data.date,
+          env: data.env,
+          envName: data.envName,
+          totalBadcases: (data.badcases || []).length,
+          returnedCount: Math.min(limit, badcases.length),
+          badcases: badcases.slice(0, limit).map(b => ({
+            id: b.id,
+            sessionId: b.sessionId,
+            title: b.title,
+            badcaseType: b.badcaseType,
+            badcaseTypeName: b.badcaseTypeName,
+            severity: b.severity,
+            phenomenon: b.phenomenon,
+            suspectedCause: b.suspectedCause,
+            recommendation: b.recommendation,
+            evidencePreview: b.evidence.slice(0, 120),
+            prompt: b.userPrompt,
+            turnsCount: b.turnsCount,
+            toolCallsCount: b.toolCallsCount,
+            sampleRepetitions: b.sampleRepetitions || 1
+          }))
+        };
+      }
+
       if (args.action === 'detail') {
         if (!args.sessionId) throw new Error('detail 操作需要提供 sessionId');
         const msgs = await fetchMessagesForSession(args.sessionId, 100, targetEnv);
@@ -163,15 +205,22 @@ export function apply(ctx) {
 
       if (args.action === 'export') {
         const data = await getOrExtractDataset(date, false, minScore, targetEnv);
-        let cases = data.cases;
-        if (args.category) {
-          cases = cases.filter(c => c.category === args.category);
+        const exportType = args.exportType || 'cases';
+        const isBadcase = exportType === 'badcases';
+        let items = isBadcase ? (data.badcases || []) : (data.cases || []);
+
+        if (!isBadcase && args.category) {
+          items = items.filter(c => c.category === args.category);
+        } else if (isBadcase && args.badcaseType) {
+          items = items.filter(b => b.badcaseType === args.badcaseType || b.badcaseTypeName === args.badcaseType);
         }
-        const limit = args.limit || cases.length;
-        const exported = exportFormat(cases.slice(0, limit), args.format || 'json');
+
+        const limit = args.limit || items.length;
+        const exported = exportFormat(items.slice(0, limit), args.format || 'json', exportType);
         return {
+          exportType,
           format: args.format || 'json',
-          count: Math.min(limit, cases.length),
+          count: Math.min(limit, items.length),
           content: exported
         };
       }
@@ -254,9 +303,10 @@ export function apply(ctx) {
           }
           const body = JSON.parse(raw || '{}');
           const format = body.format || 'json';
-          const cases = body.cases || [];
-          const text = exportFormat(cases, format);
-          return send(200, { format, count: cases.length, content: text });
+          const type = body.type || 'cases';
+          const items = body.items || body.cases || [];
+          const text = exportFormat(items, format, type);
+          return send(200, { format, type, count: items.length, content: text });
         }
 
         return send(400, { error: `未知操作: ${action}` });
