@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fetchSessionsForDate, fetchMessagesBatch, fetchMessagesForSession } from './api.js';
+import { fetchSessionsForDate, fetchMessagesBatch, fetchMessagesForSession, getConfig, saveConfig, getCredentials } from './api.js';
 import { extractEvaluationDataset, exportFormat, isNoiseSession } from './evaluator.js';
 
 export const inject = ['webServer', 'tools'];
@@ -13,16 +13,18 @@ function getYesterdayStr() {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 }
 
-export async function getOrExtractDataset(dateStr, force = false, minScore = 60) {
+export async function getOrExtractDataset(dateStr, force = false, minScore = 60, targetEnv, overrideCreds) {
   const date = dateStr || getYesterdayStr();
-  const cacheKey = `${date}_${minScore}`;
+  const creds = getCredentials(targetEnv, overrideCreds);
+  const currentEnv = creds.env;
+  const cacheKey = `${currentEnv}_${creds.key}_${date}_${minScore}`;
 
   if (!force && datasetCache.has(cacheKey)) {
     return datasetCache.get(cacheKey);
   }
 
   // Also check disk cache in /tmp
-  const diskCacheFile = path.join('/tmp', `kuaibuddy_eval_dataset_${date}.json`);
+  const diskCacheFile = path.join('/tmp', `kuaibuddy_eval_${currentEnv}_${date}.json`);
   if (!force && fs.existsSync(diskCacheFile)) {
     try {
       const content = fs.readFileSync(diskCacheFile, 'utf8');
@@ -33,17 +35,19 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60)
   }
 
   // Fetch raw sessions
-  const sessions = await fetchSessionsForDate(date);
+  const sessions = await fetchSessionsForDate(date, currentEnv, overrideCreds);
   const candidates = sessions.filter(s => !isNoiseSession(s));
 
   // Extract messages for candidate sessions (fetch up to 100 candidate sessions)
   const targetSessions = candidates.slice(0, 100);
   const sessionIds = targetSessions.map(s => s.sessionId);
-  const messagesMap = await fetchMessagesBatch(sessionIds, 8);
+  const messagesMap = await fetchMessagesBatch(sessionIds, 8, currentEnv, overrideCreds);
 
   const dataset = extractEvaluationDataset(sessions, messagesMap, minScore);
   const result = {
     date,
+    env: currentEnv,
+    envName: creds.envName,
     readAt: new Date().toISOString(),
     summary: dataset.summary,
     cases: dataset.cases
@@ -62,14 +66,19 @@ export function apply(ctx) {
   // 1. Register DSH Tool for Agent invocation
   ctx.effect(() => ctx.tools.register({
     name: 'kuaibuddy_eval_dataset',
-    description: '获取 KuaiBuddy 客服系统前一天（或指定日期）的对话记录，并自动评估提取有价值的对话作为评测集（支持按分类、评分筛选与导出）。',
+    description: '获取 KuaiBuddy 客服系统前一天（或指定日期）的对话记录，并自动评估提取有价值的对话作为评测集（支持按分类、评分、环境切换与导出）。',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'detail', 'export'],
-          description: '操作类型: list 查看提取的评测集概览; detail 查看单条会话详情; export 导出评测集'
+          enum: ['list', 'detail', 'export', 'get_config'],
+          description: '操作类型: list 查看提取的评测集概览; detail 查看单条会话详情; export 导出评测集; get_config 查看当前环境配置'
+        },
+        env: {
+          type: 'string',
+          enum: ['test', 'prod', 'dev', 'custom'],
+          description: '指定运行环境 (test: 测试环境, prod: 生产环境, dev: 开发环境)'
         },
         date: {
           type: 'string',
@@ -105,11 +114,16 @@ export function apply(ctx) {
       render: (_, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }]
     },
     async execute(args) {
+      if (args.action === 'get_config') {
+        return getConfig();
+      }
+
       const date = args.date || getYesterdayStr();
       const minScore = args.minScore || 60;
+      const targetEnv = args.env;
 
       if (args.action === 'list') {
-        const data = await getOrExtractDataset(date, false, minScore);
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
         let cases = data.cases;
         if (args.category) {
           cases = cases.filter(c => c.category === args.category);
@@ -117,6 +131,8 @@ export function apply(ctx) {
         const limit = args.limit || 20;
         return {
           date: data.date,
+          env: data.env,
+          envName: data.envName,
           summary: data.summary,
           returnedCount: Math.min(limit, cases.length),
           cases: cases.slice(0, limit).map(c => ({
@@ -137,7 +153,7 @@ export function apply(ctx) {
 
       if (args.action === 'detail') {
         if (!args.sessionId) throw new Error('detail 操作需要提供 sessionId');
-        const msgs = await fetchMessagesForSession(args.sessionId, 100);
+        const msgs = await fetchMessagesForSession(args.sessionId, 100, targetEnv);
         return {
           sessionId: args.sessionId,
           messagesCount: msgs.length,
@@ -146,7 +162,7 @@ export function apply(ctx) {
       }
 
       if (args.action === 'export') {
-        const data = await getOrExtractDataset(date, false, minScore);
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
         let cases = data.cases;
         if (args.category) {
           cases = cases.filter(c => c.category === args.category);
@@ -189,25 +205,44 @@ export function apply(ctx) {
       const q = new URL(req.url, 'http://localhost').searchParams;
       const action = q.get('action') || 'get_data';
       const date = q.get('date') || getYesterdayStr();
+      const targetEnv = q.get('env') || undefined;
+      const staffKey = q.get('staffKey') || undefined;
+      const apiUrl = q.get('apiUrl') || undefined;
+      const overrideCreds = (staffKey || apiUrl) ? { key: staffKey, url: apiUrl } : undefined;
 
       try {
+        if (action === 'get_config') {
+          return send(200, getConfig());
+        }
+
+        if (action === 'save_config' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 64 * 1024) throw new Error('配置请求过大');
+          }
+          const updates = JSON.parse(raw || '{}');
+          const saved = saveConfig(updates);
+          return send(200, saved);
+        }
+
         if (action === 'get_data') {
           const force = q.get('force') === 'true';
           const minScore = Number(q.get('minScore')) || 60;
-          const data = await getOrExtractDataset(date, force, minScore);
+          const data = await getOrExtractDataset(date, force, minScore, targetEnv, overrideCreds);
           return send(200, data);
         }
 
         if (action === 'extract') {
           const minScore = Number(q.get('minScore')) || 60;
-          const data = await getOrExtractDataset(date, true, minScore);
+          const data = await getOrExtractDataset(date, true, minScore, targetEnv, overrideCreds);
           return send(200, data);
         }
 
         if (action === 'detail') {
           const sessionId = q.get('sessionId');
           if (!sessionId) return send(400, { error: '缺少 sessionId' });
-          const messages = await fetchMessagesForSession(sessionId, 100);
+          const messages = await fetchMessagesForSession(sessionId, 100, targetEnv, overrideCreds);
           return send(200, { sessionId, messages });
         }
 

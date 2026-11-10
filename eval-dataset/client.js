@@ -26,13 +26,14 @@ window.__ModuleLoader__.load({
   color: var(--ed-text1);
   font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   box-sizing: border-box;
+  position: relative;
 }
 
 .ed-app * { box-sizing: border-box; }
 
 /* Header */
 .ed-header {
-  padding: 16px 24px 12px;
+  padding: 14px 24px 12px;
   border-bottom: 1px solid var(--ed-border1);
   background: var(--ed-bg-layer1);
   flex-shrink: 0;
@@ -75,8 +76,39 @@ window.__ModuleLoader__.load({
 .ed-header-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
+
+/* Environment selector */
+.ed-env-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ed-bg-base);
+  border: 1px solid var(--ed-border1);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.ed-env-badge select {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+.ed-env-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.ed-env-dot-prod { background: var(--ed-success); box-shadow: 0 0 0 2px rgba(0, 180, 42, 0.2); }
+.ed-env-dot-test { background: var(--ed-warn); box-shadow: 0 0 0 2px rgba(255, 125, 0, 0.2); }
+.ed-env-dot-dev { background: var(--ed-accent); }
 
 .ed-date-selector {
   display: flex;
@@ -588,6 +620,85 @@ window.__ModuleLoader__.load({
   color: var(--ed-text2);
   gap: 10px;
 }
+
+/* Modal Overlay */
+.ed-modal-backdrop {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+.ed-modal {
+  width: 520px;
+  max-width: 90vw;
+  background: var(--ed-bg-base);
+  border-radius: 10px;
+  border: 1px solid var(--ed-border1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ed-modal-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--ed-border1);
+  background: var(--ed-bg-layer1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ed-modal-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.ed-modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  max-height: 70vh;
+}
+.ed-form-item {
+  margin-bottom: 14px;
+}
+.ed-form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: var(--ed-text1);
+}
+.ed-form-input {
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--ed-border1);
+  border-radius: 6px;
+  background: var(--ed-bg-base);
+  color: inherit;
+  outline: none;
+}
+.ed-form-input:focus {
+  border-color: var(--ed-accent);
+}
+.ed-form-tip {
+  font-size: 11px;
+  color: var(--ed-text2);
+  margin-top: 4px;
+}
+.ed-modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--ed-border1);
+  background: var(--ed-bg-layer1);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
 `;
 
     // Markdown Parser & Component
@@ -795,7 +906,9 @@ window.__ModuleLoader__.load({
         refresh: 'M20 7v5h-5 M4 17v-5h5 M6 7a7 7 0 0 1 12-2l2 3 M4 16l2 3a7 7 0 0 0 12-2',
         download: 'M12 3v13m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2',
         check: 'M5 13l4 4L19 7',
-        copy: 'M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.242a2 2 0 0 0-.602-1.43L16.08 2.57A2 2 0 0 0 14.65 2H10a2 2 0 0 0-2 2z'
+        copy: 'M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.242a2 2 0 0 0-.602-1.43L16.08 2.57A2 2 0 0 0 14.65 2H10a2 2 0 0 0-2 2z',
+        gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4 1.4l1.6 1.2c.2.1.2.4.1.6l-1.5 2.6c-.1.2-.4.3-.6.2l-1.9-.8c-.4.3-.8.6-1.3.8l-.3 2c0 .2-.3.4-.5.4h-3c-.2 0-.5-.2-.5-.4l-.3-2c-.5-.2-.9-.5-1.3-.8l-1.9.8c-.2.1-.5 0-.6-.2l-1.5-2.6c-.1-.2 0-.5.1-.6l1.6-1.2c-.1-.5-.1-1 0-1.5l-1.6-1.2c-.2-.1-.2-.4-.1-.6l1.5-2.6c.1-.2.4-.3.6-.2l1.9.8c.4-.3.8-.6 1.3-.8l.3-2c0-.2.3-.4.5-.4h3c.2 0 .5.2.5.4l.3 2c.5.2.9.5 1.3.8l1.9-.8c.2-.1.5 0 .6.2l1.5 2.6c.1.2 0 .5-.1.6l-1.6 1.2c.1.5.1 1 0 1.5z',
+        close: 'M18 6L6 18M6 6l12 12'
       };
       return h('svg', {
         width: size, height: size, viewBox: '0 0 24 24',
@@ -812,10 +925,8 @@ window.__ModuleLoader__.load({
         strokeLinecap: 'round', strokeLinejoin: 'round',
         'aria-hidden': true
       },
-        // Clipboard outline
         h('path', { d: 'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2' }),
         h('rect', { x: 9, y: 3, width: 6, height: 4, rx: 1 }),
-        // Checkmarks inside representing evaluation test cases
         h('path', { d: 'M9 12l2 2 4-4' }),
         h('path', { d: 'M9 17h6' })
       );
@@ -826,41 +937,84 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.effect(() => ctx.locale.register('evalDataset', 'zh', {
           '评测集': '评测集',
-          'KuaiBuddy 评测集提取': 'KuaiBuddy 评测集提取',
-          '从前一日客服对话中自动挖掘高价值对话构建评测集': '从前一日客服对话中自动挖掘高价值对话构建评测集'
-        }));
-        ctx.effect(() => ctx.locale.register('evalDataset', 'en', {
-          '评测集': 'Eval Dataset',
-          'KuaiBuddy 评测集提取': 'KuaiBuddy Eval Dataset',
-          '从前一日客服对话中自动挖掘高价值对话构建评测集': 'Extract high-value evaluation test cases from KuaiBuddy conversations'
+          'KuaiBuddy 评测集提取': 'KuaiBuddy 评测集提取'
         }));
 
         function App() {
-          // Default to yesterday
           const yesterdayStr = React.useMemo(() => {
             const d = new Date(Date.now() - 86400000);
             return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
           }, []);
 
           const [date, setDate] = React.useState(yesterdayStr);
+          const [currentEnv, setCurrentEnv] = React.useState('test');
+          const [config, setConfig] = React.useState(null);
+          const [showConfigModal, setShowConfigModal] = React.useState(false);
+          const [configEditing, setConfigEditing] = React.useState(null);
           const [data, setData] = React.useState(null);
           const [loading, setLoading] = React.useState(true);
+          const [savingConfig, setSavingConfig] = React.useState(false);
           const [error, setError] = React.useState('');
           const [selectedCategory, setSelectedCategory] = React.useState('全部');
           const [minScore, setMinScore] = React.useState(60);
           const [searchQuery, setSearchQuery] = React.useState('');
           const [selectedCaseId, setSelectedCaseId] = React.useState(null);
           const [selectedIds, setSelectedIds] = React.useState(new Set());
-          const [activeTab, setActiveTab] = React.useState('case'); // 'case' | 'timeline'
-          const [answerViewMode, setAnswerViewMode] = React.useState('preview'); // 'preview' | 'raw'
+          const [activeTab, setActiveTab] = React.useState('case');
+          const [answerViewMode, setAnswerViewMode] = React.useState('preview');
           const [copied, setCopied] = React.useState('');
 
-          // Load data
-          const loadData = React.useCallback(async (force = false) => {
+          // 1. Load configuration on startup
+          const loadConfig = React.useCallback(async () => {
+            // First read from localStorage if present
+            let currentLocalCfg = null;
+            try {
+              const local = localStorage.getItem('kuaibuddy_eval_config');
+              if (local) {
+                currentLocalCfg = JSON.parse(local);
+                setConfig(currentLocalCfg);
+                if (currentLocalCfg.activeEnv) {
+                  setCurrentEnv(currentLocalCfg.activeEnv);
+                }
+              }
+            } catch (e) {}
+
+            try {
+              const res = await fetch('/api/eval-dataset?action=get_config');
+              if (res.ok) {
+                const cfg = await res.json();
+                // Merge with local config
+                const merged = {
+                  ...cfg,
+                  ...(currentLocalCfg || {}),
+                  environments: {
+                    ...cfg.environments,
+                    ...(currentLocalCfg?.environments || {})
+                  }
+                };
+                setConfig(merged);
+                if (merged.activeEnv) {
+                  setCurrentEnv(merged.activeEnv);
+                }
+              }
+            } catch (e) {
+              console.warn('获取配置失败:', e);
+            }
+          }, []);
+
+          React.useEffect(() => {
+            loadConfig();
+          }, [loadConfig]);
+
+          // 2. Load dataset
+          const loadData = React.useCallback(async (force = false, envToUse = currentEnv) => {
             setLoading(true);
             setError('');
             try {
-              const res = await fetch(`/api/eval-dataset?action=${force ? 'extract' : 'get_data'}&date=${date}&minScore=${minScore}`);
+              const envData = config?.environments?.[envToUse];
+              const keyParam = envData?.key ? `&staffKey=${encodeURIComponent(envData.key)}` : '';
+              const urlParam = envData?.url ? `&apiUrl=${encodeURIComponent(envData.url)}` : '';
+              const res = await fetch(`/api/eval-dataset?action=${force ? 'extract' : 'get_data'}&date=${date}&minScore=${minScore}&env=${envToUse}${keyParam}${urlParam}`);
               if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.error || `HTTP ${res.status}`);
@@ -869,7 +1023,6 @@ window.__ModuleLoader__.load({
               setData(json);
               if (json.cases && json.cases.length > 0) {
                 setSelectedCaseId(json.cases[0].id);
-                // select all by default
                 setSelectedIds(new Set(json.cases.map(c => c.id)));
               } else {
                 setSelectedCaseId(null);
@@ -880,11 +1033,66 @@ window.__ModuleLoader__.load({
             } finally {
               setLoading(false);
             }
-          }, [date, minScore]);
+          }, [date, minScore, currentEnv, config]);
 
           React.useEffect(() => {
-            loadData(false);
-          }, [loadData]);
+            loadData(false, currentEnv);
+          }, [loadData, currentEnv]);
+
+          // Handle environment switch
+          const handleEnvChange = (newEnv) => {
+            setCurrentEnv(newEnv);
+            // check if key is configured for that env
+            const envData = config?.environments?.[newEnv];
+            if (newEnv === 'prod' && (!envData?.key || envData.key.trim() === '')) {
+              // Open modal to configure prod key
+              openConfigModal(newEnv);
+              return;
+            }
+            loadData(false, newEnv);
+          };
+
+          const openConfigModal = (envForFocus = currentEnv) => {
+            const envs = config?.environments || {
+              test: { name: '测试环境', url: 'https://tkf-kuaibuddy.kuaishang.cn', key: '198270-Test' },
+              prod: { name: '生产环境', url: 'https://kuaibuddy.kuaishang.cn', key: '' },
+              dev: { name: '开发环境', url: 'https://dkf-kuaibuddy.kuaishang.cn', key: '' }
+            };
+            setConfigEditing({
+              activeEnv: envForFocus,
+              environments: JSON.parse(JSON.stringify(envs))
+            });
+            setShowConfigModal(true);
+          };
+
+          const saveAndApplyConfig = async (triggerFetch = true) => {
+            setSavingConfig(true);
+            try {
+              try {
+                localStorage.setItem('kuaibuddy_eval_config', JSON.stringify(configEditing));
+              } catch (e) {}
+
+              const res = await fetch('/api/eval-dataset?action=save_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(configEditing)
+              });
+              let saved = configEditing;
+              if (res.ok) {
+                saved = await res.json();
+              }
+              setConfig(saved);
+              setCurrentEnv(saved.activeEnv);
+              setShowConfigModal(false);
+              if (triggerFetch) {
+                loadData(true, saved.activeEnv);
+              }
+            } catch (e) {
+              alert(e.message);
+            } finally {
+              setSavingConfig(false);
+            }
+          };
 
           const summary = data?.summary || {
             totalRawSessions: 0,
@@ -917,14 +1125,12 @@ window.__ModuleLoader__.load({
             return allCases.find(c => c.id === selectedCaseId) || filteredCases[0] || null;
           }, [allCases, selectedCaseId, filteredCases]);
 
-          // Handle Copy
           const copyToClipboard = (text, label) => {
             navigator.clipboard.writeText(text);
             setCopied(label);
             setTimeout(() => setCopied(''), 2000);
           };
 
-          // Handle Export
           const handleExport = async (format) => {
             const casesToExport = allCases.filter(c => selectedIds.has(c.id));
             if (casesToExport.length === 0) {
@@ -941,14 +1147,13 @@ window.__ModuleLoader__.load({
               const blob = new Blob([json.content], { type: 'text/plain;charset=utf-8' });
               const a = document.createElement('a');
               a.href = URL.createObjectURL(blob);
-              a.download = `kuaibuddy_eval_dataset_${date}_${casesToExport.length}cases.${format === 'alpaca' ? 'json' : format}`;
+              a.download = `kuaibuddy_eval_${currentEnv}_${date}_${casesToExport.length}cases.${format === 'alpaca' ? 'json' : format}`;
               a.click();
             } catch (err) {
               alert('导出失败: ' + err.message);
             }
           };
 
-          // Toggle Select All
           const toggleSelectAll = () => {
             if (selectedIds.size === filteredCases.length) {
               setSelectedIds(new Set());
@@ -983,6 +1188,26 @@ window.__ModuleLoader__.load({
                   )
                 ),
                 h('div', { className: 'ed-header-actions' },
+                  // Environment selector
+                  h('div', { className: 'ed-env-badge' },
+                    h('span', { className: `ed-env-dot ${currentEnv === 'prod' ? 'ed-env-dot-prod' : (currentEnv === 'test' ? 'ed-env-dot-test' : 'ed-env-dot-dev')}` }),
+                    h('select', {
+                      value: currentEnv,
+                      onChange: e => handleEnvChange(e.target.value)
+                    },
+                      h('option', { value: 'test' }, '测试环境 (tkf)'),
+                      h('option', { value: 'prod' }, '生产环境 (prd)'),
+                      h('option', { value: 'dev' }, '开发环境 (dkf)')
+                    )
+                  ),
+                  // Environment Settings Button
+                  h('button', {
+                    className: 'ed-btn',
+                    onClick: () => openConfigModal(currentEnv),
+                    title: '配置环境地址与 Staff Key'
+                  }, h(Glyph, { kind: 'gear', size: 13 }), '环境配置'),
+
+                  // Date selector
                   h('div', { className: 'ed-date-selector' },
                     h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, '日期:'),
                     h('input', {
@@ -996,11 +1221,13 @@ window.__ModuleLoader__.load({
                       onClick: () => setDate(yesterdayStr)
                     }, '设为昨天')
                   ),
+                  // Refresh button
                   h('button', {
                     className: 'ed-btn',
                     disabled: loading,
-                    onClick: () => loadData(true)
+                    onClick: () => loadData(true, currentEnv)
                   }, h(Glyph, { kind: 'refresh', size: 13 }), loading ? '正在提取...' : '重新提取'),
+                  // Export buttons
                   h('button', {
                     className: 'ed-btn ed-btn-primary',
                     disabled: selectedIds.size === 0,
@@ -1022,7 +1249,7 @@ window.__ModuleLoader__.load({
               // 2. Metrics Bar
               h('div', { className: 'ed-metrics' },
                 h('div', { className: 'ed-metric-card' },
-                  h('span', { className: 'ed-metric-label' }, '昨日会话总量'),
+                  h('span', { className: 'ed-metric-label' }, `会话总量 (${data?.envName || (currentEnv === 'prod' ? '生产' : '测试')})`),
                   h('span', { className: 'ed-metric-val' }, summary.totalRawSessions),
                   h('span', { className: 'ed-metric-sub' }, `清洗排除脚本探测 ${summary.noiseFilteredOut} 条`)
                 ),
@@ -1067,8 +1294,24 @@ window.__ModuleLoader__.load({
 
             // Error display
             error && h('div', {
-              style: { padding: '10px 24px', background: 'var(--ed-error)', color: '#fff', fontSize: '12px' }
-            }, `加载失败: ${error}`),
+              style: {
+                padding: '10px 24px',
+                background: '#fff2f0',
+                borderBottom: '1px solid #ffccc7',
+                color: 'var(--ed-error)',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }
+            },
+              h('span', null, `⚠️ ${error}`),
+              h('button', {
+                className: 'ed-btn',
+                style: { padding: '2px 8px', fontSize: '11px' },
+                onClick: () => openConfigModal(currentEnv)
+              }, '立即配置 Key')
+            ),
 
             // 4. Main Split View
             h('div', { className: 'ed-main-split' },
@@ -1244,6 +1487,146 @@ window.__ModuleLoader__.load({
                     ]
                   )
                 ]
+              )
+            ),
+
+            // 5. Environment & Key Configuration Modal
+            showConfigModal && configEditing && h('div', {
+              className: 'ed-modal-backdrop',
+              onClick: () => setShowConfigModal(false)
+            },
+              h('div', {
+                className: 'ed-modal',
+                onClick: e => e.stopPropagation()
+              },
+                h('div', { className: 'ed-modal-header' },
+                  h('h2', null, '⚙️ KuaiBuddy 环境与 Staff-Key 配置'),
+                  h('button', {
+                    style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ed-text2)' },
+                    onClick: () => setShowConfigModal(false)
+                  }, h(Glyph, { kind: 'close', size: 16 }))
+                ),
+                h('div', { className: 'ed-modal-body' },
+                  // Active Environment Choice
+                  h('div', { className: 'ed-form-item' },
+                    h('label', { className: 'ed-form-label' }, '当前激活环境'),
+                    h('select', {
+                      className: 'ed-form-input',
+                      value: configEditing.activeEnv,
+                      onChange: e => setConfigEditing({ ...configEditing, activeEnv: e.target.value })
+                    },
+                      h('option', { value: 'test' }, '测试环境 (Test - tkf-kuaibuddy.kuaishang.cn)'),
+                      h('option', { value: 'prod' }, '生产环境 (Prod - kuaibuddy.kuaishang.cn)'),
+                      h('option', { value: 'dev' }, '开发环境 (Dev - dkf-kuaibuddy.kuaishang.cn)')
+                    )
+                  ),
+
+                  h('hr', { style: { border: 'none', borderTop: '1px solid var(--ed-border1)', margin: '16px 0' } }),
+
+                  // 1. Prod Config
+                  h('div', {
+                    style: {
+                      background: configEditing.activeEnv === 'prod' ? 'color-mix(in srgb, var(--ed-success) 8%, var(--ed-bg-base))' : 'var(--ed-bg-layer1)',
+                      border: `1px solid ${configEditing.activeEnv === 'prod' ? 'var(--ed-success)' : 'var(--ed-border1)'}`,
+                      borderRadius: '8px',
+                      padding: '12px 14px',
+                      marginBottom: '14px'
+                    }
+                  },
+                    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } },
+                      h('span', { style: { fontWeight: 650, fontSize: '13px' } }, '🟢 生产环境 (Production)'),
+                      h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, 'kuaibuddy.kuaishang.cn')
+                    ),
+                    h('div', { className: 'ed-form-item', style: { marginBottom: '8px' } },
+                      h('label', { className: 'ed-form-label' }, '生产 X-Staff-Key'),
+                      h('input', {
+                        className: 'ed-form-input',
+                        placeholder: '请输入生产环境的 Staff Key (如: xxx-Prod)',
+                        value: configEditing.environments.prod.key || '',
+                        onChange: e => {
+                          const envs = { ...configEditing.environments };
+                          envs.prod = { ...envs.prod, key: e.target.value };
+                          setConfigEditing({ ...configEditing, environments: envs });
+                        }
+                      }),
+                      h('div', { className: 'ed-form-tip' }, '调用生产客服会话与消息数据必填。')
+                    )
+                  ),
+
+                  // 2. Test Config
+                  h('div', {
+                    style: {
+                      background: configEditing.activeEnv === 'test' ? 'color-mix(in srgb, var(--ed-warn) 8%, var(--ed-bg-base))' : 'var(--ed-bg-layer1)',
+                      border: `1px solid ${configEditing.activeEnv === 'test' ? 'var(--ed-warn)' : 'var(--ed-border1)'}`,
+                      borderRadius: '8px',
+                      padding: '12px 14px',
+                      marginBottom: '14px'
+                    }
+                  },
+                    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } },
+                      h('span', { style: { fontWeight: 650, fontSize: '13px' } }, '🟠 测试环境 (Test)'),
+                      h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, 'tkf-kuaibuddy.kuaishang.cn')
+                    ),
+                    h('div', { className: 'ed-form-item', style: { marginBottom: '8px' } },
+                      h('label', { className: 'ed-form-label' }, '测试 X-Staff-Key'),
+                      h('input', {
+                        className: 'ed-form-input',
+                        placeholder: '默认 198270-Test',
+                        value: configEditing.environments.test.key || '',
+                        onChange: e => {
+                          const envs = { ...configEditing.environments };
+                          envs.test = { ...envs.test, key: e.target.value };
+                          setConfigEditing({ ...configEditing, environments: envs });
+                        }
+                      })
+                    )
+                  ),
+
+                  // 3. Dev Config
+                  h('div', {
+                    style: {
+                      background: configEditing.activeEnv === 'dev' ? 'color-mix(in srgb, var(--ed-accent) 8%, var(--ed-bg-base))' : 'var(--ed-bg-layer1)',
+                      border: `1px solid ${configEditing.activeEnv === 'dev' ? 'var(--ed-accent)' : 'var(--ed-border1)'}`,
+                      borderRadius: '8px',
+                      padding: '12px 14px'
+                    }
+                  },
+                    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' } },
+                      h('span', { style: { fontWeight: 650, fontSize: '13px' } }, '🔵 开发环境 (Dev)'),
+                      h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, 'dkf-kuaibuddy.kuaishang.cn')
+                    ),
+                    h('div', { className: 'ed-form-item', style: { marginBottom: '8px' } },
+                      h('label', { className: 'ed-form-label' }, '开发 X-Staff-Key'),
+                      h('input', {
+                        className: 'ed-form-input',
+                        placeholder: '可选',
+                        value: configEditing.environments.dev.key || '',
+                        onChange: e => {
+                          const envs = { ...configEditing.environments };
+                          envs.dev = { ...envs.dev, key: e.target.value };
+                          setConfigEditing({ ...configEditing, environments: envs });
+                        }
+                      })
+                    )
+                  )
+                ),
+                h('div', { className: 'ed-modal-footer' },
+                  h('button', {
+                    className: 'ed-btn',
+                    disabled: savingConfig,
+                    onClick: () => setShowConfigModal(false)
+                  }, '取消'),
+                  h('button', {
+                    className: 'ed-btn',
+                    disabled: savingConfig,
+                    onClick: () => saveAndApplyConfig(false)
+                  }, '仅保存配置'),
+                  h('button', {
+                    className: 'ed-btn ed-btn-primary',
+                    disabled: savingConfig,
+                    onClick: () => saveAndApplyConfig(true)
+                  }, savingConfig ? '正在保存...' : '保存并立即拉取')
+                )
               )
             )
           );

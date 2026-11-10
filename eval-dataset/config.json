@@ -1,0 +1,25 @@
+{
+  "activeEnv": "prod",
+  "environments": {
+    "test": {
+      "name": "测试环境",
+      "url": "https://tkf-kuaibuddy.kuaishang.cn",
+      "key": "198270-Test"
+    },
+    "prod": {
+      "name": "生产环境",
+      "url": "https://kuaibuddy.kuaishang.cn",
+      "key": "linjt-20260930"
+    },
+    "dev": {
+      "name": "开发环境",
+      "url": "https://dkf-kuaibuddy.kuaishang.cn",
+      "key": ""
+    },
+    "custom": {
+      "name": "自定义环境",
+      "url": "",
+      "key": ""
+    }
+  }
+}
