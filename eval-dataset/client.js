@@ -241,9 +241,14 @@ window.__ModuleLoader__.load({
 /* Metrics Row */
 .ed-metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-top: 14px;
+}
+@media (max-width: 1100px) {
+  .ed-metrics {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 .ed-metric-card {
   background: var(--ed-bg-base);
@@ -955,6 +960,166 @@ window.__ModuleLoader__.load({
   background: #fff0f0;
   color: #cf1322;
 }
+.ed-mode-btn.active .ed-mode-badge-official {
+  background: rgba(5, 150, 105, 0.12);
+  color: #059669;
+}
+
+/* Official Dataset Buttons & Badges */
+.ed-btn-official {
+  background: color-mix(in srgb, #059669 10%, var(--ed-bg-base));
+  border: 1px solid color-mix(in srgb, #059669 35%, transparent);
+  color: #059669;
+  font-weight: 550;
+}
+.ed-btn-official:hover:not(:disabled) {
+  background: #059669;
+  color: #ffffff;
+  border-color: #059669;
+}
+.ed-btn-official-added {
+  background: rgba(5, 150, 105, 0.08);
+  border: 1px solid rgba(5, 150, 105, 0.3);
+  color: #059669;
+  font-weight: 600;
+}
+.ed-btn-official-added:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #dc2626;
+}
+.ed-card-official-pill {
+  font-size: 10.5px;
+  padding: 1.5px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--ed-border1);
+  background: var(--ed-bg-layer1);
+  color: var(--ed-text2);
+  cursor: pointer;
+  font-weight: 550;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  line-height: 1.3;
+}
+.ed-card-official-pill:hover {
+  border-color: #059669;
+  color: #059669;
+  background: rgba(5, 150, 105, 0.06);
+}
+.ed-card-official-pill.in-official {
+  background: rgba(5, 150, 105, 0.1);
+  border-color: rgba(5, 150, 105, 0.3);
+  color: #059669;
+  font-weight: 600;
+}
+.ed-card-official-pill.in-official:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #dc2626;
+}
+.ed-prio-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+  display: inline-flex;
+  align-items: center;
+}
+.ed-prio-P0 { background: rgba(220, 38, 38, 0.1); color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.25); }
+.ed-prio-P1 { background: rgba(30, 128, 255, 0.1); color: #1e80ff; border: 1px solid rgba(30, 128, 255, 0.25); }
+.ed-prio-P2 { background: var(--ed-bg-layer2); color: var(--ed-text2); border: 1px solid var(--ed-border1); }
+
+.ed-source-badge {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.ed-source-case {
+  background: rgba(30, 128, 255, 0.08);
+  color: #165dff;
+  border: 1px solid rgba(30, 128, 255, 0.22);
+}
+.ed-source-badcase {
+  background: rgba(217, 119, 6, 0.08);
+  color: #d97706;
+  border: 1px solid rgba(217, 119, 6, 0.25);
+}
+.ed-source-manual {
+  background: rgba(139, 92, 246, 0.08);
+  color: #7c3aed;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+.ed-eval-criteria-box {
+  background: color-mix(in srgb, #059669 5%, var(--ed-bg-base));
+  border: 1px solid color-mix(in srgb, #059669 25%, transparent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ed-text1);
+  white-space: pre-wrap;
+}
+.ed-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  background: #1d2129;
+  color: #ffffff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 550;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: edFadeIn 0.2s ease;
+}
+.ed-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ed-modal-content {
+  width: 640px;
+  max-width: 92vw;
+  background: var(--ed-bg-base);
+  border-radius: 10px;
+  border: 1px solid var(--ed-border1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ed-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ed-text2);
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ed-icon-btn:hover {
+  background: var(--ed-bg-layer2);
+  color: var(--ed-text1);
+}
 
 /* Badcase Badges & Severity - Refined & Restrained */
 .ed-severity-badge {
@@ -1551,7 +1716,11 @@ window.__ModuleLoader__.load({
         eyeOff: 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24 M1 1l22 22',
         alertCircle: 'M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0z',
         target: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-6a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0-2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
-        tool: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'
+        tool: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
+        bookmark: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
+        plus: 'M12 5v14M5 12h14',
+        trash: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
+        edit: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'
       };
       return h('svg', {
         width: size, height: size, viewBox: '0 0 24 24',
@@ -1887,6 +2056,311 @@ window.__ModuleLoader__.load({
           const [selectedRegressionTaskId, setSelectedRegressionTaskId] = React.useState(null);
           const [submittingRegression, setSubmittingRegression] = React.useState(false);
           const [reasoningExpanded, setReasoningExpanded] = React.useState(true);
+
+          // Official Evaluation Dataset Management states
+          const [officialCases, setOfficialCases] = React.useState([]);
+          const [selectedOfficialCaseId, setSelectedOfficialCaseId] = React.useState(null);
+          const [selectedOfficialIds, setSelectedOfficialIds] = React.useState(new Set());
+          const [selectedOfficialFilter, setSelectedOfficialFilter] = React.useState('全部');
+          const [officialTab, setOfficialTab] = React.useState('spec'); // 'spec' | 'reg_history' | 'timeline'
+          const [editingOfficialCase, setEditingOfficialCase] = React.useState(null);
+          const [newOfficialModalOpen, setNewOfficialModalOpen] = React.useState(false);
+          const [newOfficialDraft, setNewOfficialDraft] = React.useState({
+            title: '',
+            category: '综合问答',
+            priority: 'P1',
+            sourceType: 'case',
+            userPrompt: '',
+            evalCriteria: '',
+            referenceAnswer: ''
+          });
+          const [toastMsg, setToastMsg] = React.useState('');
+          const toastTimerRef = React.useRef(null);
+
+          const showToast = React.useCallback((msg) => {
+            setToastMsg(msg);
+            if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+            toastTimerRef.current = setTimeout(() => setToastMsg(''), 3200);
+          }, []);
+
+          const normalizeOfficialItemClient = React.useCallback((item, srcDate, srcEnv) => {
+            const isBadcase = Boolean(
+              item.sourceType === 'badcase' ||
+              item.badcaseType ||
+              (typeof item.id === 'string' && item.id.startsWith('bad_'))
+            );
+            const sourceType = item.sourceType || (isBadcase ? 'badcase' : 'case');
+            const now = new Date().toISOString();
+
+            let defaultPriority = 'P1';
+            if (item.priority) {
+              defaultPriority = item.priority;
+            } else if (item.severity === '严重' || (typeof item.valueScore === 'number' && item.valueScore >= 90)) {
+              defaultPriority = 'P0';
+            } else if (item.severity === '中' || (typeof item.valueScore === 'number' && item.valueScore < 75)) {
+              defaultPriority = 'P2';
+            }
+
+            let defaultCriteria = item.evalCriteria || '';
+            if (!defaultCriteria) {
+              if (sourceType === 'badcase') {
+                defaultCriteria = `【缺陷回归防复现】防止再次出现「${item.badcaseTypeName || '历史异常'}」\n` +
+                  (item.phenomenon ? `【历史故障现象】${item.phenomenon}\n` : '') +
+                  `【修复验证要求】${item.recommendation || '正确完成工具调用与推理，输出符合业务规则的完整回复'}`;
+              } else {
+                const reasons = Array.isArray(item.valueReasons) && item.valueReasons.length > 0
+                  ? item.valueReasons.map(r => `- ${r}`).join('\n')
+                  : '- 准确理解访客/客服提问意图并给出结构化准确回复';
+                defaultCriteria = `【核心能力基准】验证「${item.category || '综合问答'}」场景下的意图识别、工具链执行与回答质量：\n${reasons}`;
+              }
+            }
+
+            return {
+              ...item,
+              id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              sourceType,
+              sourceDate: item.sourceDate || srcDate || (item.createdAt ? item.createdAt.slice(0, 10) : ''),
+              sourceEnv: item.sourceEnv || srcEnv || 'prod',
+              priority: defaultPriority,
+              category: item.category || item.badcaseTypeName || '综合问答',
+              userPrompt: item.userPrompt || item.prompt || '',
+              referenceAnswer: item.referenceAnswer || '',
+              evalCriteria: defaultCriteria,
+              addedAt: item.addedAt || now,
+              updatedAt: now
+            };
+          }, []);
+
+          const persistOfficialDataset = React.useCallback(async (nextItems) => {
+            setOfficialCases(nextItems);
+            try {
+              localStorage.setItem('kuaibuddy_official_dataset_v1', JSON.stringify(nextItems));
+            } catch (e) {}
+
+            try {
+              const res = await fetch('/api/eval-dataset?action=save_official_dataset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: nextItems })
+              });
+              if (!res.ok) {
+                const liteItems = nextItems.map(({ messages, ...rest }) => ({
+                  ...rest,
+                  messages: Array.isArray(messages) ? messages.slice(0, 30) : []
+                }));
+                await fetch('/api/eval-dataset?action=save_config', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ officialDataset: liteItems })
+                });
+              }
+            } catch (e) {
+              console.warn('保存正式评测集失败:', e);
+            }
+          }, []);
+
+          const loadOfficialDataset = React.useCallback(async () => {
+            let localItems = null;
+            try {
+              const raw = localStorage.getItem('kuaibuddy_official_dataset_v1');
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                  localItems = parsed;
+                  setOfficialCases(parsed);
+                  if (parsed.length > 0) {
+                    setSelectedOfficialCaseId(prev => prev || parsed[0].id);
+                    setSelectedOfficialIds(new Set(parsed.map(x => x.id)));
+                  }
+                }
+              }
+            } catch (e) {}
+
+            try {
+              const res = await fetch('/api/eval-dataset?action=get_official_dataset');
+              if (res.ok) {
+                const json = await res.json();
+                const serverItems = Array.isArray(json.items) ? json.items : [];
+                if (serverItems.length > 0) {
+                  setOfficialCases(serverItems);
+                  setSelectedOfficialCaseId(prev => (prev && serverItems.some(x => x.id === prev)) ? prev : serverItems[0].id);
+                  setSelectedOfficialIds(new Set(serverItems.map(x => x.id)));
+                  try {
+                    localStorage.setItem('kuaibuddy_official_dataset_v1', JSON.stringify(serverItems));
+                  } catch (e) {}
+                } else if (localItems && localItems.length > 0) {
+                  persistOfficialDataset(localItems);
+                }
+              } else {
+                const cfgRes = await fetch('/api/eval-dataset?action=get_config');
+                if (cfgRes.ok) {
+                  const cfg = await cfgRes.json();
+                  if (Array.isArray(cfg.officialDataset) && cfg.officialDataset.length > 0 && (!localItems || localItems.length === 0)) {
+                    setOfficialCases(cfg.officialDataset);
+                    setSelectedOfficialCaseId(cfg.officialDataset[0].id);
+                    setSelectedOfficialIds(new Set(cfg.officialDataset.map(x => x.id)));
+                  }
+                }
+              }
+            } catch (e) {}
+          }, [persistOfficialDataset]);
+
+          React.useEffect(() => {
+            loadOfficialDataset();
+          }, [loadOfficialDataset]);
+
+          const isCaseInOfficial = React.useCallback((item) => {
+            if (!item) return false;
+            const itemSourceType = (item.sourceType === 'badcase' || item.badcaseType || (typeof item.id === 'string' && item.id.startsWith('bad_'))) ? 'badcase' : 'case';
+            return officialCases.some(oc =>
+              oc.id === item.id ||
+              (oc.sessionId && item.sessionId && oc.sessionId === item.sessionId && (oc.sourceType || 'case') === itemSourceType)
+            );
+          }, [officialCases]);
+
+          const handleAddOfficialCases = React.useCallback(async (itemsToAdd) => {
+            const list = Array.isArray(itemsToAdd) ? itemsToAdd : [itemsToAdd];
+            if (list.length === 0) return;
+
+            let addedCount = 0;
+            const nextList = [...officialCases];
+
+            for (const raw of list) {
+              if (!raw) continue;
+              const normalized = normalizeOfficialItemClient(raw, date, currentEnv);
+              const existingIdx = nextList.findIndex(oc =>
+                oc.id === normalized.id ||
+                (oc.sessionId && normalized.sessionId && oc.sessionId === normalized.sessionId && (oc.sourceType || 'case') === normalized.sourceType)
+              );
+              if (existingIdx >= 0) {
+                nextList[existingIdx] = {
+                  ...normalized,
+                  ...nextList[existingIdx],
+                  id: nextList[existingIdx].id,
+                  addedAt: nextList[existingIdx].addedAt || normalized.addedAt,
+                  updatedAt: new Date().toISOString()
+                };
+              } else {
+                nextList.unshift(normalized);
+                addedCount++;
+              }
+            }
+
+            await persistOfficialDataset(nextList);
+            setSelectedOfficialIds(prev => {
+              const next = new Set(prev);
+              for (const item of nextList) next.add(item.id);
+              return next;
+            });
+            if (!selectedOfficialCaseId && nextList.length > 0) {
+              setSelectedOfficialCaseId(nextList[0].id);
+            }
+
+            if (addedCount > 0) {
+              showToast(`✓ 已选入 ${addedCount} 条用例至「正式评测集」（当前共 ${nextList.length} 条）`);
+            } else {
+              showToast(`✓ 所选用例已在「正式评测集」中（共 ${nextList.length} 条）`);
+            }
+          }, [officialCases, normalizeOfficialItemClient, date, currentEnv, persistOfficialDataset, selectedOfficialCaseId, showToast]);
+
+          const handleRemoveOfficialCases = React.useCallback(async (idsOrItems) => {
+            const rawArr = Array.isArray(idsOrItems) ? idsOrItems : [idsOrItems];
+            const idSet = new Set();
+            for (const x of rawArr) {
+              if (!x) continue;
+              if (typeof x === 'string') idSet.add(x);
+              else if (x.id) idSet.add(x.id);
+            }
+            if (idSet.size === 0) return;
+
+            const nextList = officialCases.filter(oc => !idSet.has(oc.id));
+            const removedCount = officialCases.length - nextList.length;
+            await persistOfficialDataset(nextList);
+
+            setSelectedOfficialIds(prev => {
+              const next = new Set(prev);
+              for (const id of idSet) next.delete(id);
+              return next;
+            });
+            if (selectedOfficialCaseId && idSet.has(selectedOfficialCaseId)) {
+              setSelectedOfficialCaseId(nextList[0]?.id || null);
+            }
+            setEditingOfficialCase(null);
+            showToast(`已从「正式评测集」移出 ${removedCount} 条用例`);
+          }, [officialCases, persistOfficialDataset, selectedOfficialCaseId, showToast]);
+
+          const handleToggleCaseOfficial = React.useCallback((item, e) => {
+            if (e) e.stopPropagation();
+            if (!item) return;
+            const itemSourceType = (item.sourceType === 'badcase' || item.badcaseType || (typeof item.id === 'string' && item.id.startsWith('bad_'))) ? 'badcase' : 'case';
+            const matched = officialCases.find(oc =>
+              oc.id === item.id ||
+              (oc.sessionId && item.sessionId && oc.sessionId === item.sessionId && (oc.sourceType || 'case') === itemSourceType)
+            );
+            if (matched) {
+              handleRemoveOfficialCases([matched.id]);
+            } else {
+              handleAddOfficialCases([item]);
+            }
+          }, [officialCases, handleRemoveOfficialCases, handleAddOfficialCases]);
+
+          const handleSaveOfficialEdit = React.useCallback(async () => {
+            if (!editingOfficialCase) return;
+            const updated = {
+              ...editingOfficialCase,
+              updatedAt: new Date().toISOString()
+            };
+            const nextList = officialCases.map(oc => oc.id === updated.id ? updated : oc);
+            await persistOfficialDataset(nextList);
+            setEditingOfficialCase(null);
+            showToast('✓ 已保存正式评测集用例配置');
+          }, [editingOfficialCase, officialCases, persistOfficialDataset, showToast]);
+
+          const handleCreateManualOfficialCase = React.useCallback(async () => {
+            if (!newOfficialDraft.title.trim() || !newOfficialDraft.userPrompt.trim()) {
+              alert('请填写用例标题和回归测试提问 (Prompt)');
+              return;
+            }
+            const now = new Date().toISOString();
+            const created = normalizeOfficialItemClient({
+              id: `official_manual_${Date.now().toString(36)}`,
+              title: newOfficialDraft.title.trim(),
+              category: newOfficialDraft.category.trim() || '综合问答',
+              priority: newOfficialDraft.priority || 'P1',
+              sourceType: newOfficialDraft.sourceType || 'case',
+               isManual: true,
+              sourceDate: date,
+              sourceEnv: currentEnv,
+              userPrompt: newOfficialDraft.userPrompt.trim(),
+              evalCriteria: newOfficialDraft.evalCriteria.trim(),
+              referenceAnswer: newOfficialDraft.referenceAnswer.trim(),
+              turnsCount: 1,
+              toolCallsCount: 0,
+              toolNames: [],
+              messages: [
+                { role: 'user', content: newOfficialDraft.userPrompt.trim(), createdAt: now },
+                ...(newOfficialDraft.referenceAnswer.trim()
+                  ? [{ role: 'assistant', content: newOfficialDraft.referenceAnswer.trim(), createdAt: now }]
+                  : [])
+              ]
+            }, date, currentEnv);
+
+            const nextList = [created, ...officialCases];
+            await persistOfficialDataset(nextList);
+            setSelectedOfficialCaseId(created.id);
+            setSelectedOfficialIds(prev => new Set([...prev, created.id]));
+            setNewOfficialModalOpen(false);
+            setNewOfficialDraft({
+              title: '',
+              category: '综合问答',
+              priority: 'P1',
+              sourceType: 'case',
+              userPrompt: '',
+              evalCriteria: '',
+              referenceAnswer: ''
+            });
+            showToast('✓ 已创建并收录至「正式评测集」');
+          }, [newOfficialDraft, normalizeOfficialItemClient, date, currentEnv, officialCases, persistOfficialDataset, showToast]);
 
           const toggleFieldVisible = (fieldId) => {
             setVisibleFields(prev => ({ ...prev, [fieldId]: !prev[fieldId] }));
@@ -2237,6 +2711,52 @@ window.__ModuleLoader__.load({
             return allBadcases.find(b => b.id === selectedBadcaseId) || filteredBadcases[0] || null;
           }, [allBadcases, selectedBadcaseId, filteredBadcases]);
 
+          const officialPosCount = React.useMemo(
+            () => officialCases.filter(c => c.sourceType !== 'badcase').length,
+            [officialCases]
+          );
+          const officialBadCount = React.useMemo(
+            () => officialCases.filter(c => c.sourceType === 'badcase').length,
+            [officialCases]
+          );
+          const officialCategoryBreakdown = React.useMemo(() => {
+            const map = {};
+            for (const c of officialCases) {
+              const cat = c.category || c.badcaseTypeName || '综合问答';
+              map[cat] = (map[cat] || 0) + 1;
+            }
+            return map;
+          }, [officialCases]);
+
+          const filteredOfficialCases = React.useMemo(() => {
+            return officialCases.filter(c => {
+              if (selectedOfficialFilter === '🎯 正向基准' && c.sourceType === 'badcase') return false;
+              if (selectedOfficialFilter === '⚠️ 缺陷回归' && c.sourceType !== 'badcase') return false;
+              if (
+                selectedOfficialFilter !== '全部' &&
+                selectedOfficialFilter !== '🎯 正向基准' &&
+                selectedOfficialFilter !== '⚠️ 缺陷回归' &&
+                (c.category || c.badcaseTypeName || '综合问答') !== selectedOfficialFilter
+              ) {
+                return false;
+              }
+              if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                const matchTitle = (c.title || '').toLowerCase().includes(q);
+                const matchPrompt = (c.userPrompt || '').toLowerCase().includes(q);
+                const matchCriteria = (c.evalCriteria || '').toLowerCase().includes(q);
+                const matchAnswer = (c.referenceAnswer || '').toLowerCase().includes(q);
+                const matchDate = (c.sourceDate || '').toLowerCase().includes(q);
+                if (!matchTitle && !matchPrompt && !matchCriteria && !matchAnswer && !matchDate) return false;
+              }
+              return true;
+            });
+          }, [officialCases, selectedOfficialFilter, searchQuery]);
+
+          const activeOfficialCase = React.useMemo(() => {
+            return officialCases.find(c => c.id === selectedOfficialCaseId) || filteredOfficialCases[0] || null;
+          }, [officialCases, selectedOfficialCaseId, filteredOfficialCases]);
+
           const copyToClipboard = (text, label) => {
             navigator.clipboard.writeText(text);
             setCopied(label);
@@ -2282,21 +2802,25 @@ ${b.evidence}
 
           const handleExport = async (format) => {
             const isBadcaseMode = viewMode === 'badcases';
-            const itemsToExport = isBadcaseMode
-              ? allBadcases.filter(b => selectedBadcaseIds.has(b.id))
-              : allCases.filter(c => selectedIds.has(c.id));
+            const isOfficialMode = viewMode === 'official';
+            const itemsToExport = isOfficialMode
+              ? officialCases.filter(c => selectedOfficialIds.has(c.id))
+              : (isBadcaseMode
+                ? allBadcases.filter(b => selectedBadcaseIds.has(b.id))
+                : allCases.filter(c => selectedIds.has(c.id)));
 
             if (itemsToExport.length === 0) {
-              alert(`请至少勾选一条${isBadcaseMode ? 'Badcase 回归用例' : '评测用例'}`);
+              alert(`请至少勾选一条${isOfficialMode ? '正式评测集用例' : (isBadcaseMode ? 'Badcase 回归用例' : '评测用例')}`);
               return;
             }
             try {
+              const exportType = isOfficialMode ? 'official' : (isBadcaseMode ? 'badcases' : 'cases');
               const res = await fetch('/api/eval-dataset?action=export', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   format,
-                  type: isBadcaseMode ? 'badcases' : 'cases',
+                  type: exportType,
                   items: itemsToExport
                 })
               });
@@ -2304,7 +2828,9 @@ ${b.evidence}
               const blob = new Blob([json.content], { type: 'text/plain;charset=utf-8' });
               const a = document.createElement('a');
               a.href = URL.createObjectURL(blob);
-              const prefix = isBadcaseMode ? 'kuaibuddy_badcase_regression' : 'kuaibuddy_eval';
+              const prefix = isOfficialMode
+                ? 'kuaibuddy_official_dataset'
+                : (isBadcaseMode ? 'kuaibuddy_badcase_regression' : 'kuaibuddy_eval');
               a.download = `${prefix}_${currentEnv}_${date}_${itemsToExport.length}cases.${format === 'alpaca' ? 'json' : format}`;
               a.click();
             } catch (err) {
@@ -2319,11 +2845,17 @@ ${b.evidence}
               } else {
                 setSelectedIds(new Set(filteredCases.map(c => c.id)));
               }
-            } else {
+            } else if (viewMode === 'badcases') {
               if (selectedBadcaseIds.size === filteredBadcases.length) {
                 setSelectedBadcaseIds(new Set());
               } else {
                 setSelectedBadcaseIds(new Set(filteredBadcases.map(b => b.id)));
+              }
+            } else {
+              if (selectedOfficialIds.size === filteredOfficialCases.length) {
+                setSelectedOfficialIds(new Set());
+              } else {
+                setSelectedOfficialIds(new Set(filteredOfficialCases.map(c => c.id)));
               }
             }
           };
@@ -2337,8 +2869,15 @@ ${b.evidence}
                 else next.add(id);
                 return next;
               });
-            } else {
+            } else if (viewMode === 'badcases') {
               setSelectedBadcaseIds(prev => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              });
+            } else {
+              setSelectedOfficialIds(prev => {
                 const next = new Set(prev);
                 if (next.has(id)) next.delete(id);
                 else next.add(id);
@@ -2349,9 +2888,14 @@ ${b.evidence}
 
           const categories = ['全部', ...Object.keys(summary.categoryBreakdown || {})];
           const badcaseCategories = ['全部', ...Object.keys(summary.badcaseBreakdown || {})];
+          const officialCategories = ['全部', '🎯 正向基准', '⚠️ 缺陷回归', ...Object.keys(officialCategoryBreakdown)];
+          const currentSelectedCount = viewMode === 'official'
+            ? selectedOfficialIds.size
+            : (viewMode === 'badcases' ? selectedBadcaseIds.size : selectedIds.size);
 
           return h('div', { className: 'ed-app' },
             h('style', null, css),
+            toastMsg && h('div', { className: 'ed-toast' }, toastMsg),
 
             // 1. Header
             h('div', { className: 'ed-header' },
@@ -2446,30 +2990,56 @@ ${b.evidence}
                       ? `回归测试 (${regressionTasks.filter(t => t.status === 'running').length} 运行中)`
                       : `回归测试进展 (${regressionTasks.length})`
                   ),
-                  // Batch Regression button if items selected
-                  ((viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size) > 0) && h('button', {
-                    className: 'ed-btn ed-btn-regression',
+                  // Batch Add to Official Dataset button (when in daily cases/badcases view)
+                  viewMode !== 'official' && currentSelectedCount > 0 && h('button', {
+                    className: 'ed-btn ed-btn-official',
                     onClick: () => {
                       const selectedList = viewMode === 'cases'
                         ? allCases.filter(c => selectedIds.has(c.id))
                         : allBadcases.filter(b => selectedBadcaseIds.has(b.id));
+                      handleAddOfficialCases(selectedList);
+                    },
+                    title: '将当前勾选的用例批量选入正式评测集'
+                  }, h(Glyph, { kind: 'bookmark', size: 13 }), `选入正式评测集 (${currentSelectedCount})`),
+
+                  // Manual Add Official Case button (when in official view)
+                  viewMode === 'official' && h('button', {
+                    className: 'ed-btn ed-btn-official',
+                    onClick: () => setNewOfficialModalOpen(true)
+                  }, h(Glyph, { kind: 'plus', size: 13 }), '手动新增正式用例'),
+
+                  // Batch Regression button if items selected
+                  currentSelectedCount > 0 && h('button', {
+                    className: 'ed-btn ed-btn-regression',
+                    onClick: () => {
+                      const selectedList = viewMode === 'official'
+                        ? officialCases.filter(c => selectedOfficialIds.has(c.id))
+                        : (viewMode === 'cases'
+                          ? allCases.filter(c => selectedIds.has(c.id))
+                          : allBadcases.filter(b => selectedBadcaseIds.has(b.id)));
                       openRunRegressionModal(selectedList);
                     }
-                  }, `🚀 批量回归测试 (${viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size})`),
+                  }, `🚀 批量回归测试 (${currentSelectedCount})`),
+
                   // Export buttons
                   h('button', {
                     className: 'ed-btn ed-btn-primary',
-                    disabled: (viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size) === 0,
+                    disabled: currentSelectedCount === 0,
                     onClick: () => handleExport('json')
-                  }, h(Glyph, { kind: 'download', size: 13 }), viewMode === 'cases' ? `导出评测集 (${selectedIds.size})` : `导出 Badcase 回归集 (${selectedBadcaseIds.size})`),
+                  },
+                    h(Glyph, { kind: 'download', size: 13 }),
+                    viewMode === 'official'
+                      ? `导出正式评测集 (${selectedOfficialIds.size})`
+                      : (viewMode === 'cases' ? `导出评测集 (${selectedIds.size})` : `导出 Badcase 回归集 (${selectedBadcaseIds.size})`)
+                  ),
                   h('button', {
                     className: 'ed-btn',
-                    disabled: (viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size) === 0,
+                    disabled: currentSelectedCount === 0,
                     onClick: () => handleExport('jsonl')
                   }, 'JSONL'),
                   h('button', {
                     className: 'ed-btn',
-                    disabled: (viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size) === 0,
+                    disabled: currentSelectedCount === 0,
                     onClick: () => handleExport('alpaca')
                   }, 'Alpaca')
                 )
@@ -2484,7 +3054,7 @@ ${b.evidence}
                 ),
                 h('div', {
                   className: 'ed-metric-card',
-                  style: { cursor: 'pointer' },
+                  style: { cursor: 'pointer', borderColor: viewMode === 'cases' ? 'var(--ed-accent)' : undefined },
                   onClick: () => setViewMode('cases')
                 },
                   h('span', { className: 'ed-metric-label' }, '🎯 提取评测用例'),
@@ -2493,12 +3063,21 @@ ${b.evidence}
                 ),
                 h('div', {
                   className: 'ed-metric-card',
-                  style: { cursor: 'pointer' },
+                  style: { cursor: 'pointer', borderColor: viewMode === 'badcases' ? '#cf1322' : undefined },
                   onClick: () => setViewMode('badcases')
                 },
                   h('span', { className: 'ed-metric-label' }, '⚠️ Badcase 回归集'),
                   h('span', { className: 'ed-metric-val', style: { color: '#cf1322' } }, summary.badcasesCount || allBadcases.length),
                   h('span', { className: 'ed-metric-sub' }, `已归因 ${Object.keys(summary.badcaseBreakdown || {}).length} 类缺陷 · 点击查看`)
+                ),
+                h('div', {
+                  className: 'ed-metric-card',
+                  style: { cursor: 'pointer', borderColor: viewMode === 'official' ? '#059669' : undefined },
+                  onClick: () => setViewMode('official')
+                },
+                  h('span', { className: 'ed-metric-label' }, '📌 正式评测集管理'),
+                  h('span', { className: 'ed-metric-val', style: { color: '#059669' } }, officialCases.length),
+                  h('span', { className: 'ed-metric-sub' }, `正向 ${officialPosCount} · 缺陷 ${officialBadCount} · 点击管理`)
                 ),
                 h('div', { className: 'ed-metric-card' },
                   h('span', { className: 'ed-metric-label' }, '🔧 工具调用场景'),
@@ -2526,35 +3105,65 @@ ${b.evidence}
                   h(Glyph, { kind: 'alertCircle', size: 14 }),
                   '⚠️ Badcase 诊断与回归集',
                   h('span', { className: 'ed-mode-badge ed-mode-badge-badcase' }, allBadcases.length)
+                ),
+                h('button', {
+                  className: `ed-mode-btn ${viewMode === 'official' ? 'active' : ''}`,
+                  onClick: () => setViewMode('official')
+                },
+                  h(Glyph, { kind: 'bookmark', size: 14 }),
+                  '📌 正式评测集管理',
+                  h('span', { className: 'ed-mode-badge ed-mode-badge-official' }, officialCases.length)
                 )
               ),
               h('div', { style: { fontSize: '12px', color: 'var(--ed-text2)' } },
-                viewMode === 'cases'
-                  ? '💡 客服与 Agent 业务核心能力正向基准评测'
-                  : '🚨 历史报错、规则失效与负反馈定向回归测试集'
+                viewMode === 'official'
+                  ? '🛡️ 沉淀最终精选的正式评测集用例 · 作为日常回归与评价 Agent 能力的核心基准底座'
+                  : (viewMode === 'cases'
+                    ? '💡 每日提取高价值对话 · 可单条或勾选批量选入「📌 正式评测集管理」'
+                    : '🚨 历史报错、规则失效与负反馈诊断 · 可选入「📌 正式评测集管理」用于长期回归防复现')
               )
             ),
 
             // 3. Toolbar & Filters
             h('div', { className: 'ed-toolbar' },
               h('div', { className: 'ed-tags-group' },
-                (viewMode === 'cases' ? categories : badcaseCategories).map(cat => h('button', {
-                  key: cat,
-                  className: `ed-tag-pill ${(viewMode === 'cases' ? selectedCategory : selectedBadcaseType) === cat ? 'active' : ''}`,
-                  onClick: () => {
-                    if (viewMode === 'cases') setSelectedCategory(cat);
-                    else setSelectedBadcaseType(cat);
+                (viewMode === 'official' ? officialCategories : (viewMode === 'cases' ? categories : badcaseCategories)).map(cat => {
+                  const isActive = viewMode === 'official'
+                    ? selectedOfficialFilter === cat
+                    : ((viewMode === 'cases' ? selectedCategory : selectedBadcaseType) === cat);
+                  let countLabel = '';
+                  if (viewMode === 'official') {
+                    if (cat === '全部') countLabel = ` (${officialCases.length})`;
+                    else if (cat === '🎯 正向基准') countLabel = ` (${officialPosCount})`;
+                    else if (cat === '⚠️ 缺陷回归') countLabel = ` (${officialBadCount})`;
+                    else countLabel = ` (${officialCategoryBreakdown[cat] || 0})`;
+                  } else {
+                    if (cat === '全部') countLabel = ` (${viewMode === 'cases' ? allCases.length : allBadcases.length})`;
+                    else countLabel = ` (${(viewMode === 'cases' ? summary.categoryBreakdown : summary.badcaseBreakdown)[cat] || 0})`;
                   }
-                }, cat === '全部'
-                  ? `全部 (${viewMode === 'cases' ? allCases.length : allBadcases.length})`
-                  : `${cat} (${(viewMode === 'cases' ? summary.categoryBreakdown : summary.badcaseBreakdown)[cat] || 0})`
-                ))
+                  return h('button', {
+                    key: cat,
+                    className: `ed-tag-pill ${isActive ? 'active' : ''}`,
+                    onClick: () => {
+                      if (viewMode === 'official') setSelectedOfficialFilter(cat);
+                      else if (viewMode === 'cases') setSelectedCategory(cat);
+                      else setSelectedBadcaseType(cat);
+                    }
+                  }, `${cat}${countLabel}`);
+                })
               ),
               h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+                viewMode === 'official' && selectedOfficialIds.size > 0 && h('button', {
+                  className: 'ed-btn',
+                  style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.28)', padding: '4px 10px' },
+                  onClick: () => handleRemoveOfficialCases(Array.from(selectedOfficialIds))
+                }, h(Glyph, { kind: 'trash', size: 12 }), `批量移出 (${selectedOfficialIds.size})`),
                 h('div', { className: 'ed-search-box' },
                   h(Glyph, { kind: 'filter', size: 12 }),
                   h('input', {
-                    placeholder: viewMode === 'cases' ? '搜索评测标题、用户提问或工具...' : '搜索 Badcase 标题、现象、根因或关键证据...',
+                    placeholder: viewMode === 'official'
+                      ? '搜索正式用例标题、提问、评测标准或来源日期...'
+                      : (viewMode === 'cases' ? '搜索评测标题、用户提问或工具...' : '搜索 Badcase 标题、现象、根因或关键证据...'),
                     value: searchQuery,
                     onChange: e => setSearchQuery(e.target.value)
                   })
@@ -2588,11 +3197,30 @@ ${b.evidence}
               // Left Column: List Pane
               h('div', { className: 'ed-list-pane' },
                 h('div', { className: 'ed-list-header' },
-                  h('span', null, viewMode === 'cases' ? `用例列表 (${filteredCases.length})` : `Badcase 列表 (${filteredBadcases.length})`),
-                  h('button', {
-                    className: 'ed-copy-btn',
-                    onClick: toggleSelectAll
-                  }, (viewMode === 'cases' ? selectedIds.size === filteredCases.length : selectedBadcaseIds.size === filteredBadcases.length) ? '取消全选' : '全选')
+                  h('span', null,
+                    viewMode === 'official'
+                      ? `正式评测集 (${filteredOfficialCases.length})`
+                      : (viewMode === 'cases' ? `用例列表 (${filteredCases.length})` : `Badcase 列表 (${filteredBadcases.length})`)
+                  ),
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+                    viewMode !== 'official' && currentSelectedCount > 0 && h('button', {
+                      className: 'ed-copy-btn',
+                      style: { color: '#059669', fontWeight: 600 },
+                      onClick: () => {
+                        const selectedList = viewMode === 'cases'
+                          ? allCases.filter(c => selectedIds.has(c.id))
+                          : allBadcases.filter(b => selectedBadcaseIds.has(b.id));
+                        handleAddOfficialCases(selectedList);
+                      }
+                    }, `+ 勾选入正式集 (${currentSelectedCount})`),
+                    h('button', {
+                      className: 'ed-copy-btn',
+                      onClick: toggleSelectAll
+                    }, (viewMode === 'official'
+                      ? (filteredOfficialCases.length > 0 && selectedOfficialIds.size === filteredOfficialCases.length)
+                      : (viewMode === 'cases' ? selectedIds.size === filteredCases.length : selectedBadcaseIds.size === filteredBadcases.length)
+                    ) ? '取消全选' : '全选')
+                  )
                 ),
                 h('div', { className: 'ed-case-cards' },
                   viewMode === 'cases' ? [
@@ -2600,6 +3228,7 @@ ${b.evidence}
                     ...filteredCases.map(c => {
                       const isSelected = selectedCaseId === c.id;
                       const isChecked = selectedIds.has(c.id);
+                      const inOfficial = isCaseInOfficial(c);
                       const scoreClass = c.valueScore >= 95 ? 'ed-score-100' : (c.valueScore >= 80 ? 'ed-score-high' : 'ed-score-mid');
                       return h('div', {
                         key: c.id,
@@ -2607,7 +3236,7 @@ ${b.evidence}
                         onClick: () => setSelectedCaseId(c.id)
                       },
                         h('div', { className: 'ed-card-head' },
-                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
                             h('input', {
                               type: 'checkbox',
                               checked: isChecked,
@@ -2628,9 +3257,17 @@ ${b.evidence}
                               title: `已去重合并 ${c.sampleRepetitions} 条相近或相同对话`
                             }, `去重 x${c.sampleRepetitions}`)
                           ),
-                          c.toolCallsCount > 0 && h('span', {
-                            style: { fontSize: '10px', color: 'var(--ed-accent)', fontWeight: '600' }
-                          }, `🔧 ${c.toolCallsCount}次工具`)
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                            c.toolCallsCount > 0 && h('span', {
+                              style: { fontSize: '10px', color: 'var(--ed-accent)', fontWeight: '600' }
+                            }, `🔧 ${c.toolCallsCount}次工具`),
+                            h('button', {
+                              type: 'button',
+                              className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
+                              onClick: e => handleToggleCaseOfficial(c, e),
+                              title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该用例加入正式评测集'
+                            }, inOfficial ? '✓ 已在正式集' : '+ 选入正式集')
+                          )
                         ),
                         h('div', { className: 'ed-card-title' }, c.title),
                         h('div', { className: 'ed-reasons-strip' },
@@ -2642,11 +3279,12 @@ ${b.evidence}
                         )
                       );
                     })
-                  ] : [
+                  ] : (viewMode === 'badcases' ? [
                     filteredBadcases.length === 0 && !loading && h('div', { key: 'empty_bad', className: 'ed-empty-state' }, '未发现 Badcase 缺陷记录'),
                     ...filteredBadcases.map(b => {
                       const isSelected = selectedBadcaseId === b.id;
                       const isChecked = selectedBadcaseIds.has(b.id);
+                      const inOfficial = isCaseInOfficial(b);
                       const sevClass = b.severity === '严重' ? 'critical' : (b.severity === '高' ? 'high' : 'medium');
                       const cleanPhenomenon = (b.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, '');
                       return h('div', {
@@ -2687,9 +3325,17 @@ ${b.evidence}
                               title: `已聚合合并 ${b.sampleRepetitions} 条相近用例`
                             }, `x${b.sampleRepetitions}`)
                           ),
-                          b.toolCallsCount > 0 && h('span', {
-                            style: { fontSize: '10.5px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums' }
-                          }, `${b.toolCallsCount}次工具`)
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                            b.toolCallsCount > 0 && h('span', {
+                              style: { fontSize: '10.5px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums' }
+                            }, `${b.toolCallsCount}次工具`),
+                            h('button', {
+                              type: 'button',
+                              className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
+                              onClick: e => handleToggleCaseOfficial(b, e),
+                              title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该 Badcase 加入正式评测集'
+                            }, inOfficial ? '✓ 已在正式集' : '+ 选入正式集')
+                          )
                         ),
                         h('div', { className: 'ed-card-title' }, b.title),
                         h('div', { className: 'ed-badcase-card-desc' }, cleanPhenomenon),
@@ -2699,7 +3345,83 @@ ${b.evidence}
                         )
                       );
                     })
-                  ]
+                  ] : [
+                    filteredOfficialCases.length === 0 && h('div', { key: 'empty_official', className: 'ed-empty-state', style: { padding: '24px 16px', textAlign: 'center' } },
+                      h('div', { style: { fontSize: '13px', fontWeight: 600, color: 'var(--ed-text1)' } },
+                        officialCases.length === 0 ? '正式评测集暂未收录用例' : '无匹配的正式评测集用例'
+                      ),
+                      h('div', { style: { fontSize: '11.5px', lineHeight: 1.5, maxWidth: '300px' } },
+                        '你可以从每天抓取的「🎯 高价值评测集」或「⚠️ Badcase 诊断与回归集」中点击「+ 选入正式集」，沉淀为日常回归与评估 Agent 能力的标准库。'
+                      ),
+                      officialCases.length === 0 && h('div', { style: { display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap', justifyContent: 'center' } },
+                        h('button', {
+                          className: 'ed-btn',
+                          onClick: () => setViewMode('cases')
+                        }, '去挑选高价值用例'),
+                        h('button', {
+                          className: 'ed-btn',
+                          onClick: () => setViewMode('badcases')
+                        }, '去挑选 Badcase'),
+                        h('button', {
+                          className: 'ed-btn ed-btn-official',
+                          onClick: () => setNewOfficialModalOpen(true)
+                        }, '+ 手动新增用例')
+                      )
+                    ),
+                    ...filteredOfficialCases.map(oc => {
+                      const isSelected = (activeOfficialCase && activeOfficialCase.id === oc.id);
+                      const isChecked = selectedOfficialIds.has(oc.id);
+                      const isBad = oc.sourceType === 'badcase';
+                      const prio = oc.priority || 'P1';
+                      const matchedTasks = regressionTasks.filter(t => t.caseId === oc.id || (t.title === oc.title && t.prompt === oc.userPrompt));
+                      const latestTask = matchedTasks[0] || null;
+                      return h('div', {
+                        key: oc.id,
+                        className: `ed-case-card ${isSelected ? 'active' : ''}`,
+                        onClick: () => {
+                          setSelectedOfficialCaseId(oc.id);
+                          setEditingOfficialCase(null);
+                        }
+                      },
+                        h('div', { className: 'ed-card-head' },
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+                            h('input', {
+                              type: 'checkbox',
+                              checked: isChecked,
+                              onChange: e => toggleSelectOne(oc.id, e)
+                            }),
+                            h('span', { className: `ed-prio-badge ed-prio-${prio}` }, prio),
+                            h('span', {
+                              className: `ed-source-badge ${oc.isManual ? 'ed-source-manual' : (isBad ? 'ed-source-badcase' : 'ed-source-case')}`
+                            }, oc.isManual ? '✍️ 手动构建' : (isBad ? '⚠️ 缺陷回归' : '🎯 正向基准')),
+                            h('span', { className: 'ed-category-tag' }, oc.category || oc.badcaseTypeName || '综合问答')
+                          ),
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                            latestTask && h('span', {
+                              className: `ed-reg-status-pill ed-reg-status-${latestTask.status}`,
+                              style: { fontSize: '10px', padding: '1px 5px' }
+                            }, latestTask.status === 'completed' ? '✓ 已回归' : (latestTask.status === 'running' ? '⚡ 回归中' : '✕ 回归异常')),
+                            h('button', {
+                              type: 'button',
+                              className: 'ed-icon-btn',
+                              style: { padding: '2px', color: 'var(--ed-text2)' },
+                              title: '从正式评测集中移出',
+                              onClick: e => {
+                                e.stopPropagation();
+                                handleRemoveOfficialCases([oc.id]);
+                              }
+                            }, h(Glyph, { kind: 'trash', size: 12 }))
+                          )
+                        ),
+                        h('div', { className: 'ed-card-title' }, oc.title),
+                        h('div', { className: 'ed-badcase-card-desc' }, oc.evalCriteria || oc.userPrompt),
+                        h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
+                          h('span', null, `来源: ${oc.sourceDate || '手动'} (${oc.sourceEnv || 'prod'}) · ${oc.turnsCount || 1} 轮`),
+                          h('span', null, `入库 ${(oc.addedAt || '').slice(5, 16).replace('T', ' ')}`)
+                        )
+                      );
+                    })
+                  ])
                 )
               ),
 
@@ -2718,7 +3440,12 @@ ${b.evidence}
                           h('span', null, `创建时间: ${activeCase.createdAt}`)
                         )
                       ),
-                      h('div', { style: { display: 'flex', gap: '8px' } },
+                      h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                        h('button', {
+                          className: `ed-btn ${isCaseInOfficial(activeCase) ? 'ed-btn-official-added' : 'ed-btn-official'}`,
+                          onClick: e => handleToggleCaseOfficial(activeCase, e),
+                          title: isCaseInOfficial(activeCase) ? '点击从正式评测集中移出' : '选入正式评测集，作为日常回归基准'
+                        }, h(Glyph, { kind: 'bookmark', size: 12 }), isCaseInOfficial(activeCase) ? '✓ 已在正式评测集' : '📌 选入正式评测集'),
                         h('button', {
                           className: 'ed-btn ed-btn-regression',
                           onClick: () => openRunRegressionModal([activeCase])
@@ -2833,7 +3560,7 @@ ${b.evidence}
                       ]
                     )
                   ]
-                ) : (
+                ) : viewMode === 'badcases' ? (
                   !activeBadcase ? h('div', { className: 'ed-empty-state' }, '请在左侧选择一个 Badcase 诊断用例') : [
                     // Badcase Header
                     h('div', { key: 'b_head', className: 'ed-detail-header' },
@@ -2852,7 +3579,11 @@ ${b.evidence}
                           h('span', { className: 'ed-meta-chip' }, activeBadcase.createdAt || '')
                         )
                       ),
-                      h('div', { style: { display: 'flex', gap: '8px' } },
+                      h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                        h('button', {
+                          className: `ed-btn ${isCaseInOfficial(activeBadcase) ? 'ed-btn-official-added' : 'ed-btn-official'}`,
+                          onClick: (e) => handleToggleCaseOfficial(activeBadcase, e)
+                        }, isCaseInOfficial(activeBadcase) ? '✓ 已在正式评测集 (点击移出)' : '📌 选入正式评测集'),
                         h('button', {
                           className: 'ed-btn ed-btn-regression',
                           onClick: () => openRunRegressionModal([activeBadcase])
@@ -3009,6 +3740,410 @@ ${b.evidence}
                       ]
                     )
                   ]
+                ) : (
+                  // Official Evaluation Dataset Detail Inspector
+                  !activeOfficialCase ? (
+                    h('div', { className: 'ed-empty-state', style: { gap: '12px' } },
+                      h('div', { style: { fontSize: '28px' } }, '📌'),
+                      h('div', { style: { fontSize: '14px', fontWeight: 650, color: 'var(--ed-text1)' } }, '正式评测集详情与回归基准台'),
+                      h('div', { style: { maxWidth: '420px', lineHeight: 1.6 } },
+                        '请在左侧列表选择一条正式评测用例；或前往「🎯 高价值评测集」与「⚠️ Badcase 诊断与回归集」挑选每日典型会话沉淀入库。'
+                      ),
+                      h('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' } },
+                        h('button', {
+                          className: 'ed-btn ed-btn-official',
+                          onClick: () => setNewOfficialModalOpen(true)
+                        }, '➕ 手动新增正式用例'),
+                        h('button', {
+                          className: 'ed-btn',
+                          onClick: () => setViewMode('cases')
+                        }, '去高价值评测集挑选 →')
+                      )
+                    )
+                  ) : (() => {
+                    const isBadSource = activeOfficialCase.sourceType === 'badcase';
+                    const isManualSource = activeOfficialCase.sourceType === 'manual';
+                    const prio = activeOfficialCase.priority || 'P1';
+                    const matchedRegTasks = regressionTasks.filter(t =>
+                      t.caseId === activeOfficialCase.id ||
+                      t.title === activeOfficialCase.title ||
+                      (t.prompt && activeOfficialCase.userPrompt && t.prompt.trim() === activeOfficialCase.userPrompt.trim())
+                    );
+                    const isEditing = editingOfficialCase && editingOfficialCase.id === activeOfficialCase.id;
+
+                    return [
+                      // Official Case Detail Header
+                      h('div', { key: 'o_head', className: 'ed-detail-header' },
+                        h('div', { className: 'ed-detail-title' },
+                          h('h2', null, activeOfficialCase.title),
+                          h('div', { className: 'ed-meta-chips-row' },
+                            h('span', { className: `ed-prio-badge ed-prio-${prio}` }, `${prio} 级基准`),
+                            h('span', {
+                              className: `ed-source-badge ${isBadSource ? 'ed-source-bad' : (isManualSource ? 'ed-source-manual' : 'ed-source-pos')}`
+                            }, isBadSource ? '⚠️ 缺陷回归基准' : (isManualSource ? '✍️ 手动构建基准' : '🎯 正向能力基准')),
+                            h('span', { className: 'ed-cat-tag' }, activeOfficialCase.categoryName || '通用业务咨询'),
+                            activeOfficialCase.sourceDate && h('span', { className: 'ed-meta-chip' }, `提取日期: ${activeOfficialCase.sourceDate}`),
+                            activeOfficialCase.addedAt && h('span', { className: 'ed-meta-chip' }, `入库: ${(activeOfficialCase.addedAt || '').slice(0, 10)}`),
+                            matchedRegTasks.length > 0 && h('span', {
+                              className: 'ed-meta-chip',
+                              style: { color: '#7c3aed', borderColor: 'rgba(124,58,237,0.3)', background: 'rgba(124,58,237,0.06)' }
+                            }, `⚡ 已回归 ${matchedRegTasks.length} 次`)
+                          )
+                        ),
+                        h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                          h('button', {
+                            className: 'ed-btn ed-btn-regression',
+                            onClick: () => openRunRegressionModal([activeOfficialCase])
+                          }, '🚀 发起回归测试'),
+                          h('button', {
+                            className: 'ed-btn',
+                            onClick: () => {
+                              setOfficialTab('spec');
+                              if (isEditing) {
+                                setEditingOfficialCase(null);
+                              } else {
+                                setEditingOfficialCase({
+                                  id: activeOfficialCase.id,
+                                  title: activeOfficialCase.title || '',
+                                  priority: activeOfficialCase.priority || 'P1',
+                                  categoryName: activeOfficialCase.categoryName || '通用业务咨询',
+                                  sourceType: activeOfficialCase.sourceType || 'positive',
+                                  userPrompt: activeOfficialCase.userPrompt || '',
+                                  evalCriteria: activeOfficialCase.evalCriteria || '',
+                                  referenceAnswer: activeOfficialCase.referenceAnswer || '',
+                                  notes: activeOfficialCase.notes || ''
+                                });
+                              }
+                            }
+                          }, h(Glyph, { kind: 'edit', size: 12 }), isEditing ? '取消编辑' : '编辑用例 / 判据'),
+                          h('button', {
+                            className: 'ed-btn',
+                            onClick: () => copyToClipboard(JSON.stringify(activeOfficialCase, null, 2), 'official_json')
+                          }, copied === 'official_json' ? '已复制 JSON' : '复制 JSON'),
+                          h('button', {
+                            className: 'ed-btn',
+                            style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.28)' },
+                            onClick: () => handleRemoveOfficialCases([activeOfficialCase.id])
+                          }, h(Glyph, { kind: 'trash', size: 12 }), '移出正式集')
+                        )
+                      ),
+
+                      // Official Case Sub-Tabs
+                      h('div', { key: 'o_tabs', className: 'ed-tabs-row' },
+                        h('button', {
+                          className: `ed-tab-btn ${officialTab === 'spec' ? 'active' : ''}`,
+                          onClick: () => setOfficialTab('spec')
+                        }, '📋 评测基准与通关判据'),
+                        h('button', {
+                          className: `ed-tab-btn ${officialTab === 'reg_history' ? 'active' : ''}`,
+                          onClick: () => setOfficialTab('reg_history')
+                        }, `⚡ 历史回归记录 (${matchedRegTasks.length})`),
+                        Array.isArray(activeOfficialCase.messages) && activeOfficialCase.messages.length > 0 && h('button', {
+                          className: `ed-tab-btn ${officialTab === 'timeline' ? 'active' : ''}`,
+                          onClick: () => setOfficialTab('timeline')
+                        }, `💬 原始完整对话回放 (${activeOfficialCase.messages.length})`)
+                      ),
+
+                      // Official Case Detail Body
+                      h('div', { key: 'o_body', className: 'ed-detail-body' },
+                        officialTab === 'spec' ? (
+                          isEditing ? [
+                            // Inline Edit Form for Official Case
+                            h('div', {
+                              key: 'edit_form',
+                              style: {
+                                background: 'var(--ed-bg-layer1)',
+                                border: '1px solid rgba(124, 58, 237, 0.35)',
+                                borderRadius: '10px',
+                                padding: '16px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '12px'
+                              }
+                            },
+                              h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+                                h('span', { style: { fontSize: '13.5px', fontWeight: 700, color: '#7c3aed' } }, '✏️ 编辑正式评测用例与 Agent 能力通关判据'),
+                                h('div', { style: { display: 'flex', gap: '8px' } },
+                                  h('button', { className: 'ed-btn', onClick: () => setEditingOfficialCase(null) }, '取消'),
+                                  h('button', { className: 'ed-btn ed-btn-official', onClick: handleSaveOfficialEdit }, '💾 保存修改')
+                                )
+                              ),
+                              h('div', { style: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' } },
+                                h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                  h('label', { className: 'ed-form-label-sub' }, '用例标题'),
+                                  h('input', {
+                                    className: 'ed-form-input',
+                                    value: editingOfficialCase.title,
+                                    onChange: e => setEditingOfficialCase(p => ({ ...p, title: e.target.value }))
+                                  })
+                                ),
+                                h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                  h('label', { className: 'ed-form-label-sub' }, '回归优先级'),
+                                  h('select', {
+                                    className: 'ed-form-input',
+                                    value: editingOfficialCase.priority,
+                                    onChange: e => setEditingOfficialCase(p => ({ ...p, priority: e.target.value }))
+                                  },
+                                    h('option', { value: 'P0' }, 'P0 核心必测'),
+                                    h('option', { value: 'P1' }, 'P1 重点回归'),
+                                    h('option', { value: 'P2' }, 'P2 常规覆盖')
+                                  )
+                                ),
+                                h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                  h('label', { className: 'ed-form-label-sub' }, '用例类型'),
+                                  h('select', {
+                                    className: 'ed-form-input',
+                                    value: editingOfficialCase.sourceType,
+                                    onChange: e => setEditingOfficialCase(p => ({ ...p, sourceType: e.target.value }))
+                                  },
+                                    h('option', { value: 'positive' }, '🎯 正向能力基准'),
+                                    h('option', { value: 'badcase' }, '⚠️ 缺陷回归基准'),
+                                    h('option', { value: 'manual' }, '✍️ 手动构建基准')
+                                  )
+                                ),
+                                h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                  h('label', { className: 'ed-form-label-sub' }, '业务分类'),
+                                  h('input', {
+                                    className: 'ed-form-input',
+                                    value: editingOfficialCase.categoryName,
+                                    onChange: e => setEditingOfficialCase(p => ({ ...p, categoryName: e.target.value }))
+                                  })
+                                )
+                              ),
+                              h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                h('label', { className: 'ed-form-label-sub' }, '回归测试输入提问 (Prompt / Instruction)'),
+                                h('textarea', {
+                                  className: 'ed-form-input',
+                                  rows: 3,
+                                  style: { fontFamily: 'ui-monospace, monospace', resize: 'vertical' },
+                                  value: editingOfficialCase.userPrompt,
+                                  onChange: e => setEditingOfficialCase(p => ({ ...p, userPrompt: e.target.value }))
+                                })
+                              ),
+                              h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                h('label', { className: 'ed-form-label-sub' }, '🎯 Agent 能力评价标准与通关判据 (Eval Criteria)'),
+                                h('textarea', {
+                                  className: 'ed-form-input',
+                                  rows: 3,
+                                  style: { resize: 'vertical' },
+                                  placeholder: '定义该用例在日常回归测试中判定通过的核心要求（如：必须调用的工具、禁止出现的报错、关键回复要素）',
+                                  value: editingOfficialCase.evalCriteria,
+                                  onChange: e => setEditingOfficialCase(p => ({ ...p, evalCriteria: e.target.value }))
+                                })
+                              ),
+                              h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                                h('label', { className: 'ed-form-label-sub' }, '参考标准答案 / 期望输出 (Reference Answer)'),
+                                h('textarea', {
+                                  className: 'ed-form-input',
+                                  rows: 6,
+                                  style: { resize: 'vertical' },
+                                  value: editingOfficialCase.referenceAnswer,
+                                  onChange: e => setEditingOfficialCase(p => ({ ...p, referenceAnswer: e.target.value }))
+                                })
+                              )
+                            )
+                          ] : [
+                            // 1. Agent Capability Evaluation Criteria Box
+                            h('div', { key: 'o_criteria', className: 'ed-eval-criteria-box' },
+                              h('div', { className: 'ed-eval-criteria-head' },
+                                h('div', { className: 'ed-eval-criteria-title' },
+                                  '🎯 Agent 能力评价标准与通关判据 (Evaluation Criteria)'
+                                ),
+                                h('button', {
+                                  className: 'ed-copy-btn',
+                                  onClick: () => setEditingOfficialCase({
+                                    id: activeOfficialCase.id,
+                                    title: activeOfficialCase.title || '',
+                                    priority: activeOfficialCase.priority || 'P1',
+                                    categoryName: activeOfficialCase.categoryName || '通用业务咨询',
+                                    sourceType: activeOfficialCase.sourceType || 'positive',
+                                    userPrompt: activeOfficialCase.userPrompt || '',
+                                    evalCriteria: activeOfficialCase.evalCriteria || '',
+                                    referenceAnswer: activeOfficialCase.referenceAnswer || '',
+                                    notes: activeOfficialCase.notes || ''
+                                  })
+                                }, '✏️ 修改判据')
+                              ),
+                              h('div', { style: { fontSize: '13px', color: 'var(--ed-text1)', lineHeight: 1.65, whiteSpace: 'pre-wrap' } },
+                                activeOfficialCase.evalCriteria || '验证 Agent 对该核心业务场景的意图理解、工具调用准确性与回复完整性。'
+                              )
+                            ),
+
+                            // 2. User Prompt (Instruction)
+                            h('div', { key: 'o_prompt', className: 'ed-section' },
+                              h('div', { className: 'ed-section-head' },
+                                h('h3', null, '回归测试输入提问 (Prompt / Instruction)'),
+                                h('button', {
+                                  className: 'ed-copy-btn',
+                                  onClick: () => copyToClipboard(activeOfficialCase.userPrompt, 'o_prompt')
+                                }, copied === 'o_prompt' ? '已复制' : '复制提问')
+                              ),
+                              h('div', { className: 'ed-code-box' }, activeOfficialCase.userPrompt)
+                            ),
+
+                            // 3. Tools Chain if present
+                            Array.isArray(activeOfficialCase.toolsUsed) && activeOfficialCase.toolsUsed.length > 0 && h('div', { key: 'o_tools', className: 'ed-section' },
+                              h('div', { className: 'ed-section-head' },
+                                h('h3', null, `期望 / 关联工具调用链 (${activeOfficialCase.toolsUsed.length})`)
+                              ),
+                              h('div', { className: 'ed-card-tags' },
+                                activeOfficialCase.toolsUsed.map(t => h('span', { key: t, className: 'ed-tool-tag' }, `🔧 ${t}`))
+                              )
+                            ),
+
+                            // 4. Badcase Diagnostic Summary if from Badcase
+                            (isBadSource || activeOfficialCase.phenomenon || activeOfficialCase.recommendation) && h('div', { key: 'o_diag', className: 'ed-diag-panel' },
+                              activeOfficialCase.phenomenon && h('div', { className: 'ed-diag-section' },
+                                h('div', { className: 'ed-diag-section-head' },
+                                  h('div', { className: 'ed-diag-section-title' },
+                                    h(Glyph, { kind: 'alertCircle', size: 14 }),
+                                    '关联历史故障现象 (Historical Badcase Phenomenon)'
+                                  ),
+                                  activeOfficialCase.badcaseTypeName && h('span', {
+                                    className: 'ed-diag-section-tag',
+                                    style: { background: 'rgba(220,38,38,0.08)', color: '#dc2626' }
+                                  }, activeOfficialCase.badcaseTypeName)
+                                ),
+                                h('div', { className: 'ed-diag-text' }, (activeOfficialCase.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, ''))
+                              ),
+                              activeOfficialCase.recommendation && h('div', { className: 'ed-diag-section' },
+                                h('div', { className: 'ed-diag-section-head' },
+                                  h('div', { className: 'ed-diag-section-title' },
+                                    h(Glyph, { kind: 'tool', size: 14 }),
+                                    '修复建议与回归验证要点 (Remediation Focus)'
+                                  )
+                                ),
+                                h('div', { className: 'ed-diag-action-box' },
+                                  h('div', { className: 'ed-diag-action-text' }, activeOfficialCase.recommendation)
+                                )
+                              )
+                            ),
+
+                            // 5. Reference Answer / Baseline Output
+                            h('div', { key: 'o_answer', className: 'ed-section' },
+                              h('div', { className: 'ed-section-head' },
+                                h('h3', null, isBadSource ? '历史异常回复 / 改进前基线对照' : '标准参考回答 (Reference Answer Baseline)'),
+                                h('button', {
+                                  className: 'ed-copy-btn',
+                                  onClick: () => copyToClipboard(activeOfficialCase.referenceAnswer, 'o_ans')
+                                }, copied === 'o_ans' ? '已复制' : '复制参考答案')
+                              ),
+                              h('div', { className: 'ed-answer-box' },
+                                activeOfficialCase.referenceAnswer
+                                  ? h(MarkdownView, { content: activeOfficialCase.referenceAnswer })
+                                  : h('span', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '（暂未填写标准参考答案，可点击右上角「编辑用例 / 判据」补充）')
+                              )
+                            )
+                          ]
+                        ) : officialTab === 'reg_history' ? [
+                          matchedRegTasks.length === 0 ? (
+                            h('div', { key: 'no_reg', className: 'ed-empty-state', style: { padding: '48px 20px', gap: '10px' } },
+                              h('div', { style: { fontSize: '13.5px', fontWeight: 600, color: 'var(--ed-text1)' } }, '该正式评测用例暂无回归执行记录'),
+                              h('div', null, '点击下方按钮可立即针对预生产/测试环境发起真实对话回归验证，并与基准判据进行对照。'),
+                              h('button', {
+                                className: 'ed-btn ed-btn-regression',
+                                style: { marginTop: '6px' },
+                                onClick: () => openRunRegressionModal([activeOfficialCase])
+                              }, '🚀 立即对该用例发起回归测试')
+                            )
+                          ) : (
+                            h('div', { key: 'reg_list', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
+                              matchedRegTasks.map((t) => {
+                                const isRunning = t.status === 'running' || t.status === 'pending';
+                                return h('div', {
+                                  key: t.id,
+                                  style: {
+                                    border: '1px solid var(--ed-border1)',
+                                    borderRadius: '10px',
+                                    background: 'var(--ed-bg-layer1)',
+                                    padding: '14px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '10px'
+                                  }
+                                },
+                                  h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' } },
+                                    h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                                      h('span', { className: `ed-reg-status-pill ed-reg-status-${t.status}` },
+                                        isRunning && h('span', { className: 'ed-reg-spin' }, '⚡'),
+                                        t.status === 'completed' ? '✓ 回归完成' : (t.status === 'running' ? '正在执行' : (t.status === 'failed' ? '✕ 执行失败' : t.status))
+                                      ),
+                                      h('span', { className: 'ed-meta-chip' }, `环境: ${t.envName || t.env}`),
+                                      t.durationMs > 0 && h('span', { className: 'ed-meta-chip' }, `耗时: ${(t.durationMs / 1000).toFixed(1)}s`),
+                                      h('span', { className: 'ed-meta-chip' }, `时间: ${t.createdAt}`)
+                                    ),
+                                    h('button', {
+                                      className: 'ed-btn',
+                                      onClick: () => {
+                                        setSelectedRegressionTaskId(t.id);
+                                        setRegressionDrawerOpen(true);
+                                      }
+                                    }, '打开回归详情看板 →')
+                                  ),
+                                  t.error && h('div', { style: { color: '#dc2626', fontSize: '12px' } }, `🚨 异常: ${t.error}`),
+                                  h('div', { className: 'ed-reg-compare-grid' },
+                                    h('div', { className: 'ed-reg-compare-col' },
+                                      h('div', { className: 'ed-reg-compare-head' },
+                                        h('span', { style: { color: '#059669' } }, '⚡ 回归实测输出 (Actual Output)')
+                                      ),
+                                      h('div', { className: 'ed-reg-compare-body', style: { maxHeight: '240px' } },
+                                        t.answer ? h(MarkdownView, { content: t.answer }) : '（执行中或无输出）'
+                                      )
+                                    ),
+                                    h('div', { className: 'ed-reg-compare-col' },
+                                      h('div', { className: 'ed-reg-compare-head' },
+                                        h('span', { style: { color: '#7c3aed' } }, '📌 正式评测集参考基准与通关判据')
+                                      ),
+                                      h('div', { className: 'ed-reg-compare-body', style: { maxHeight: '240px' } },
+                                        activeOfficialCase.evalCriteria && h('div', {
+                                          style: {
+                                            padding: '6px 10px',
+                                            marginBottom: '8px',
+                                            borderRadius: '6px',
+                                            background: 'rgba(124, 58, 237, 0.08)',
+                                            fontSize: '12px',
+                                            color: '#6d28d9'
+                                          }
+                                        }, `🎯 判据: ${activeOfficialCase.evalCriteria}`),
+                                        activeOfficialCase.referenceAnswer
+                                          ? h(MarkdownView, { content: activeOfficialCase.referenceAnswer })
+                                          : '（无参考标准答案）'
+                                      )
+                                    )
+                                  )
+                                );
+                              })
+                            )
+                          )
+                        ] : [
+                          // Timeline Replay for Official Case
+                          h('div', { key: 'o_timeline', className: 'ed-msg-timeline' },
+                            (activeOfficialCase.messages || []).map((m, idx) => {
+                              const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
+                              return h('div', { key: idx, className: `ed-bubble ${roleClass}` },
+                                h('div', { className: 'ed-bubble-head' },
+                                  h('span', null, m.role === 'user' ? '👤 客户 / 访客提问' : (m.role === 'assistant' ? '🤖 客服助理回复' : (m.role === 'tool' ? `🔧 工具执行: ${m.toolName || '未命名'}` : `🧠 模型思考推理 (${m.role})`))),
+                                  h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
+                                ),
+                                h('div', { className: 'ed-bubble-body' },
+                                  m.role === 'tool' ? [
+                                    m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
+                                      h('strong', null, '入参: '),
+                                      h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
+                                    ),
+                                    m.toolResult && h('div', { key: 'res' },
+                                      h('strong', null, '结果: '),
+                                      h('pre', { style: { margin: '4px 0 0', maxHeight: '150px', overflowY: 'auto' } }, m.toolResult)
+                                    )
+                                  ] : (m.role === 'assistant' ? h(MarkdownView, { content: m.content }) : m.content)
+                                )
+                              );
+                            })
+                          )
+                        ]
+                      )
+                    ];
+                  })()
                 )
               )
             ),
@@ -3497,6 +4632,102 @@ ${b.evidence}
                       )
                     );
                   })()
+                )
+              )
+            ),
+
+            // Modal: Manual Add Official Case Modal
+            newOfficialModalOpen && h('div', { className: 'ed-modal-overlay', onClick: () => setNewOfficialModalOpen(false) },
+              h('div', { className: 'ed-modal-content', style: { maxWidth: '640px' }, onClick: e => e.stopPropagation() },
+                h('div', { className: 'ed-modal-header' },
+                  h('h3', null, '➕ 手动新增正式评测集用例'),
+                  h('button', { className: 'ed-icon-btn', onClick: () => setNewOfficialModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
+                ),
+                h('div', { className: 'ed-modal-body', style: { maxHeight: '70vh' } },
+                  h('div', { style: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '12px' } },
+                    h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                      h('label', { className: 'ed-form-label' }, '用例标题 (留空自动取提问前 45 字)'),
+                      h('input', {
+                        className: 'ed-form-input',
+                        placeholder: '例如：查询当前开启状态的获联提醒规则',
+                        value: newOfficialDraft.title,
+                        onChange: e => setNewOfficialDraft(p => ({ ...p, title: e.target.value }))
+                      })
+                    ),
+                    h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                      h('label', { className: 'ed-form-label' }, '回归优先级'),
+                      h('select', {
+                        className: 'ed-form-input',
+                        value: newOfficialDraft.priority,
+                        onChange: e => setNewOfficialDraft(p => ({ ...p, priority: e.target.value }))
+                      },
+                        h('option', { value: 'P0' }, 'P0 核心必测'),
+                        h('option', { value: 'P1' }, 'P1 重点回归'),
+                        h('option', { value: 'P2' }, 'P2 常规覆盖')
+                      )
+                    ),
+                    h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                      h('label', { className: 'ed-form-label' }, '基准类型'),
+                      h('select', {
+                        className: 'ed-form-input',
+                        value: newOfficialDraft.sourceType,
+                        onChange: e => setNewOfficialDraft(p => ({ ...p, sourceType: e.target.value }))
+                      },
+                        h('option', { value: 'positive' }, '🎯 正向能力基准'),
+                        h('option', { value: 'badcase' }, '⚠️ 缺陷回归基准'),
+                        h('option', { value: 'manual' }, '✍️ 手动构建基准')
+                      )
+                    )
+                  ),
+                  h('div', { className: 'ed-form-item' },
+                    h('label', { className: 'ed-form-label' }, '业务场景分类'),
+                    h('input', {
+                      className: 'ed-form-input',
+                      placeholder: '例如：获联规则配置 / 线索与对话排查 / 通用业务咨询',
+                      value: newOfficialDraft.categoryName,
+                      onChange: e => setNewOfficialDraft(p => ({ ...p, categoryName: e.target.value }))
+                    })
+                  ),
+                  h('div', { className: 'ed-form-item' },
+                    h('label', { className: 'ed-form-label' }, '回归测试输入提问 (Prompt / Instruction) *'),
+                    h('textarea', {
+                      className: 'ed-form-input',
+                      rows: 3,
+                      placeholder: '输入日常回归测试时发送给 KuaiBuddy Agent 的测试指令...',
+                      value: newOfficialDraft.userPrompt,
+                      onChange: e => setNewOfficialDraft(p => ({ ...p, userPrompt: e.target.value }))
+                    })
+                  ),
+                  h('div', { className: 'ed-form-item' },
+                    h('label', { className: 'ed-form-label' }, '🎯 Agent 能力评价标准与通关判据 (Eval Criteria)'),
+                    h('textarea', {
+                      className: 'ed-form-input',
+                      rows: 3,
+                      placeholder: '例如：必须正确调用获联规则查询工具，不得出现连续报错，且准确列出已开启规则名称与 ID',
+                      value: newOfficialDraft.evalCriteria,
+                      onChange: e => setNewOfficialDraft(p => ({ ...p, evalCriteria: e.target.value }))
+                    })
+                  ),
+                  h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
+                    h('label', { className: 'ed-form-label' }, '参考标准答案 / 期望输出 (Reference Answer)'),
+                    h('textarea', {
+                      className: 'ed-form-input',
+                      rows: 4,
+                      placeholder: '可选：填写期望的标准回答，用于回归测试后双栏对比...',
+                      value: newOfficialDraft.referenceAnswer,
+                      onChange: e => setNewOfficialDraft(p => ({ ...p, referenceAnswer: e.target.value }))
+                    })
+                  )
+                ),
+                h('div', { className: 'ed-modal-footer' },
+                  h('button', {
+                    className: 'ed-btn',
+                    onClick: () => setNewOfficialModalOpen(false)
+                  }, '取消'),
+                  h('button', {
+                    className: 'ed-btn ed-btn-official',
+                    onClick: handleCreateManualOfficialCase
+                  }, '📌 确认加入正式评测集')
                 )
               )
             )

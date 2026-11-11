@@ -1,6 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fetchSessionsForDate, fetchMessagesBatch, fetchMessagesForSession, getConfig, saveConfig, getCredentials } from './api.js';
+import {
+  fetchSessionsForDate,
+  fetchMessagesBatch,
+  fetchMessagesForSession,
+  getConfig,
+  saveConfig,
+  getCredentials,
+  getOfficialDataset,
+  saveOfficialDataset,
+  addOfficialCases,
+  removeOfficialCases,
+  updateOfficialCase
+} from './api.js';
 import { extractEvaluationDataset, exportFormat, isNoiseSession } from './evaluator.js';
 import { regressionManager } from './regression.js';
 
@@ -74,8 +86,8 @@ export function apply(ctx) {
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'detail', 'export', 'get_config', 'badcases'],
-          description: '操作类型: list 查看提取的评测集概览; badcases 查看 Badcase 诊断与归因列表; detail 查看单条会话详情; export 导出评测集/回归集; get_config 查看当前环境配置'
+          enum: ['list', 'detail', 'export', 'get_config', 'badcases', 'official'],
+          description: '操作类型: list 查看提取的评测集概览; badcases 查看 Badcase 诊断与归因列表; official 查看正式评测集管理库; detail 查看单条会话详情; export 导出评测集/回归集/正式集; get_config 查看当前环境配置'
         },
         env: {
           type: 'string',
@@ -100,8 +112,8 @@ export function apply(ctx) {
         },
         exportType: {
           type: 'string',
-          enum: ['cases', 'badcases'],
-          description: '导出类型: cases 评测用例集, badcases 回归测试集'
+          enum: ['cases', 'badcases', 'official'],
+          description: '导出类型: cases 评测用例集, badcases 回归测试集, official 正式评测集'
         },
         sessionId: {
           type: 'string',
@@ -194,6 +206,34 @@ export function apply(ctx) {
         };
       }
 
+      if (args.action === 'official') {
+        const official = getOfficialDataset();
+        let items = official.items || [];
+        if (args.category) {
+          items = items.filter(c => c.category === args.category || c.badcaseTypeName === args.category);
+        }
+        const limit = args.limit || 50;
+        return {
+          updatedAt: official.updatedAt,
+          totalCount: (official.items || []).length,
+          returnedCount: Math.min(limit, items.length),
+          items: items.slice(0, limit).map(c => ({
+            id: c.id,
+            sessionId: c.sessionId,
+            sourceType: c.sourceType || (c.badcaseType ? 'badcase' : 'case'),
+            priority: c.priority || 'P1',
+            title: c.title,
+            category: c.category || c.badcaseTypeName,
+            prompt: c.userPrompt || c.prompt,
+            evalCriteria: c.evalCriteria,
+            referenceAnswerPreview: (c.referenceAnswer || '').slice(0, 120),
+            sourceDate: c.sourceDate,
+            sourceEnv: c.sourceEnv,
+            addedAt: c.addedAt
+          }))
+        };
+      }
+
       if (args.action === 'detail') {
         if (!args.sessionId) throw new Error('detail 操作需要提供 sessionId');
         const msgs = await fetchMessagesForSession(args.sessionId, 100, targetEnv);
@@ -205,8 +245,24 @@ export function apply(ctx) {
       }
 
       if (args.action === 'export') {
-        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
         const exportType = args.exportType || 'cases';
+        if (exportType === 'official') {
+          const official = getOfficialDataset();
+          let items = official.items || [];
+          if (args.category) {
+            items = items.filter(c => c.category === args.category || c.badcaseTypeName === args.category);
+          }
+          const limit = args.limit || items.length;
+          const exported = exportFormat(items.slice(0, limit), args.format || 'json', 'official');
+          return {
+            exportType: 'official',
+            format: args.format || 'json',
+            count: Math.min(limit, items.length),
+            content: exported
+          };
+        }
+
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
         const isBadcase = exportType === 'badcases';
         let items = isBadcase ? (data.badcases || []) : (data.cases || []);
 
@@ -269,11 +325,59 @@ export function apply(ctx) {
           let raw = '';
           for await (const chunk of req) {
             raw += chunk;
-            if (raw.length > 64 * 1024) throw new Error('配置请求过大');
+            if (raw.length > 2 * 1024 * 1024) throw new Error('配置请求过大');
           }
           const updates = JSON.parse(raw || '{}');
           const saved = saveConfig(updates);
           return send(200, saved);
+        }
+
+        if (action === 'get_official_dataset') {
+          return send(200, getOfficialDataset());
+        }
+
+        if (action === 'save_official_dataset' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 4 * 1024 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const saved = saveOfficialDataset(body.items || []);
+          return send(200, { success: true, ...saved });
+        }
+
+        if (action === 'add_official_cases' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 4 * 1024 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const saved = addOfficialCases(body.items || body.cases || [], body.sourceDate || date, body.sourceEnv || targetEnv);
+          return send(200, { success: true, ...saved });
+        }
+
+        if (action === 'remove_official_cases' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 512 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const saved = removeOfficialCases(body.ids || []);
+          return send(200, { success: true, ...saved });
+        }
+
+        if (action === 'update_official_case' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 1024 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const saved = updateOfficialCase(body.item || body);
+          return send(200, { success: true, ...saved });
         }
 
         if (action === 'get_data') {

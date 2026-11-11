@@ -653,6 +653,50 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
 }
 
 export function exportFormat(items, format = 'json', type = 'cases') {
+  if (type === 'official') {
+    if (format === 'jsonl') {
+      return items.map(c => JSON.stringify({
+        id: c.id,
+        sessionId: c.sessionId,
+        sourceType: c.sourceType || (c.badcaseType ? 'badcase' : 'case'),
+        priority: c.priority || 'P1',
+        category: c.category || c.badcaseTypeName || '综合问答',
+        title: c.title,
+        prompt: c.userPrompt || c.prompt,
+        eval_criteria: c.evalCriteria || '',
+        reference_answer: c.referenceAnswer || '',
+        tools: c.toolNames || [],
+        turns: c.turnsCount || 1,
+        sourceDate: c.sourceDate,
+        sourceEnv: c.sourceEnv,
+        addedAt: c.addedAt,
+        messages: c.messages || []
+      })).join('\n');
+    }
+
+    if (format === 'alpaca') {
+      const alpacaData = items.map(c => {
+        const isBad = c.sourceType === 'badcase' || Boolean(c.badcaseType);
+        return {
+          instruction: c.userPrompt || c.prompt || '',
+          input: c.evalCriteria
+            ? `【评测标准与要求】\n${c.evalCriteria}`
+            : (isBad
+              ? `【缺陷类型】${c.badcaseTypeName || c.category}\n【故障现象】${c.phenomenon || ''}`
+              : ''),
+          output: c.referenceAnswer || c.recommendation || '',
+          system: '你是一个智能客服与业务排障专家，请严格遵循评测标准完成工具调用与专业回复。',
+          category: c.category || c.badcaseTypeName || '综合问答',
+          priority: c.priority || 'P1',
+          sourceType: isBad ? 'badcase' : 'case'
+        };
+      });
+      return JSON.stringify(alpacaData, null, 2);
+    }
+
+    return JSON.stringify(items, null, 2);
+  }
+
   if (type === 'badcases') {
     if (format === 'jsonl') {
       return items.map(b => JSON.stringify({

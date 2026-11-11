@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const CONFIG_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), 'config.json');
+const OFFICIAL_DATASET_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), 'official-dataset.json');
 
 const DEFAULT_CONFIG = {
   activeEnv: 'prod',
@@ -84,6 +85,149 @@ export function saveConfig(updates) {
   };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
   return next;
+}
+
+export function normalizeOfficialCaseItem(item, sourceDate, sourceEnv) {
+  const isBadcase = Boolean(
+    item.sourceType === 'badcase' ||
+    item.badcaseType ||
+    (typeof item.id === 'string' && item.id.startsWith('bad_'))
+  );
+  const sourceType = item.sourceType || (isBadcase ? 'badcase' : 'case');
+  const now = new Date().toISOString();
+
+  let defaultPriority = 'P1';
+  if (item.priority) {
+    defaultPriority = item.priority;
+  } else if (item.severity === '严重' || (typeof item.valueScore === 'number' && item.valueScore >= 90)) {
+    defaultPriority = 'P0';
+  } else if (item.severity === '中' || (typeof item.valueScore === 'number' && item.valueScore < 75)) {
+    defaultPriority = 'P2';
+  }
+
+  let defaultCriteria = item.evalCriteria || '';
+  if (!defaultCriteria) {
+    if (sourceType === 'badcase') {
+      defaultCriteria = `【缺陷回归防复现】防止再次出现「${item.badcaseTypeName || '历史异常'}」\n` +
+        (item.phenomenon ? `【历史故障现象】${item.phenomenon}\n` : '') +
+        `【修复验证要求】${item.recommendation || '正确完成工具调用与推理，输出符合业务规则的完整回复'}`;
+    } else {
+      const reasons = Array.isArray(item.valueReasons) && item.valueReasons.length > 0
+        ? item.valueReasons.map(r => `- ${r}`).join('\n')
+        : '- 准确理解访客/客服提问意图并给出结构化准确回复';
+      defaultCriteria = `【核心能力基准】验证「${item.category || '综合问答'}」场景下的意图识别、工具链执行与回答质量：\n${reasons}`;
+    }
+  }
+
+  return {
+    ...item,
+    id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    sourceType,
+    sourceDate: item.sourceDate || sourceDate || (item.createdAt ? item.createdAt.slice(0, 10) : ''),
+    sourceEnv: item.sourceEnv || sourceEnv || 'prod',
+    priority: defaultPriority,
+    category: item.category || item.badcaseTypeName || '综合问答',
+    userPrompt: item.userPrompt || item.prompt || '',
+    referenceAnswer: item.referenceAnswer || '',
+    evalCriteria: defaultCriteria,
+    addedAt: item.addedAt || now,
+    updatedAt: now
+  };
+}
+
+export function getOfficialDataset() {
+  try {
+    if (fs.existsSync(OFFICIAL_DATASET_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(OFFICIAL_DATASET_PATH, 'utf8'));
+      const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : []);
+      return {
+        updatedAt: parsed.updatedAt || new Date().toISOString(),
+        items
+      };
+    }
+    // Also check if config.json has a fallback officialDataset array
+    const cfg = getConfig();
+    if (Array.isArray(cfg.officialDataset)) {
+      return {
+        updatedAt: new Date().toISOString(),
+        items: cfg.officialDataset
+      };
+    }
+  } catch {}
+  return { updatedAt: new Date().toISOString(), items: [] };
+}
+
+export function saveOfficialDataset(items) {
+  const payload = {
+    updatedAt: new Date().toISOString(),
+    items: Array.isArray(items) ? items : []
+  };
+  fs.writeFileSync(OFFICIAL_DATASET_PATH, JSON.stringify(payload, null, 2), 'utf8');
+  return payload;
+}
+
+export function addOfficialCases(newItems, sourceDate, sourceEnv) {
+  const current = getOfficialDataset();
+  const list = [...current.items];
+  let addedCount = 0;
+
+  for (const raw of (Array.isArray(newItems) ? newItems : [newItems])) {
+    if (!raw) continue;
+    const normalized = normalizeOfficialCaseItem(raw, sourceDate, sourceEnv);
+    const existingIdx = list.findIndex(x =>
+      x.id === normalized.id ||
+      (x.sessionId && normalized.sessionId && x.sessionId === normalized.sessionId && x.sourceType === normalized.sourceType)
+    );
+    if (existingIdx >= 0) {
+      // Preserve existing user edits on evalCriteria/title/priority/addedAt while refreshing metadata if needed
+      list[existingIdx] = {
+        ...normalized,
+        ...list[existingIdx],
+        id: list[existingIdx].id,
+        addedAt: list[existingIdx].addedAt || normalized.addedAt,
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      list.unshift(normalized);
+      addedCount++;
+    }
+  }
+
+  const saved = saveOfficialDataset(list);
+  return { ...saved, addedCount, totalCount: saved.items.length };
+}
+
+export function removeOfficialCases(ids) {
+  const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
+  const current = getOfficialDataset();
+  const nextItems = current.items.filter(item => !idSet.has(item.id) && !idSet.has(item.sessionId));
+  const removedCount = current.items.length - nextItems.length;
+  const saved = saveOfficialDataset(nextItems);
+  return { ...saved, removedCount, totalCount: saved.items.length };
+}
+
+export function updateOfficialCase(itemUpdate) {
+  if (!itemUpdate) throw new Error('缺少更新内容');
+  const current = getOfficialDataset();
+  const list = [...current.items];
+  const idx = list.findIndex(x => x.id === itemUpdate.id);
+  const now = new Date().toISOString();
+
+  let updatedItem;
+  if (idx >= 0) {
+    updatedItem = {
+      ...list[idx],
+      ...itemUpdate,
+      updatedAt: now
+    };
+    list[idx] = updatedItem;
+  } else {
+    updatedItem = normalizeOfficialCaseItem(itemUpdate, itemUpdate.sourceDate, itemUpdate.sourceEnv);
+    list.unshift(updatedItem);
+  }
+
+  const saved = saveOfficialDataset(list);
+  return { ...saved, item: updatedItem, totalCount: saved.items.length };
 }
 
 // Get credentials from config or env fallback
