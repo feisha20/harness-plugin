@@ -1122,6 +1122,220 @@ window.__ModuleLoader__.load({
   color: var(--ed-text2);
   line-height: 1.4;
 }
+
+/* Regression Testing Console & Drawer */
+.ed-btn-regression {
+  background: color-mix(in srgb, #165dff 10%, var(--ed-bg-base));
+  border: 1px solid color-mix(in srgb, #165dff 35%, transparent);
+  color: #165dff;
+  font-weight: 550;
+}
+.ed-btn-regression:hover {
+  background: #165dff;
+  color: #ffffff;
+  border-color: #165dff;
+}
+
+.ed-reg-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ed-reg-drawer-content {
+  width: 980px;
+  max-width: 94vw;
+  height: 84vh;
+  background: var(--ed-bg-base);
+  border: 1px solid var(--ed-border1);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ed-reg-drawer-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--ed-border1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--ed-bg-layer1);
+}
+.ed-reg-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ed-reg-drawer-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ed-text1);
+}
+.ed-reg-body-split {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.ed-reg-sidebar {
+  width: 320px;
+  border-right: 1px solid var(--ed-border1);
+  background: var(--ed-bg-layer1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ed-reg-sidebar-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ed-border1);
+  font-size: 11.5px;
+  color: var(--ed-text2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ed-reg-task-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ed-reg-task-card {
+  padding: 10px 12px;
+  background: var(--ed-bg-base);
+  border: 1px solid var(--ed-border1);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ed-reg-task-card:hover {
+  background: var(--ed-bg-layer2);
+  border-color: var(--ed-border2);
+}
+.ed-reg-task-card.active {
+  background: color-mix(in srgb, #165dff 8%, var(--ed-bg-base));
+  border-color: #165dff;
+}
+.ed-reg-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.ed-reg-status-pill {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0.2px;
+}
+.ed-reg-status-running {
+  background: rgba(22, 93, 255, 0.1);
+  border: 1px solid rgba(22, 93, 255, 0.25);
+  color: #165dff;
+}
+.ed-reg-status-completed {
+  background: rgba(0, 180, 42, 0.1);
+  border: 1px solid rgba(0, 180, 42, 0.25);
+  color: #00b42a;
+}
+.ed-reg-status-failed {
+  background: rgba(245, 63, 63, 0.1);
+  border: 1px solid rgba(245, 63, 63, 0.25);
+  color: #f53f3f;
+}
+.ed-reg-status-cancelled {
+  background: var(--ed-bg-layer2);
+  border: 1px solid var(--ed-border1);
+  color: var(--ed-text2);
+}
+.ed-reg-status-pending {
+  background: rgba(255, 125, 0, 0.1);
+  border: 1px solid rgba(255, 125, 0, 0.25);
+  color: #ff7d00;
+}
+
+.ed-reg-detail-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px;
+  background: var(--ed-bg-base);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ed-reg-detail-meta {
+  background: var(--ed-bg-layer1);
+  border: 1px solid var(--ed-border1);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ed-reg-spin {
+  display: inline-block;
+  animation: edSpin 1.2s infinite linear;
+}
+@keyframes edSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.ed-reg-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 800px) {
+  .ed-reg-compare-grid { grid-template-columns: 1fr; }
+}
+.ed-reg-compare-col {
+  background: var(--ed-bg-base);
+  border: 1px solid var(--ed-border1);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ed-reg-compare-head {
+  padding: 8px 12px;
+  background: var(--ed-bg-layer2);
+  border-bottom: 1px solid var(--ed-border1);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ed-text2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ed-reg-compare-body {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 280px;
+  overflow-y: auto;
+  color: var(--ed-text1);
+}
 `;
 
     // Markdown Parser & Component
@@ -1664,8 +1878,116 @@ window.__ModuleLoader__.load({
           const [expandedEnv, setExpandedEnv] = React.useState('prod');
           const envDropdownRef = React.useRef(null);
 
+          // Regression Testing states
+          const [regressionTasks, setRegressionTasks] = React.useState([]);
+          const [regressionDrawerOpen, setRegressionDrawerOpen] = React.useState(false);
+          const [regressionModalOpen, setRegressionModalOpen] = React.useState(false);
+          const [regressionTargetCases, setRegressionTargetCases] = React.useState([]);
+          const [regressionTargetEnv, setRegressionTargetEnv] = React.useState('preprod');
+          const [selectedRegressionTaskId, setSelectedRegressionTaskId] = React.useState(null);
+          const [submittingRegression, setSubmittingRegression] = React.useState(false);
+          const [reasoningExpanded, setReasoningExpanded] = React.useState(true);
+
           const toggleFieldVisible = (fieldId) => {
             setVisibleFields(prev => ({ ...prev, [fieldId]: !prev[fieldId] }));
+          };
+
+          // Load regression tasks
+          const loadRegressionTasks = React.useCallback(async () => {
+            try {
+              const res = await fetch('/api/eval-dataset?action=get_regression_tasks');
+              if (res.ok) {
+                const json = await res.json();
+                const tasks = json.tasks || [];
+                setRegressionTasks(tasks);
+                setSelectedRegressionTaskId(prev => {
+                  if (prev && tasks.some(t => t.id === prev)) return prev;
+                  return tasks.length > 0 ? tasks[0].id : null;
+                });
+              }
+            } catch (e) {
+              console.warn('获取回归任务失败:', e);
+            }
+          }, []);
+
+          React.useEffect(() => {
+            loadRegressionTasks();
+          }, [loadRegressionTasks]);
+
+          // Auto-polling when tasks are running
+          React.useEffect(() => {
+            const hasActive = regressionTasks.some(t => t.status === 'running' || t.status === 'pending');
+            if (!hasActive) return;
+
+            const timer = setInterval(() => {
+              loadRegressionTasks();
+            }, 2000);
+
+            return () => clearInterval(timer);
+          }, [regressionTasks, loadRegressionTasks]);
+
+          // Open Run Regression Modal
+          const openRunRegressionModal = (casesList) => {
+            if (!casesList || casesList.length === 0) return;
+            setRegressionTargetCases(casesList);
+            setRegressionTargetEnv(currentEnv === 'prod' ? 'preprod' : currentEnv);
+            setRegressionModalOpen(true);
+          };
+
+          // Submit Regression Tasks
+          const handleStartRegression = async () => {
+            if (!regressionTargetCases || regressionTargetCases.length === 0) return;
+            setSubmittingRegression(true);
+            try {
+              const envData = config?.environments?.[regressionTargetEnv];
+              const payload = {
+                cases: regressionTargetCases,
+                env: regressionTargetEnv,
+                overrideCreds: envData ? {
+                  url: envData.url,
+                  key: envData.key,
+                  companyId: envData.companyId,
+                  username: envData.username,
+                  password: envData.password
+                } : undefined
+              };
+              const res = await fetch('/api/eval-dataset?action=start_regression', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+              const json = await res.json();
+              if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+
+              setRegressionModalOpen(false);
+              setRegressionDrawerOpen(true);
+              if (json.tasks && json.tasks.length > 0) {
+                setSelectedRegressionTaskId(json.tasks[0].id);
+              }
+              await loadRegressionTasks();
+            } catch (err) {
+              alert(`发起回归测试失败: ${err.message}`);
+            } finally {
+              setSubmittingRegression(false);
+            }
+          };
+
+          const handleCancelRegressionTask = async (taskId) => {
+            try {
+              await fetch('/api/eval-dataset?action=cancel_regression_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId })
+              });
+              await loadRegressionTasks();
+            } catch (e) {}
+          };
+
+          const handleClearRegressionTasks = async () => {
+            try {
+              await fetch('/api/eval-dataset?action=clear_regression_tasks', { method: 'POST' });
+              await loadRegressionTasks();
+            } catch (e) {}
           };
 
           // Close dropdown on outside click
@@ -2112,6 +2434,28 @@ ${b.evidence}
                     disabled: loading,
                     onClick: () => loadData(true, currentEnv)
                   }, h(Glyph, { kind: 'refresh', size: 13 }), loading ? '正在提取...' : '重新提取'),
+                  // Regression Console Drawer entry button
+                  h('button', {
+                    className: `ed-btn ${regressionTasks.some(t => t.status === 'running') ? 'ed-btn-regression' : ''}`,
+                    onClick: () => setRegressionDrawerOpen(true)
+                  },
+                    regressionTasks.some(t => t.status === 'running')
+                      ? h('span', { className: 'ed-reg-spin' }, '⚡')
+                      : h('span', null, '⚡'),
+                    regressionTasks.some(t => t.status === 'running')
+                      ? `回归测试 (${regressionTasks.filter(t => t.status === 'running').length} 运行中)`
+                      : `回归测试进展 (${regressionTasks.length})`
+                  ),
+                  // Batch Regression button if items selected
+                  ((viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size) > 0) && h('button', {
+                    className: 'ed-btn ed-btn-regression',
+                    onClick: () => {
+                      const selectedList = viewMode === 'cases'
+                        ? allCases.filter(c => selectedIds.has(c.id))
+                        : allBadcases.filter(b => selectedBadcaseIds.has(b.id));
+                      openRunRegressionModal(selectedList);
+                    }
+                  }, `🚀 批量回归测试 (${viewMode === 'cases' ? selectedIds.size : selectedBadcaseIds.size})`),
                   // Export buttons
                   h('button', {
                     className: 'ed-btn ed-btn-primary',
@@ -2376,6 +2720,10 @@ ${b.evidence}
                       ),
                       h('div', { style: { display: 'flex', gap: '8px' } },
                         h('button', {
+                          className: 'ed-btn ed-btn-regression',
+                          onClick: () => openRunRegressionModal([activeCase])
+                        }, '🚀 发起回归测试'),
+                        h('button', {
                           className: 'ed-btn',
                           onClick: () => copyToClipboard(JSON.stringify(activeCase, null, 2), 'case')
                         }, h(Glyph, { kind: 'copy', size: 12 }), copied === 'case' ? '已复制 JSON' : '复制用例 JSON')
@@ -2505,6 +2853,10 @@ ${b.evidence}
                         )
                       ),
                       h('div', { style: { display: 'flex', gap: '8px' } },
+                        h('button', {
+                          className: 'ed-btn ed-btn-regression',
+                          onClick: () => openRunRegressionModal([activeBadcase])
+                        }, '🚀 发起回归测试'),
                         h('button', {
                           className: 'ed-btn',
                           onClick: () => copyBadcaseReport(activeBadcase)
@@ -2879,6 +3231,272 @@ ${b.evidence}
                     disabled: savingConfig,
                     onClick: () => saveAndApplyConfig(true)
                   }, savingConfig ? '正在保存...' : '保存并立即拉取')
+                )
+              )
+            ),
+
+            // Modal: Run Regression Modal
+            regressionModalOpen && h('div', { className: 'ed-modal-overlay', onClick: () => setRegressionModalOpen(false) },
+              h('div', { className: 'ed-modal-content', style: { maxWidth: '560px' }, onClick: e => e.stopPropagation() },
+                h('div', { className: 'ed-modal-header' },
+                  h('h3', null, `🚀 发起回归测试 (${regressionTargetCases.length} 条用例)`),
+                  h('button', { className: 'ed-icon-btn', onClick: () => setRegressionModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
+                ),
+                h('div', { className: 'ed-modal-body', style: { maxHeight: '65vh' } },
+                  // Case Summary
+                  h('div', { className: 'ed-form-item' },
+                    h('label', { className: 'ed-form-label' }, '待执行评测用例'),
+                    regressionTargetCases.length === 1 ? (
+                      h('div', { style: { background: 'var(--ed-bg-layer1)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--ed-border1)' } },
+                        h('div', { style: { fontWeight: 650, fontSize: '13px', color: 'var(--ed-text1)', marginBottom: '4px' } }, regressionTargetCases[0].title),
+                        h('div', { style: { fontSize: '11.5px', color: 'var(--ed-text2)', maxHeight: '70px', overflowY: 'auto', whiteSpace: 'pre-wrap' } }, regressionTargetCases[0].userPrompt || regressionTargetCases[0].prompt)
+                      )
+                    ) : (
+                      h('div', { style: { background: 'var(--ed-bg-layer1)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--ed-border1)', fontSize: '12px', color: 'var(--ed-text2)' } },
+                        h('div', { style: { marginBottom: '6px', color: 'var(--ed-text1)', fontWeight: '600' } }, `已选择 ${regressionTargetCases.length} 条用例将依次自动执行：`),
+                        h('ul', { style: { margin: 0, paddingLeft: '18px', maxHeight: '120px', overflowY: 'auto' } },
+                          regressionTargetCases.slice(0, 5).map((c, i) => h('li', { key: i, style: { marginBottom: '3px' } }, c.title)),
+                          regressionTargetCases.length > 5 && h('li', { style: { color: 'var(--ed-text2)' } }, `... 等共 ${regressionTargetCases.length} 条`)
+                        )
+                      )
+                    )
+                  ),
+                  // Environment selector
+                  h('div', { className: 'ed-form-item' },
+                    h('label', { className: 'ed-form-label' }, '选择目标执行环境'),
+                    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                      [
+                        { key: 'preprod', name: '预生产环境 (Pre-production)', tip: '推荐！与生产同库，使用独立客服账号，安全无污染' },
+                        { key: 'test', name: '测试环境 (Test)', tip: '用于联调与测试验证' },
+                        { key: 'dev', name: '开发环境 (Dev)', tip: '本地或开发测试集群环境' },
+                        { key: 'prod', name: '生产环境 (Production)', tip: '⚠️ 注意：将在生产客服产生真实会话交互记录' }
+                      ].map(envItem => {
+                        const isSelected = regressionTargetEnv === envItem.key;
+                        const envData = config?.environments?.[envItem.key];
+                        return h('div', {
+                          key: envItem.key,
+                          onClick: () => setRegressionTargetEnv(envItem.key),
+                          style: {
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            border: `1px solid ${isSelected ? 'var(--ed-accent)' : 'var(--ed-border1)'}`,
+                            background: isSelected ? 'color-mix(in srgb, var(--ed-accent) 6%, var(--ed-bg-base))' : 'var(--ed-bg-layer1)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '3px'
+                          }
+                        },
+                          h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+                            h('span', { style: { fontWeight: isSelected ? 650 : 500, fontSize: '13px', color: isSelected ? 'var(--ed-accent)' : 'var(--ed-text1)' } }, envItem.name),
+                            h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, envData?.url || '')
+                          ),
+                          h('div', { style: { fontSize: '11px', color: 'var(--ed-text2)' } },
+                            envData?.username ? `使用账号: ${envData.username} (公司 ID: ${envData.companyId || '-'})` : '尚未在环境配置中填写登录账号密码',
+                            ` · ${envItem.tip}`
+                          )
+                        );
+                      })
+                    )
+                  )
+                ),
+                h('div', { className: 'ed-modal-footer' },
+                  h('button', {
+                    className: 'ed-btn',
+                    disabled: submittingRegression,
+                    onClick: () => setRegressionModalOpen(false)
+                  }, '取消'),
+                  h('button', {
+                    className: 'ed-btn ed-btn-primary',
+                    disabled: submittingRegression,
+                    onClick: handleStartRegression
+                  }, submittingRegression ? '正在发起...' : `▶ 立即发起回归 (${regressionTargetCases.length}条)`)
+                )
+              )
+            ),
+
+            // Modal/Drawer: Regression Execution Console
+            regressionDrawerOpen && h('div', { className: 'ed-reg-drawer-overlay', onClick: () => setRegressionDrawerOpen(false) },
+              h('div', { className: 'ed-reg-drawer-content', onClick: e => e.stopPropagation() },
+                // Header
+                h('div', { className: 'ed-reg-drawer-header' },
+                  h('div', { className: 'ed-reg-drawer-title' },
+                    h('h3', null, '⚡ 对话回归测试进展看板'),
+                    h('span', { className: 'ed-meta-chip' }, `总计 ${regressionTasks.length} 项`),
+                    regressionTasks.some(t => t.status === 'running') && h('span', {
+                      className: 'ed-reg-status-pill ed-reg-status-running'
+                    }, h('span', { className: 'ed-reg-spin' }, '⚡'), `${regressionTasks.filter(t => t.status === 'running').length} 运行中`),
+                    h('span', { className: 'ed-reg-status-pill ed-reg-status-completed' }, `✓ 成功 ${regressionTasks.filter(t => t.status === 'completed').length}`),
+                    regressionTasks.some(t => t.status === 'failed') && h('span', {
+                      className: 'ed-reg-status-pill ed-reg-status-failed'
+                    }, `✕ 失败 ${regressionTasks.filter(t => t.status === 'failed').length}`)
+                  ),
+                  h('div', { style: { display: 'flex', gap: '8px' } },
+                    h('button', { className: 'ed-btn', onClick: loadRegressionTasks }, h(Glyph, { kind: 'refresh', size: 12 }), '刷新'),
+                    h('button', { className: 'ed-btn', onClick: handleClearRegressionTasks }, '清空已结束'),
+                    h('button', { className: 'ed-icon-btn', onClick: () => setRegressionDrawerOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
+                  )
+                ),
+                // Body Split
+                h('div', { className: 'ed-reg-body-split' },
+                  // Left Task Sidebar
+                  h('div', { className: 'ed-reg-sidebar' },
+                    h('div', { className: 'ed-reg-sidebar-header' },
+                      h('span', null, `执行队列 (${regressionTasks.length})`),
+                      h('span', null, '按时间倒序')
+                    ),
+                    h('div', { className: 'ed-reg-task-list' },
+                      regressionTasks.length === 0 ? (
+                        h('div', { className: 'ed-empty-state', style: { padding: '40px 10px' } }, '暂无回归测试任务\n可在用例详情或列表中点击「🚀 发起回归测试」')
+                      ) : (
+                        regressionTasks.map(t => {
+                          const isSelected = selectedRegressionTaskId === t.id;
+                          let statusLabel = '排队中';
+                          let statusClass = 'pending';
+                          if (t.status === 'running') { statusLabel = '执行中'; statusClass = 'running'; }
+                          else if (t.status === 'completed') { statusLabel = '已完成'; statusClass = 'completed'; }
+                          else if (t.status === 'failed') { statusLabel = '失败'; statusClass = 'failed'; }
+                          else if (t.status === 'cancelled') { statusLabel = '已取消'; statusClass = 'cancelled'; }
+
+                          return h('div', {
+                            key: t.id,
+                            className: `ed-reg-task-card ${isSelected ? 'active' : ''}`,
+                            onClick: () => setSelectedRegressionTaskId(t.id)
+                          },
+                            h('div', { className: 'ed-reg-card-head' },
+                              h('span', { className: `ed-reg-status-pill ed-reg-status-${statusClass}` },
+                                t.status === 'running' && h('span', { className: 'ed-reg-spin' }, '⚡'),
+                                statusLabel
+                              ),
+                              h('span', { style: { fontSize: '10.5px', color: 'var(--ed-text2)' } }, t.durationMs ? `${(t.durationMs / 1000).toFixed(1)}s` : (t.createdAt || '').slice(11, 16))
+                            ),
+                            h('div', { style: { fontSize: '12.5px', fontWeight: 600, color: 'var(--ed-text1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, t.title),
+                            h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--ed-text2)' } },
+                              h('span', null, t.envName || t.env),
+                              h('span', null, (t.createdAt || '').slice(11, 19))
+                            )
+                          );
+                        })
+                      )
+                    )
+                  ),
+                  // Right Detail Inspector
+                  (() => {
+                    const activeTask = regressionTasks.find(t => t.id === selectedRegressionTaskId) || regressionTasks[0] || null;
+                    if (!activeTask) {
+                      return h('div', { className: 'ed-detail-pane', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ed-text2)' } },
+                        '请在左侧选择一项回归测试任务'
+                      );
+                    }
+
+                    const isRunning = activeTask.status === 'running' || activeTask.status === 'pending';
+
+                    return h('div', { className: 'ed-reg-detail-pane' },
+                      // Meta Box
+                      h('div', { className: 'ed-reg-detail-meta' },
+                        h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+                          h('span', { className: `ed-reg-status-pill ed-reg-status-${activeTask.status}` },
+                            isRunning && h('span', { className: 'ed-reg-spin' }, '⚡'),
+                            activeTask.status === 'running' ? '正在执行' : (activeTask.status === 'completed' ? '执行完成' : (activeTask.status === 'failed' ? '执行失败' : activeTask.status))
+                          ),
+                          h('span', { className: 'ed-meta-chip' }, `环境: ${activeTask.envName || activeTask.env}`),
+                          activeTask.durationMs > 0 && h('span', { className: 'ed-meta-chip' }, `耗时: ${(activeTask.durationMs / 1000).toFixed(1)}s`),
+                          activeTask.threadId && h('span', { className: 'ed-meta-chip' }, `会话: ${activeTask.threadId}`),
+                          h('span', { className: 'ed-meta-chip' }, `时间: ${activeTask.createdAt}`)
+                        ),
+                        isRunning && h('button', {
+                          className: 'ed-btn',
+                          style: { color: '#f53f3f', borderColor: 'rgba(245,63,63,0.3)' },
+                          onClick: () => handleCancelRegressionTask(activeTask.id)
+                        }, '⏹ 中止执行')
+                      ),
+
+                      // Error Alert if failed
+                      activeTask.error && h('div', {
+                        style: {
+                          background: 'rgba(245, 63, 63, 0.08)',
+                          border: '1px solid rgba(245, 63, 63, 0.3)',
+                          borderRadius: '8px',
+                          padding: '10px 14px',
+                          color: '#f53f3f',
+                          fontSize: '12.5px',
+                          lineHeight: '1.5'
+                        }
+                      },
+                        h('div', { style: { fontWeight: 600, marginBottom: '2px' } }, '🚨 报错原因:'),
+                        h('div', null, activeTask.error)
+                      ),
+
+                      // Section: User Prompt
+                      h('div', { className: 'ed-section' },
+                        h('div', { className: 'ed-section-head' },
+                          h('h3', null, '回归输入提问 (Prompt / Instruction)'),
+                          h('button', {
+                            className: 'ed-copy-btn',
+                            onClick: () => copyToClipboard(activeTask.prompt, 'reg_prompt')
+                          }, copied === 'reg_prompt' ? '已复制' : '复制')
+                        ),
+                        h('div', { className: 'ed-code-box' }, activeTask.prompt)
+                      ),
+
+                      // Section: Reasoning Thinking Process (if present)
+                      activeTask.reasoning && h('div', { className: 'ed-section' },
+                        h('div', { className: 'ed-section-head', style: { cursor: 'pointer' }, onClick: () => setReasoningExpanded(p => !p) },
+                          h('h3', null, `🧠 深度思考推理 (Thinking / CoT) · ${reasoningExpanded ? '收起 ▴' : '展开 ▾'}`),
+                          h('button', {
+                            className: 'ed-copy-btn',
+                            onClick: (e) => { e.stopPropagation(); copyToClipboard(activeTask.reasoning, 'reg_reasoning'); }
+                          }, copied === 'reg_reasoning' ? '已复制' : '复制思考')
+                        ),
+                        reasoningExpanded && h('div', {
+                          className: 'ed-code-box',
+                          style: { background: 'var(--ed-bg-layer2)', color: 'var(--ed-text2)', maxHeight: '200px' }
+                        }, activeTask.reasoning)
+                      ),
+
+                      // Section: Output Answer vs Baseline Comparison
+                      h('div', { className: 'ed-reg-compare-grid' },
+                        // Column 1: New Regression Result
+                        h('div', { className: 'ed-reg-compare-col' },
+                          h('div', { className: 'ed-reg-compare-head' },
+                            h('span', { style: { color: isRunning ? '#165dff' : '#00b42a' } },
+                              isRunning ? '⚡ 本次回归实时输出 (Streaming...)' : '✓ 本次回归交付结果'
+                            ),
+                            h('button', {
+                              className: 'ed-copy-btn',
+                              onClick: () => copyToClipboard(activeTask.answer, 'reg_ans')
+                            }, copied === 'reg_ans' ? '已复制' : '复制')
+                          ),
+                          h('div', { className: 'ed-reg-compare-body' },
+                            activeTask.answer
+                              ? h(MarkdownView, { content: activeTask.answer })
+                              : (isRunning
+                                ? h('div', { style: { color: 'var(--ed-accent)', display: 'flex', alignItems: 'center', gap: '6px' } },
+                                    h('span', { className: 'ed-reg-spin' }, '⚡'),
+                                    '模型正在思考推理并执行工具...'
+                                  )
+                                : h('div', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '未生成文本输出')
+                              )
+                          )
+                        ),
+                        // Column 2: Historical Baseline / Reference
+                        h('div', { className: 'ed-reg-compare-col' },
+                          h('div', { className: 'ed-reg-compare-head' },
+                            h('span', null, '📌 历史参考基准 / 原始状态'),
+                            activeTask.referenceAnswer && h('button', {
+                              className: 'ed-copy-btn',
+                              onClick: () => copyToClipboard(activeTask.referenceAnswer, 'base_ans')
+                            }, copied === 'base_ans' ? '已复制' : '复制')
+                          ),
+                          h('div', { className: 'ed-reg-compare-body' },
+                            activeTask.referenceAnswer
+                              ? h(MarkdownView, { content: activeTask.referenceAnswer })
+                              : h('div', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '（无历史参考答案记录）')
+                          )
+                        )
+                      )
+                    );
+                  })()
                 )
               )
             )

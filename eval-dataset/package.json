@@ -1,11 +1,12 @@
 {
   "name": "@local/eval-dataset",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "KuaiBuddy 对话评测集提取插件：自动从客服历史对话中挖掘高价值样本",
+  "main": "./main.js",
   "exports": {
-    ".": "./index.js",
+    ".": "./main.js",
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"

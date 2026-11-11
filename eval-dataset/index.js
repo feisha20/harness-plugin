@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fetchSessionsForDate, fetchMessagesBatch, fetchMessagesForSession, getConfig, saveConfig, getCredentials } from './api.js';
 import { extractEvaluationDataset, exportFormat, isNoiseSession } from './evaluator.js';
+import { regressionManager } from './regression.js';
 
 export const inject = ['webServer', 'tools'];
 
@@ -307,6 +308,66 @@ export function apply(ctx) {
           const items = body.items || body.cases || [];
           const text = exportFormat(items, format, type);
           return send(200, { format, type, count: items.length, content: text });
+        }
+
+        if (action === 'get_regression_tasks') {
+          return send(200, { tasks: regressionManager.getTasks() });
+        }
+
+        if (action === 'start_regression') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 512 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const targetRegressionEnv = body.env || targetEnv || 'preprod';
+          const credsOverride = body.overrideCreds || overrideCreds;
+          const createdTasks = [];
+
+          if (Array.isArray(body.cases) && body.cases.length > 0) {
+            for (const item of body.cases) {
+              const t = regressionManager.createTask({
+                caseId: item.id || item.sessionId,
+                title: item.title,
+                prompt: item.userPrompt || item.prompt,
+                referenceAnswer: item.referenceAnswer,
+                env: targetRegressionEnv,
+                overrideCreds: credsOverride
+              });
+              createdTasks.push(t);
+            }
+          } else if (body.prompt || body.userPrompt) {
+            const t = regressionManager.createTask({
+              caseId: body.caseId || body.id,
+              title: body.title,
+              prompt: body.prompt || body.userPrompt,
+              referenceAnswer: body.referenceAnswer,
+              env: targetRegressionEnv,
+              overrideCreds: credsOverride
+            });
+            createdTasks.push(t);
+          } else {
+            return send(400, { error: '缺少回归用例参数 (prompt 或 cases)' });
+          }
+
+          return send(200, { success: true, count: createdTasks.length, tasks: createdTasks });
+        }
+
+        if (action === 'cancel_regression_task') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 64 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const ok = regressionManager.cancelTask(body.taskId || q.get('taskId'));
+          return send(200, { success: ok });
+        }
+
+        if (action === 'clear_regression_tasks') {
+          regressionManager.clearFinishedTasks();
+          return send(200, { success: true });
         }
 
         return send(400, { error: `未知操作: ${action}` });

@@ -1,0 +1,380 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fetchSessionsForDate, fetchMessagesBatch, fetchMessagesForSession, getConfig, saveConfig, getCredentials } from './api.js';
+import { extractEvaluationDataset, exportFormat, isNoiseSession } from './evaluator.js';
+import { regressionManager } from './regression.js';
+
+export const inject = ['webServer', 'tools'];
+
+// In-memory cache for extracted evaluation datasets
+const datasetCache = new Map();
+
+function getYesterdayStr() {
+  const d = new Date(Date.now() - 86400000);
+  return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+}
+
+export async function getOrExtractDataset(dateStr, force = false, minScore = 60, targetEnv, overrideCreds) {
+  const date = dateStr || getYesterdayStr();
+  const creds = getCredentials(targetEnv, overrideCreds);
+  const currentEnv = creds.env;
+  const cacheKey = `${currentEnv}_${creds.key}_${date}_${minScore}`;
+
+  if (!force && datasetCache.has(cacheKey)) {
+    return datasetCache.get(cacheKey);
+  }
+
+  // Also check disk cache in /tmp
+  const diskCacheFile = path.join('/tmp', `kuaibuddy_eval_${currentEnv}_${date}.json`);
+  if (!force && fs.existsSync(diskCacheFile)) {
+    try {
+      const content = fs.readFileSync(diskCacheFile, 'utf8');
+      const parsed = JSON.parse(content);
+      datasetCache.set(cacheKey, parsed);
+      return parsed;
+    } catch {}
+  }
+
+  // Fetch raw sessions
+  const sessions = await fetchSessionsForDate(date, currentEnv, overrideCreds);
+  const candidates = sessions.filter(s => !isNoiseSession(s));
+
+  // Extract messages for candidate sessions (fetch up to 100 candidate sessions)
+  const targetSessions = candidates.slice(0, 100);
+  const sessionIds = targetSessions.map(s => s.sessionId);
+  const messagesMap = await fetchMessagesBatch(sessionIds, 8, currentEnv, overrideCreds);
+
+  const dataset = extractEvaluationDataset(sessions, messagesMap, minScore);
+  const result = {
+    date,
+    env: currentEnv,
+    envName: creds.envName,
+    readAt: new Date().toISOString(),
+    summary: dataset.summary,
+    cases: dataset.cases,
+    badcases: dataset.badcases || []
+  };
+
+  datasetCache.set(cacheKey, result);
+
+  try {
+    fs.writeFileSync(diskCacheFile, JSON.stringify(result), 'utf8');
+  } catch {}
+
+  return result;
+}
+
+export function apply(ctx) {
+  // 1. Register DSH Tool for Agent invocation
+  ctx.effect(() => ctx.tools.register({
+    name: 'kuaibuddy_eval_dataset',
+    description: '获取 KuaiBuddy 客服系统前一天（或指定日期）的对话记录，并自动评估提取有价值的对话作为评测集（支持按分类、评分、环境切换与导出）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'detail', 'export', 'get_config', 'badcases'],
+          description: '操作类型: list 查看提取的评测集概览; badcases 查看 Badcase 诊断与归因列表; detail 查看单条会话详情; export 导出评测集/回归集; get_config 查看当前环境配置'
+        },
+        env: {
+          type: 'string',
+          enum: ['test', 'prod', 'preprod', 'dev', 'custom'],
+          description: '指定运行环境 (test: 测试环境, prod: 生产环境, preprod: 预生产环境, dev: 开发环境)'
+        },
+        date: {
+          type: 'string',
+          description: '指定查询日期 YYYY-MM-DD，留空则默认前一天（昨天）'
+        },
+        minScore: {
+          type: 'number',
+          description: '最低价值分数阈值 (0-100)，默认 60'
+        },
+        category: {
+          type: 'string',
+          description: '按分类筛选 (如: 异常排障与诊断、配置与操作指导、业务概念与规则、工具调用评测)'
+        },
+        badcaseType: {
+          type: 'string',
+          description: '按 Badcase 类型筛选 (tool_error, config_mismatch, user_complaint, response_anomaly)'
+        },
+        exportType: {
+          type: 'string',
+          enum: ['cases', 'badcases'],
+          description: '导出类型: cases 评测用例集, badcases 回归测试集'
+        },
+        sessionId: {
+          type: 'string',
+          description: 'detail 操作时指定的会话 ID'
+        },
+        format: {
+          type: 'string',
+          enum: ['json', 'jsonl', 'alpaca'],
+          description: 'export 操作时指定的格式'
+        },
+        limit: {
+          type: 'number',
+          description: '返回数量上限，默认 20'
+        }
+      },
+      required: ['action'],
+      additionalProperties: false
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+    },
+    async execute(args) {
+      if (args.action === 'get_config') {
+        return getConfig();
+      }
+
+      const date = args.date || getYesterdayStr();
+      const minScore = args.minScore || 60;
+      const targetEnv = args.env;
+
+      if (args.action === 'list') {
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
+        let cases = data.cases;
+        if (args.category) {
+          cases = cases.filter(c => c.category === args.category);
+        }
+        const limit = args.limit || 20;
+        return {
+          date: data.date,
+          env: data.env,
+          envName: data.envName,
+          summary: data.summary,
+          returnedCount: Math.min(limit, cases.length),
+          cases: cases.slice(0, limit).map(c => ({
+            id: c.id,
+            sessionId: c.sessionId,
+            title: c.title,
+            category: c.category,
+            valueScore: c.valueScore,
+            valueReasons: c.valueReasons,
+            toolNames: c.toolNames,
+            prompt: c.userPrompt,
+            referenceAnswerPreview: c.referenceAnswer.slice(0, 120),
+            turnsCount: c.turnsCount,
+            toolCallsCount: c.toolCallsCount
+          }))
+        };
+      }
+
+      if (args.action === 'badcases') {
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
+        let badcases = data.badcases || [];
+        if (args.badcaseType) {
+          badcases = badcases.filter(b => b.badcaseType === args.badcaseType || b.badcaseTypeName === args.badcaseType);
+        }
+        const limit = args.limit || 20;
+        return {
+          date: data.date,
+          env: data.env,
+          envName: data.envName,
+          totalBadcases: (data.badcases || []).length,
+          returnedCount: Math.min(limit, badcases.length),
+          badcases: badcases.slice(0, limit).map(b => ({
+            id: b.id,
+            sessionId: b.sessionId,
+            title: b.title,
+            badcaseType: b.badcaseType,
+            badcaseTypeName: b.badcaseTypeName,
+            severity: b.severity,
+            phenomenon: b.phenomenon,
+            suspectedCause: b.suspectedCause,
+            recommendation: b.recommendation,
+            evidencePreview: b.evidence.slice(0, 120),
+            prompt: b.userPrompt,
+            turnsCount: b.turnsCount,
+            toolCallsCount: b.toolCallsCount,
+            sampleRepetitions: b.sampleRepetitions || 1
+          }))
+        };
+      }
+
+      if (args.action === 'detail') {
+        if (!args.sessionId) throw new Error('detail 操作需要提供 sessionId');
+        const msgs = await fetchMessagesForSession(args.sessionId, 100, targetEnv);
+        return {
+          sessionId: args.sessionId,
+          messagesCount: msgs.length,
+          messages: msgs
+        };
+      }
+
+      if (args.action === 'export') {
+        const data = await getOrExtractDataset(date, false, minScore, targetEnv);
+        const exportType = args.exportType || 'cases';
+        const isBadcase = exportType === 'badcases';
+        let items = isBadcase ? (data.badcases || []) : (data.cases || []);
+
+        if (!isBadcase && args.category) {
+          items = items.filter(c => c.category === args.category);
+        } else if (isBadcase && args.badcaseType) {
+          items = items.filter(b => b.badcaseType === args.badcaseType || b.badcaseTypeName === args.badcaseType);
+        }
+
+        const limit = args.limit || items.length;
+        const exported = exportFormat(items.slice(0, limit), args.format || 'json', exportType);
+        return {
+          exportType,
+          format: args.format || 'json',
+          count: Math.min(limit, items.length),
+          content: exported
+        };
+      }
+
+      throw new Error(`不支持的操作: ${args.action}`);
+    }
+  }));
+
+  // 2. Register Web Server Endpoint for Web UI
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/eval-dataset',
+    async handler(req, res) {
+      const send = (status, body) => {
+        res.writeHead(status, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff'
+        });
+        res.end(JSON.stringify(body));
+      };
+
+      if (!['GET', 'POST'].includes(req.method)) {
+        return send(405, { error: '请求方法无效' });
+      }
+
+      if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && req.headers.origin !== ctx.webServer.getOrigin())) {
+        return send(403, { error: '请从 DSH 看板访问' });
+      }
+
+      const q = new URL(req.url, 'http://localhost').searchParams;
+      const action = q.get('action') || 'get_data';
+      const date = q.get('date') || getYesterdayStr();
+      const targetEnv = q.get('env') || undefined;
+      const staffKey = q.get('staffKey') || undefined;
+      const apiUrl = q.get('apiUrl') || undefined;
+      const overrideCreds = (staffKey || apiUrl) ? { key: staffKey, url: apiUrl } : undefined;
+
+      try {
+        if (action === 'get_config') {
+          return send(200, getConfig());
+        }
+
+        if (action === 'save_config' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 64 * 1024) throw new Error('配置请求过大');
+          }
+          const updates = JSON.parse(raw || '{}');
+          const saved = saveConfig(updates);
+          return send(200, saved);
+        }
+
+        if (action === 'get_data') {
+          const force = q.get('force') === 'true';
+          const minScore = Number(q.get('minScore')) || 60;
+          const data = await getOrExtractDataset(date, force, minScore, targetEnv, overrideCreds);
+          return send(200, data);
+        }
+
+        if (action === 'extract') {
+          const minScore = Number(q.get('minScore')) || 60;
+          const data = await getOrExtractDataset(date, true, minScore, targetEnv, overrideCreds);
+          return send(200, data);
+        }
+
+        if (action === 'detail') {
+          const sessionId = q.get('sessionId');
+          if (!sessionId) return send(400, { error: '缺少 sessionId' });
+          const messages = await fetchMessagesForSession(sessionId, 100, targetEnv, overrideCreds);
+          return send(200, { sessionId, messages });
+        }
+
+        if (action === 'export' && req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 1024 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const format = body.format || 'json';
+          const type = body.type || 'cases';
+          const items = body.items || body.cases || [];
+          const text = exportFormat(items, format, type);
+          return send(200, { format, type, count: items.length, content: text });
+        }
+
+        if (action === 'get_regression_tasks') {
+          return send(200, { tasks: regressionManager.getTasks() });
+        }
+
+        if (action === 'start_regression') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 512 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const targetRegressionEnv = body.env || targetEnv || 'preprod';
+          const credsOverride = body.overrideCreds || overrideCreds;
+          const createdTasks = [];
+
+          if (Array.isArray(body.cases) && body.cases.length > 0) {
+            for (const item of body.cases) {
+              const t = regressionManager.createTask({
+                caseId: item.id || item.sessionId,
+                title: item.title,
+                prompt: item.userPrompt || item.prompt,
+                referenceAnswer: item.referenceAnswer,
+                env: targetRegressionEnv,
+                overrideCreds: credsOverride
+              });
+              createdTasks.push(t);
+            }
+          } else if (body.prompt || body.userPrompt) {
+            const t = regressionManager.createTask({
+              caseId: body.caseId || body.id,
+              title: body.title,
+              prompt: body.prompt || body.userPrompt,
+              referenceAnswer: body.referenceAnswer,
+              env: targetRegressionEnv,
+              overrideCreds: credsOverride
+            });
+            createdTasks.push(t);
+          } else {
+            return send(400, { error: '缺少回归用例参数 (prompt 或 cases)' });
+          }
+
+          return send(200, { success: true, count: createdTasks.length, tasks: createdTasks });
+        }
+
+        if (action === 'cancel_regression_task') {
+          let raw = '';
+          for await (const chunk of req) {
+            raw += chunk;
+            if (raw.length > 64 * 1024) throw new Error('请求体过大');
+          }
+          const body = JSON.parse(raw || '{}');
+          const ok = regressionManager.cancelTask(body.taskId || q.get('taskId'));
+          return send(200, { success: ok });
+        }
+
+        if (action === 'clear_regression_tasks') {
+          regressionManager.clearFinishedTasks();
+          return send(200, { success: true });
+        }
+
+        return send(400, { error: `未知操作: ${action}` });
+      } catch (err) {
+        console.error('[eval-dataset] Handler error:', err);
+        return send(500, { error: err.message || '内部服务错误' });
+      }
+    }
+  }));
+}
