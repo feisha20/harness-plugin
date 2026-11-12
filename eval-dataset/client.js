@@ -685,6 +685,12 @@ window.__ModuleLoader__.load({
 .ed-bubble-user .ed-bubble-head { color: var(--ed-accent); }
 .ed-bubble-assistant .ed-bubble-head { color: var(--ed-success); }
 .ed-bubble-tool .ed-bubble-head { color: #8e44ad; }
+.ed-bubble-reasoning > summary { cursor: pointer; }
+.ed-bubble-reasoning > summary::-webkit-details-marker { display: none; }
+.ed-bubble-reasoning:not([open]) > summary { border-bottom: 0; }
+.ed-bubble-reasoning > summary:focus-visible { outline-offset: -2px; }
+.ed-bubble-reasoning-title { display: flex; align-items: center; gap: 6px; }
+.ed-bubble-reasoning[open] .ed-bubble-reasoning-title > svg { transform: rotate(180deg); }
 .ed-bubble-body {
   padding: 10px 14px;
   font-size: 12px;
@@ -1741,6 +1747,21 @@ window.__ModuleLoader__.load({
         h('rect', { x: 9, y: 3, width: 6, height: 4, rx: 1 }),
         h('path', { d: 'M9 12l2 2 4-4' }),
         h('path', { d: 'M9 17h6' })
+      );
+    }
+
+    const conversationRoles = new Set(['user', 'assistant', 'tool']);
+
+    function renderReasoningMessage(message, key) {
+      return h('details', { key, className: 'ed-bubble ed-bubble-tool ed-bubble-reasoning' },
+        h('summary', { className: 'ed-bubble-head' },
+          h('span', { className: 'ed-bubble-reasoning-title' },
+            h(Glyph, { kind: 'chevronDown', size: 12 }),
+            `🧠 模型思考推理 (${message.role})`
+          ),
+          h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (message.createdAt || '').slice(11, 19))
+        ),
+        h('div', { className: 'ed-bubble-body' }, message.content)
       );
     }
 
@@ -3758,6 +3779,7 @@ ${b.evidence}
                         // Timeline Transcript with Markdown support for assistant
                         h('div', { key: 'timeline', className: 'ed-msg-timeline' },
                           activeCase.messages.map((m, idx) => {
+                            if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${activeCase.id}:${idx}`);
                             const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
                             const isToolFail = toolDetails ? toolDetails.isFailed : false;
                             const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
@@ -3775,9 +3797,7 @@ ${b.evidence}
                                     ? '👤 客户 / 访客提问'
                                     : (m.role === 'assistant'
                                       ? '🤖 客服助理回复'
-                                      : (m.role === 'tool'
-                                        ? `🔧 工具: ${toolDetails.specificName}`
-                                        : `🧠 模型思考推理 (${m.role})`))),
+                                      : `🔧 工具: ${toolDetails.specificName}`)),
                                   isToolFail && h('span', {
                                     style: {
                                       fontSize: '11px',
@@ -4062,6 +4082,7 @@ ${b.evidence}
                         // Badcase Timeline Replay
                         h('div', { key: 'b_timeline', className: 'ed-msg-timeline' },
                           activeBadcase.messages.map((m, idx) => {
+                            if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${activeBadcase.id}:${idx}`);
                             const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
                             const isToolFail = toolDetails ? toolDetails.isFailed : false;
                             const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
@@ -4079,9 +4100,7 @@ ${b.evidence}
                                     ? '👤 客户 / 访客提问'
                                     : (m.role === 'assistant'
                                       ? '🤖 客服助理回复'
-                                      : (m.role === 'tool'
-                                        ? `🔧 工具: ${toolDetails.specificName}`
-                                        : `🧠 模型思考推理 (${m.role})`))),
+                                      : `🔧 工具: ${toolDetails.specificName}`)),
                                   isToolFail && h('span', {
                                     style: {
                                       fontSize: '11px',
@@ -4527,10 +4546,11 @@ ${b.evidence}
                           // Timeline Replay for Official Case
                           h('div', { key: 'o_timeline', className: 'ed-msg-timeline' },
                             (activeOfficialCase.messages || []).map((m, idx) => {
+                              if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${activeOfficialCase.id}:${idx}`);
                               const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
                               return h('div', { key: idx, className: `ed-bubble ${roleClass}` },
                                 h('div', { className: 'ed-bubble-head' },
-                                  h('span', null, m.role === 'user' ? '👤 客户 / 访客提问' : (m.role === 'assistant' ? '🤖 客服助理回复' : (m.role === 'tool' ? `🔧 工具执行: ${m.toolName || '未命名'}` : `🧠 模型思考推理 (${m.role})`))),
+                                  h('span', null, m.role === 'user' ? '👤 客户 / 访客提问' : (m.role === 'assistant' ? '🤖 客服助理回复' : `🔧 工具执行: ${m.toolName || '未命名'}`)),
                                   h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
                                 ),
                                 h('div', { className: 'ed-bubble-body' },
