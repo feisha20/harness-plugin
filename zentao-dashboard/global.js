@@ -1,5 +1,32 @@
 import { read, pick, fields, isOnline, daysOpen, CACHE_TTL_MS } from './data.js';
 import { preferences } from './preferences.js';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const SNAPSHOT_FILE = fileURLToPath(new URL('./.local/snapshot.json', import.meta.url));
+
+function loadPersistentSnapshot() {
+  try {
+    const raw = readFileSync(SNAPSHOT_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    if (data && typeof data === 'object' && data.value && data.key) return data;
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.warn('持久化快照读取失败:', e.message);
+  }
+  return null;
+}
+
+function savePersistentSnapshot(snapshotObj) {
+  try {
+    mkdirSync(dirname(SNAPSHOT_FILE), { recursive: true });
+    const temp = SNAPSHOT_FILE + '.tmp';
+    writeFileSync(temp, JSON.stringify(snapshotObj), { mode: 0o600 });
+    renameSync(temp, SNAPSHOT_FILE);
+  } catch (e) {
+    console.warn('持久化快照保存失败:', e.message);
+  }
+}
 
 // 限制并发，避免全局汇总同时压满禅道接口。
 async function pool(items, fn, limit = 4) {
@@ -73,14 +100,38 @@ export async function collectGlobal(reader = read, now = Date.now(), ignoredSpri
     aging:open.filter(b=>b.status==='active'&&daysOpen(b,now)>7).length
   },scope:'上方统计为未忽略的关注冲刺；下方最近30天线上问题覆盖全部未关闭冲刺，含已忽略项。',readAt:new Date(now).toISOString()};
 }
-let snapshot, running, generation=0;
-export function invalidateGlobal() { generation++; snapshot=undefined; running=undefined; }
+let snapshot = loadPersistentSnapshot(), running, generation = 0;
+export function invalidateGlobal() { generation++; snapshot = undefined; running = undefined; }
 export function globalSnapshot() {
-  const ignored=preferences.list(), key=JSON.stringify(ignored), revision=generation;
-  if (snapshot && snapshot.key===key && Date.now()-snapshot.at<CACHE_TTL_MS) return Promise.resolve(snapshot.value);
-  if (!running || running.key!==key) {
-    const job=collectGlobal(read,Date.now(),ignored).then(value=>{if(revision===generation)snapshot={key,at:Date.now(),value};return value;}).finally(()=>{if(running===job)running=null;});
-    job.key=key;running=job;
+  const ignored = preferences.list(), key = JSON.stringify(ignored), revision = generation;
+  // 如果内存或持久化中有快照且仍在10分钟有效期内，直接返回
+  if (snapshot && snapshot.key === key && Date.now() - snapshot.at < CACHE_TTL_MS) {
+    return Promise.resolve(snapshot.value);
+  }
+  // 如果当前已有同条件的采集任务在执行，复用该任务
+  if (!running || running.key !== key) {
+    const fallbackValue = snapshot && snapshot.key === key ? snapshot.value : null;
+    const job = collectGlobal(read, Date.now(), ignored)
+      .then(value => {
+        if (revision === generation) {
+          snapshot = { key, at: Date.now(), value };
+          savePersistentSnapshot(snapshot);
+        }
+        return value;
+      })
+      .catch(err => {
+        // 如果本次刷新未获取到新数据（网络故障、接口报错或超时），但存在上一次采集的信息，则继续使用上次信息兜底
+        if (fallbackValue) {
+          console.warn('获取新数据失败，回退复用持久化的上一次看板数据:', err.message);
+          return fallbackValue;
+        }
+        throw err;
+      })
+      .finally(() => {
+        if (running === job) running = null;
+      });
+    job.key = key;
+    running = job;
   }
   return running;
 }
