@@ -96,6 +96,15 @@ type ReportCadence = 'daily' | 'weekly' | 'monthly'
 const valuePattern = /^(?:今日|本周)?(?:商业价值|业务价值|价值|业绩|收益|降本增效|降本|提效|成果)[:：]/
 const sectionNumbers = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
 
+export const weeklySectionTitles = {
+  work: '一、本周完成的工作',
+  value: '二、本周产出了哪些商业价值（带来的业绩、提效、合理降本等）',
+  plan: '三、下周工作计划',
+  measure: '四、针对不足，你将采取的措施是什么？',
+  redo: '五、重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？',
+  teamIssue: '六、本周下来团队存在最大的问题是什么？（至少写一项）',
+} as const
+
 // 日报包含商业价值与明日计划必填章节；周报包含完成工作、商业价值、下周计划、针对不足措施、重做思考、团队问题6个维度。
 export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicSection[] {
   const nextLabel = cadence === 'daily' ? '明日' : cadence === 'weekly' ? '下周' : '下月'
@@ -127,27 +136,27 @@ export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicS
 
     return [
       {
-        title: '一、本周完成的工作',
+        title: weeklySectionTitles.work,
         items: workLines.length ? workLines : ['暂无工作记录'],
       },
       {
-        title: '二、本周产出了哪些商业价值（带来的业绩、提效、合理降本等）',
+        title: weeklySectionTitles.value,
         items: values.length ? lines(values, weeklyValuePattern) : ['待补充：请补充本周产出的商业价值（如带来的业绩、提效、合理降本等）。'],
       },
       {
-        title: '三、下周工作计划',
+        title: weeklySectionTitles.plan,
         items: plans.length ? lines(plans, weeklyPlanPattern) : ['待补充：请补充下周工作计划及预期产出。'],
       },
       {
-        title: '四、针对不足，你将采取的措施是什么？',
+        title: weeklySectionTitles.measure,
         items: measures.length ? lines(measures, weeklyMeasurePattern) : ['待补充：请针对本周工作的不足，填写你将采取的改进措施。'],
       },
       {
-        title: '五、重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？',
+        title: weeklySectionTitles.redo,
         items: redos.length ? lines(redos, weeklyRedoPattern) : ['待补充：请填写如果重做一遍应该怎么做、会带来哪些变化以及产生哪些商业价值。'],
       },
       {
-        title: '六、本周下来团队存在最大的问题是什么？（至少写一项）',
+        title: weeklySectionTitles.teamIssue,
         items: teamIssues.length ? lines(teamIssues, weeklyTeamIssuePattern) : ['待补充：请至少填写一项本周下来团队存在的最大问题。'],
       },
     ]
@@ -300,16 +309,16 @@ export function normalizeWeeklyReport(markdown: string): string {
   }
 
   const standardSections = [
-    { title: '### 一、本周完成的工作', body: workBody },
-    { title: '### 二、本周产出了哪些商业价值（带来的业绩、提效、合理降本等）', body: valueBody },
-    { title: '### 三、下周工作计划', body: planBody },
-    { title: '### 四、针对不足，你将采取的措施是什么？', body: measureBody },
-    { title: '### 五、重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？', body: redoBody },
-    { title: '### 六、本周下来团队存在最大的问题是什么？（至少写一项）', body: teamIssueBody },
+    { title: weeklySectionTitles.work, body: workBody },
+    { title: weeklySectionTitles.value, body: valueBody },
+    { title: weeklySectionTitles.plan, body: planBody },
+    { title: weeklySectionTitles.measure, body: measureBody },
+    { title: weeklySectionTitles.redo, body: redoBody },
+    { title: weeklySectionTitles.teamIssue, body: teamIssueBody },
   ]
 
   for (const s of standardSections) {
-    result.push(s.title)
+    result.push(`### ${s.title}`)
     result.push(...s.body)
     result.push('')
   }
