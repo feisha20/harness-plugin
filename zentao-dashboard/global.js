@@ -102,10 +102,15 @@ export async function collectGlobal(reader = read, now = Date.now(), ignoredSpri
 }
 let snapshot = loadPersistentSnapshot(), running, generation = 0;
 export function invalidateGlobal() { generation++; snapshot = undefined; running = undefined; }
-export function globalSnapshot() {
+export function getCachedSnapshot() {
+  const ignored = preferences.list(), key = JSON.stringify(ignored);
+  if (snapshot && snapshot.key === key) return snapshot.value;
+  return null;
+}
+export function globalSnapshot(fresh = false) {
   const ignored = preferences.list(), key = JSON.stringify(ignored), revision = generation;
-  // 如果内存或持久化中有快照且仍在10分钟有效期内，直接返回
-  if (snapshot && snapshot.key === key && Date.now() - snapshot.at < CACHE_TTL_MS) {
+  // 如果不是强制拉取最新，且内存或持久化中有快照且仍在10分钟有效期内，直接返回
+  if (!fresh && snapshot && snapshot.key === key && Date.now() - snapshot.at < CACHE_TTL_MS) {
     return Promise.resolve(snapshot.value);
   }
   // 如果当前已有同条件的采集任务在执行，复用该任务

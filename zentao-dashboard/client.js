@@ -739,7 +739,7 @@ window.__ModuleLoader__.load({
   }
 
   return {inject:['slots','locale'],apply(ctx){
-   const text=['禅道质量看板','全局总览 · 仅关注未关闭冲刺','刷新全局','正在汇总全部冲刺…','汇总失败，保留上次成功数据','未关闭冲刺','延期冲刺','未关闭缺陷','线上待处理','待验证','高优先级未关闭','超过7天未解决','数据覆盖不完整，以下数字仅来自已成功读取的范围','跨项目冲刺总览','全部冲刺同时展示，延期优先；无需切换冲刺。','冲刺 / 项目','状态','计划截止','需求关闭','任务完成','待解决 / 待验证','风险','未评估','无数据','延期','分项读取失败','暂无未关闭冲刺','最近30天线上问题','仅展示未关闭冲刺内、最近30天创建且线上标记为1的问题，包含已关闭记录。','全部待处理','线上标记','标题候选','全部状态','全部创建人','搜索编号、标题或冲刺','问题 / 所属冲刺','优先级','创建日期','问题龄期','未指派','条','前一页','后一页','当前无匹配问题','首次汇总需要读取全部项目和未关闭冲刺，请稍候。','数据更新时间','数据持续持久化缓存；若未获取到新数据，则始终展示上一次成功采集的信息。需求关闭率不等同于交付验收，任务排除取消与父任务。','全部项目','未知','正常','部分数据','重试','待解决','已关闭','当前筛选','创建人','操作','忽略','已忽略','取消忽略','保存中…'];
+   const text=['禅道质量看板','全局总览 · 仅关注未关闭冲刺','刷新全局','正在汇总全部冲刺…','正在后台刷新最新数据…','汇总失败，保留上次成功数据','未关闭冲刺','延期冲刺','未关闭缺陷','线上待处理','待验证','高优先级未关闭','超过7天未解决','数据覆盖不完整，以下数字仅来自已成功读取的范围','跨项目冲刺总览','全部冲刺同时展示，延期优先；无需切换冲刺。','冲刺 / 项目','状态','计划截止','需求关闭','任务完成','待解决 / 待验证','风险','未评估','无数据','延期','分项读取失败','暂无未关闭冲刺','最近30天线上问题','仅展示未关闭冲刺内、最近30天创建且线上标记为1的问题，包含已关闭记录。','全部待处理','线上标记','标题候选','全部状态','全部创建人','搜索编号、标题或冲刺','问题 / 所属冲刺','优先级','创建日期','问题龄期','未指派','条','前一页','后一页','当前无匹配问题','首次汇总需要读取全部项目和未关闭冲刺，请稍候。','数据更新时间','数据持续持久化缓存；若未获取到新数据，则始终展示上一次成功采集的信息。需求关闭率不等同于交付验收，任务排除取消与父任务。','全部项目','未知','正常','部分数据','重试','待解决','已关闭','当前筛选','创建人','操作','忽略','已忽略','取消忽略','保存中…'];
    const dict=Object.fromEntries(text.map(x=>[x,x]));
    for(const label of ['关注范围','仅显示关注冲刺','需跟进计划','待解决与待验证','当前关注范围内','线上问题（近30天）','含已忽略冲刺','筛选','统计口径','更新'])dict[label]=label;
    dict['全部未关闭冲刺内最近30天创建的线上问题，包含已忽略冲刺及已关闭问题。']='全部未关闭冲刺内最近30天创建的线上问题，包含已忽略冲刺及已关闭问题。';
@@ -752,6 +752,19 @@ window.__ModuleLoader__.load({
     const [data,D]=React.useState(null),[error,F]=React.useState(''),[busy,L]=React.useState(true),[version,V]=React.useState(0);
     const [saving,Z]=React.useState(false),[showIgnored,H]=React.useState(false);
     
+    // 初始化时尝试立即从本地缓存读取上次成功的数据，避免出现全白闪烁
+    React.useEffect(()=>{
+      try {
+        const local = localStorage.getItem('dsh_zentao_snapshot');
+        if (local) {
+          const parsed = JSON.parse(local);
+          if (parsed && typeof parsed === 'object' && parsed.sprints) {
+            D(parsed);
+          }
+        }
+      } catch(e) {}
+    }, []);
+
     async function changeIgnore(s,ignored) { 
       Z(true);F('');
       try {
@@ -771,10 +784,21 @@ window.__ModuleLoader__.load({
       const c=new AbortController();
       L(true);F('');
       fetch('/api/zentao-dashboard?action=global',{signal:c.signal})
-        .then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error||'读取失败');return d;})
-        .then(D)
-        .catch(e=>{if(e.name!=='AbortError')F(e.message)})
-        .finally(()=>{if(!c.signal.aborted)L(false)});
+        .then(async r=>{
+          const d=await r.json();
+          if(!r.ok)throw Error(d.error||'读取失败');
+          return d;
+        })
+        .then(freshData=>{
+          D(freshData);
+          try { localStorage.setItem('dsh_zentao_snapshot', JSON.stringify(freshData)); } catch(e){}
+        })
+        .catch(e=>{
+          if(e.name!=='AbortError')F(e.message);
+        })
+        .finally(()=>{
+          if(!c.signal.aborted)L(false);
+        });
       return()=>c.abort();
     },[version]);
 
@@ -843,6 +867,12 @@ window.__ModuleLoader__.load({
       ),
       busy&&!data&&h('div',{className:'alert-banner',role:'status'},
         t('首次汇总需要读取全部项目和未关闭冲刺，请稍候。')
+      ),
+      busy&&data&&h('div',{className:'alert-banner',style:{background:'var(--zq-surface)',borderColor:'var(--zq-border)',color:'var(--zq-text-2)'},role:'status'},
+        h('span',{style:{display:'inline-flex',alignItems:'center',gap:6}},
+          h(Glyph,{kind:'refresh',size:13}),
+          t('正在后台刷新最新数据…')
+        )
       ),
       data&&!data.complete&&h('div',{className:'alert-banner warn',role:'alert'},
         h('div',null,

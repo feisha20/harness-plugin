@@ -1,5 +1,5 @@
 import { read, pick, fields, CACHE_TTL_MS } from './data.js';
-import { globalSnapshot, invalidateGlobal } from './global.js';
+import { globalSnapshot, invalidateGlobal, getCachedSnapshot } from './global.js';
 import { preferences } from './preferences.js';
 export const inject = ['webServer','tools'];
 export function setIgnored(args) { const result=preferences.set(args); invalidateGlobal(); return result; }
@@ -28,10 +28,14 @@ export function apply(ctx) {
           return send(200,setIgnored(JSON.parse(raw)));
         } catch(e){return send(400,{error:e.message});}
       }
-      if (!['catalog','global'].includes(action) && !/^[1-9]\d*$/.test(id || '')) return send(400, {error:'对象编号无效'});
+      if (!['catalog','global','cached-global'].includes(action) && !/^[1-9]\d*$/.test(id || '')) return send(400, {error:'对象编号无效'});
       try {
         let data;
-        if (action === 'global') return send(200, await globalSnapshot());
+        if (action === 'cached-global') {
+          const cached = getCachedSnapshot();
+          return send(200, { cached });
+        }
+        if (action === 'global') return send(200, await globalSnapshot(q.get('fresh') === '1'));
         if (action === 'catalog') {
           const [projects,products] = await Promise.all([read('projects'),read('products')]);
           data = {projects:pick(projects, fields.catalog),products:pick(products, fields.catalog)};
