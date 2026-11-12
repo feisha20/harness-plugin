@@ -1,3 +1,108 @@
+export function getToolExecutionDetails(tm) {
+  const baseName = tm.toolName || 'Tool';
+  let specificName = baseName;
+  let isFailed = false;
+  let errorDetail = '';
+
+  // 1. 运行命令 (bash / shell)
+  if (baseName === '运行命令') {
+    let cmd = '';
+    try {
+      const parsedArgs = typeof tm.toolArgs === 'string' ? JSON.parse(tm.toolArgs) : tm.toolArgs;
+      cmd = parsedArgs?.command || '';
+    } catch (e) {
+      cmd = tm.toolArgs || '';
+    }
+    const firstLine = (cmd || '').trim().split('\n')[0] || '';
+    let sub = '';
+    if (cmd.includes('python')) sub = 'python';
+    else if (cmd.includes('grep')) sub = 'grep';
+    else if (cmd.includes('curl') || cmd.includes('fetch')) sub = 'curl';
+    else if (cmd.includes('node')) sub = 'node';
+    else if (firstLine) sub = firstLine.slice(0, 24);
+    if (sub) specificName = `运行命令 (${sub})`;
+
+    const text = tm.content || tm.toolResult || '';
+    const exitMatch = text.match(/Exit code:\s*(\d+)/i);
+    if (exitMatch && exitMatch[1] !== '0') {
+      isFailed = true;
+      errorDetail = `命令退出异常 (Exit code: ${exitMatch[1]})`;
+    } else if (/(command not found|syntax error|fatal:|Traceback \(most recent call last\):)/i.test(text)) {
+      isFailed = true;
+      errorDetail = '命令执行异常或命令不存在';
+    }
+    return { baseName, specificName, isFailed, errorDetail };
+  }
+
+  // 2. 执行工具 / 对话记录 (KuaiBuddy 核心业务工具或 MCP)
+  if (baseName === '执行工具' || baseName === '对话记录') {
+    let sourceTool = '';
+    const text = tm.content || tm.toolResult || '';
+    try {
+      const res = typeof text === 'string' ? JSON.parse(text) : text;
+      sourceTool = res?.source?.tool || '';
+      if (res?.error) {
+        isFailed = true;
+        errorDetail = typeof res.error === 'string' ? res.error : JSON.stringify(res.error);
+      } else if (res?.status === 'ERROR' || res?.status === 'FAILED') {
+        isFailed = true;
+        errorDetail = res?.statusDescription || '接口调用返回失败状态';
+      } else if (res?.code && res?.code !== 0 && res?.code !== 200 && res?.code !== 8) {
+        isFailed = true;
+        errorDetail = res?.msg || `接口异常响应码 [${res.code}]`;
+      }
+    } catch (e) {}
+
+    if (!sourceTool) {
+      try {
+        const args = typeof tm.toolArgs === 'string' ? JSON.parse(tm.toolArgs) : tm.toolArgs;
+        sourceTool = args?.tool || args?.action || args?.mode || '';
+      } catch (e) {}
+    }
+
+    if (sourceTool) {
+      specificName = sourceTool;
+    }
+    return { baseName, specificName, isFailed, errorDetail };
+  }
+
+  // 3. 抓取网页 (Web fetch)
+  if (baseName === '抓取网页') {
+    let url = '';
+    try {
+      const args = typeof tm.toolArgs === 'string' ? JSON.parse(tm.toolArgs) : tm.toolArgs;
+      url = args?.url || '';
+    } catch (e) {}
+    try {
+      const domain = new URL(url).hostname;
+      if (domain) specificName = `抓取网页 (${domain})`;
+    } catch (e) {}
+
+    const text = tm.content || tm.toolResult || '';
+    const statusMatch = text.match(/^status=(\d+)/i);
+    if (statusMatch) {
+      const code = parseInt(statusMatch[1], 10);
+      if (code >= 400) {
+        isFailed = true;
+        errorDetail = `HTTP ${code}`;
+      }
+    } else if (/(ECONNREFUSED|ETIMEDOUT|FetchError|timeout)/i.test(text)) {
+      isFailed = true;
+      errorDetail = '网络请求超时或连接被拒绝';
+    }
+    return { baseName, specificName, isFailed, errorDetail };
+  }
+
+  // 4. 通用工具失败检测
+  const text = tm.content || tm.toolResult || '';
+  if (/(ToolCallError|Exception|failed with|ECONNREFUSED|ETIMEDOUT|请求失败|调用失败)/i.test(text)) {
+    isFailed = true;
+    errorDetail = text.slice(0, 120);
+  }
+
+  return { baseName, specificName, isFailed, errorDetail };
+}
+
 export function cleanPromptText(text) {
   if (!text) return '';
   return text
@@ -108,12 +213,19 @@ export function detectBadcase(session, messages) {
   const rawTitle = session.title || '';
   const cleanTitle = cleanPromptText(rawTitle);
 
-  // 收集所有异常/失败的工具调用
+  // 收集所有异常/失败的工具调用与具体工具详情
   const failedToolMsgs = [];
+  const allToolDetails = [];
   for (const tm of toolMsgs) {
-    const text = tm.content || tm.toolResult || '';
-    if (/(error|exception|failed|fail|timeout|timed out|超时|500|403|401|拒绝连接|连接失败|权限不足|ECONNREFUSED|ETIMEDOUT)/i.test(text)) {
-      failedToolMsgs.push(tm);
+    const details = getToolExecutionDetails(tm);
+    allToolDetails.push(details);
+    if (details.isFailed) {
+      failedToolMsgs.push({
+        ...tm,
+        specificToolName: details.specificName,
+        baseToolName: details.baseName,
+        toolErrorDetail: details.errorDetail
+      });
     }
   }
 
@@ -249,17 +361,25 @@ export function detectBadcase(session, messages) {
   }
 
   if (isFrequentToolFail) {
-    const failedTools = [...new Set(failedToolMsgs.map(t => t.toolName || 'Tool'))];
+    const failedTools = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
+    const failureSummary = failedToolMsgs.map(t => `${t.specificToolName || t.toolName}: ${t.toolErrorDetail || '执行异常'}`).slice(0, 3).join('；');
+    const firstFailText = failedToolMsgs[0].content || failedToolMsgs[0].toolResult || '';
     return {
       isBadcase: true,
       badcaseType: 'frequent_tool_failures',
       badcaseTypeName: '工具调用高频失败',
       severity: '严重',
       defectTags,
-      phenomenon: `单会话内工具调用累计失败 ${failedToolMsgs.length} 次（涉及工具: ${failedTools.join('、')}），工具链严重受阻`,
-      suspectedCause: '外部依赖服务接口异常、权限凭证失效，或模型未能正确根据报错自我纠正入参 Schema 导致连续失败',
+      failedToolNames: failedTools,
+      failedToolDetails: failedToolMsgs.map(t => ({
+        toolName: t.specificToolName || t.toolName,
+        errorDetail: t.toolErrorDetail,
+        args: t.toolArgs
+      })),
+      phenomenon: `单会话内工具调用累计失败 ${failedToolMsgs.length} 次（具体失败工具: ${failedTools.join('、')}），工具链受阻`,
+      suspectedCause: `依赖服务异常或入参不匹配。报错概括：${failureSummary}`,
       recommendation: '引入工具调用断路器 (Circuit Breaker) 与连续失败回退机制；补齐工具入参的静态 Schema 校验与 Few-shot 样例',
-      evidence: (failedToolMsgs[0].content || failedToolMsgs[0].toolResult || '').slice(0, 300),
+      evidence: (failedToolMsgs[0].toolErrorDetail ? `【失败工具: ${failedToolMsgs[0].specificToolName}】\n报错详情: ${failedToolMsgs[0].toolErrorDetail}\n\n原始返回:\n` : '') + firstFailText.slice(0, 300),
       evidenceRole: 'tool',
       stepCount: messages.length,
       toolCallsCount: toolMsgs.length,
@@ -360,16 +480,23 @@ export function detectBadcase(session, messages) {
   if (isSingleToolError) {
     const tm = failedToolMsgs[0];
     const text = tm.content || tm.toolResult || '';
+    const specificName = tm.specificToolName || tm.toolName || 'Tool';
     return {
       isBadcase: true,
       badcaseType: 'tool_error',
       badcaseTypeName: '工具调用异常',
       severity: '严重',
       defectTags,
-      phenomenon: `工具 [${tm.toolName || 'Tool'}] 调用执行失败或抛出异常`,
-      suspectedCause: '工具接口入参格式不合规、接口超时或目标后台服务抛出 5xx/鉴权错误',
+      failedToolNames: [specificName],
+      failedToolDetails: [{
+        toolName: specificName,
+        errorDetail: tm.toolErrorDetail,
+        args: tm.toolArgs
+      }],
+      phenomenon: `具体工具 [${specificName}] 调用执行失败${tm.toolErrorDetail ? `（${tm.toolErrorDetail}）` : ''}`,
+      suspectedCause: `工具接口入参格式不合规、接口超时或目标后台服务报错。报错信息: ${tm.toolErrorDetail || '执行异常'}`,
       recommendation: '在系统提示词增加参数格式示例校验，增加工具超时重试机制与降级策略',
-      evidence: text.slice(0, 300),
+      evidence: (tm.toolErrorDetail ? `【失败工具: ${specificName}】\n报错详情: ${tm.toolErrorDetail}\n\n原始返回:\n` : '') + text.slice(0, 300),
       evidenceRole: 'tool',
       stepCount: messages.length,
       toolCallsCount: toolMsgs.length,
@@ -472,15 +599,20 @@ export function scoreAndCategorizeSession(session, messages) {
     category = '多轮对话评测';
   }
 
-  const toolNames = [...new Set(toolMsgs.map(t => t.toolName).filter(Boolean))];
+  const toolNames = [...new Set(toolMsgs.map(t => getToolExecutionDetails(t).specificName).filter(Boolean))];
   const cleanTitle = cleanPromptText(session.title || '');
   const displayTitle = (cleanTitle && cleanTitle.length >= 3 && !isNoisePrompt(cleanTitle))
     ? cleanTitle
     : primaryPrompt.slice(0, 40);
 
+  const runIds = [...new Set(messages.map(m => m.runId).filter(Boolean))];
+  const runId = runIds[0] || '';
+
   return {
     id: `eval_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
     sessionId: session.sessionId,
+    runId,
+    runIds,
     title: displayTitle,
     category,
     valueScore: score,
@@ -519,9 +651,14 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
         ? cleanTitle
         : prompt.slice(0, 40);
 
+      const badRunIds = [...new Set(msgs.map(m => m.runId).filter(Boolean))];
+      const badRunId = badRunIds[0] || '';
+
       rawBadcases.push({
         id: `bad_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
         sessionId: session.sessionId,
+        runId: badRunId,
+        runIds: badRunIds,
         title: displayTitle,
         badcaseType: bad.badcaseType,
         badcaseTypeName: bad.badcaseTypeName,
@@ -538,7 +675,9 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
         turnsCount: Math.max(1, userMsgs.length),
         toolCallsCount: toolMsgs.length,
         toolFailuresCount: bad.toolFailuresCount || 0,
-        toolNames: [...new Set(toolMsgs.map(t => t.toolName).filter(Boolean))],
+        failedToolNames: bad.failedToolNames || [],
+        failedToolDetails: bad.failedToolDetails || [],
+        toolNames: [...new Set(toolMsgs.map(t => getToolExecutionDetails(t).specificName).filter(Boolean))],
         modelId: session.modelId || 'MiniMax-M3.1-Flash',
         createdAt: session.createdAt,
         messages: msgs
@@ -658,6 +797,7 @@ export function exportFormat(items, format = 'json', type = 'cases') {
       return items.map(c => JSON.stringify({
         id: c.id,
         sessionId: c.sessionId,
+        runId: c.runId || '',
         sourceType: c.sourceType || (c.badcaseType ? 'badcase' : 'case'),
         priority: c.priority || 'P1',
         category: c.category || c.badcaseTypeName || '综合问答',
@@ -702,6 +842,7 @@ export function exportFormat(items, format = 'json', type = 'cases') {
       return items.map(b => JSON.stringify({
         id: b.id,
         sessionId: b.sessionId,
+        runId: b.runId || '',
         type: b.badcaseType,
         typeName: b.badcaseTypeName,
         severity: b.severity,
@@ -739,6 +880,8 @@ export function exportFormat(items, format = 'json', type = 'cases') {
   if (format === 'jsonl') {
     return items.map(c => JSON.stringify({
       id: c.id,
+      sessionId: c.sessionId,
+      runId: c.runId || '',
       prompt: c.userPrompt,
       reference_answer: c.referenceAnswer,
       category: c.category,

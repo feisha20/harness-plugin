@@ -1752,6 +1752,111 @@ window.__ModuleLoader__.load({
           'KuaiBuddy 评测集提取': 'KuaiBuddy 评测集提取'
         }));
 
+        function getToolExecutionDetails(tm) {
+          const baseName = tm.toolName || 'Tool';
+          let specificName = baseName;
+          let isFailed = false;
+          let errorDetail = '';
+
+          // 1. 运行命令 (bash / shell)
+          if (baseName === '运行命令') {
+            let cmd = '';
+            try {
+              const parsedArgs = typeof tm.toolArgs === 'string' ? JSON.parse(tm.toolArgs) : tm.toolArgs;
+              cmd = parsedArgs?.command || '';
+            } catch (e) {
+              cmd = tm.toolArgs || '';
+            }
+            const firstLine = (cmd || '').trim().split('\n')[0] || '';
+            let sub = '';
+            if (cmd.includes('python')) sub = 'python';
+            else if (cmd.includes('grep')) sub = 'grep';
+            else if (cmd.includes('curl') || cmd.includes('fetch')) sub = 'curl';
+            else if (cmd.includes('node')) sub = 'node';
+            else if (firstLine) sub = firstLine.slice(0, 24);
+            if (sub) specificName = `运行命令 (${sub})`;
+
+            const text = tm.content || tm.toolResult || '';
+            const exitMatch = text.match(/Exit code:\s*(\d+)/i);
+            if (exitMatch && exitMatch[1] !== '0') {
+              isFailed = true;
+              errorDetail = `命令退出异常 (Exit code: ${exitMatch[1]})`;
+            } else if (/(command not found|syntax error|fatal:|Traceback \(most recent call last\):)/i.test(text)) {
+              isFailed = true;
+              errorDetail = '命令执行异常或命令不存在';
+            }
+            return { baseName, specificName, isFailed, errorDetail };
+          }
+
+          // 2. 执行工具 / 对话记录 (KuaiBuddy 核心业务工具或 MCP)
+          if (baseName === '执行工具' || baseName === '对话记录') {
+            let sourceTool = '';
+            const text = tm.content || tm.toolResult || '';
+            try {
+              const res = typeof text === 'string' ? JSON.parse(text) : text;
+              sourceTool = res?.source?.tool || '';
+              if (res?.error) {
+                isFailed = true;
+                errorDetail = typeof res.error === 'string' ? res.error : JSON.stringify(res.error);
+              } else if (res?.status === 'ERROR' || res?.status === 'FAILED') {
+                isFailed = true;
+                errorDetail = res?.statusDescription || '接口调用返回失败状态';
+              } else if (res?.code && res?.code !== 0 && res?.code !== 200 && res?.code !== 8) {
+                isFailed = true;
+                errorDetail = res?.msg || `接口异常响应码 [${res.code}]`;
+              }
+            } catch (e) {}
+
+            if (!sourceTool) {
+              try {
+                const args = typeof tm.toolArgs === 'string' ? JSON.parse(tm.toolArgs) : tm.toolArgs;
+                sourceTool = args?.tool || args?.action || args?.mode || '';
+              } catch (e) {}
+            }
+
+            if (sourceTool) {
+              specificName = sourceTool;
+            }
+            return { baseName, specificName, isFailed, errorDetail };
+          }
+
+          // 3. 抓取网页 (Web fetch)
+          if (baseName === '抓取网页') {
+            let url = '';
+            try {
+              const args = typeof tm.toolArgs === 'string' ? JSON.parse(tm.toolArgs) : tm.toolArgs;
+              url = args?.url || '';
+            } catch (e) {}
+            try {
+              const domain = new URL(url).hostname;
+              if (domain) specificName = `抓取网页 (${domain})`;
+            } catch (e) {}
+
+            const text = tm.content || tm.toolResult || '';
+            const statusMatch = text.match(/^status=(\d+)/i);
+            if (statusMatch) {
+              const code = parseInt(statusMatch[1], 10);
+              if (code >= 400) {
+                isFailed = true;
+                errorDetail = `HTTP ${code}`;
+              }
+            } else if (/(ECONNREFUSED|ETIMEDOUT|FetchError|timeout)/i.test(text)) {
+              isFailed = true;
+              errorDetail = '网络请求超时或连接被拒绝';
+            }
+            return { baseName, specificName, isFailed, errorDetail };
+          }
+
+          // 4. 通用工具失败检测
+          const text = tm.content || tm.toolResult || '';
+          if (/(ToolCallError|Exception|failed with|ECONNREFUSED|ETIMEDOUT|请求失败|调用失败)/i.test(text)) {
+            isFailed = true;
+            errorDetail = text.slice(0, 120);
+          }
+
+          return { baseName, specificName, isFailed, errorDetail };
+        }
+
         function detectBadcaseItem(c) {
           const messages = c.messages || [];
           const userMsgs = messages.filter(m => m.role === 'user');
@@ -1763,9 +1868,14 @@ window.__ModuleLoader__.load({
 
           const failedToolMsgs = [];
           for (const tm of toolMsgs) {
-            const text = tm.content || tm.toolResult || '';
-            if (/(error|exception|failed|fail|timeout|timed out|超时|500|403|401|拒绝连接|连接失败|权限不足|ECONNREFUSED|ETIMEDOUT)/i.test(text)) {
-              failedToolMsgs.push(tm);
+            const details = getToolExecutionDetails(tm);
+            if (details.isFailed) {
+              failedToolMsgs.push({
+                ...tm,
+                specificToolName: details.specificName,
+                baseToolName: details.baseName,
+                toolErrorDetail: details.errorDetail
+              });
             }
           }
 
@@ -1851,9 +1961,12 @@ window.__ModuleLoader__.load({
               let tn = '规则/配置未生效';
               if (/(不要重复|上文问过)/.test(title)) { t = 'user_complaint'; tn = '机械重复/负反馈'; }
               else if (/(任务中断|写一半退出)/.test(title)) { t = 'task_interrupted'; tn = '任务中断/异常截断'; }
+              const clientRunIds = [...new Set(messages.map(m => m.runId).filter(Boolean))];
               return {
                 id: `bad_${c.sessionId?.slice(-24) || c.id}`,
                 sessionId: c.sessionId,
+                runId: clientRunIds[0] || c.runId || '',
+                runIds: clientRunIds.length > 0 ? clientRunIds : (c.runIds || []),
                 title: c.title,
                 badcaseType: t,
                 badcaseTypeName: tn,
@@ -1895,14 +2008,16 @@ window.__ModuleLoader__.load({
             recommendation = '增加任务单会话最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户';
             evidence = `总交互步数: ${messages.length} 步 | 工具调用: ${toolMsgs.length} 次`;
           } else if (isFrequentToolFail) {
-            const failedTools = [...new Set(failedToolMsgs.map(t => t.toolName || 'Tool'))];
+            const failedTools = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
+            const failureSummary = failedToolMsgs.map(t => `${t.specificToolName || t.toolName}: ${t.toolErrorDetail || '执行异常'}`).slice(0, 3).join('；');
+            const firstFailText = failedToolMsgs[0].content || failedToolMsgs[0].toolResult || '';
             badcaseType = 'frequent_tool_failures';
             badcaseTypeName = '工具调用高频失败';
             severity = '严重';
-            phenomenon = `单会话内工具调用累计失败 ${failedToolMsgs.length} 次（涉及工具: ${failedTools.join('、')}），工具链严重受阻`;
-            suspectedCause = '外部依赖服务接口异常、权限凭证失效，或模型未能正确根据报错自我纠正入参 Schema 导致连续失败';
+            phenomenon = `单会话内工具调用累计失败 ${failedToolMsgs.length} 次（具体失败工具: ${failedTools.join('、')}），工具链受阻`;
+            suspectedCause = `依赖服务异常或入参不匹配。报错概括：${failureSummary}`;
             recommendation = '引入工具调用断路器 (Circuit Breaker) 与连续失败回退机制；补齐工具入参的静态 Schema 校验与 Few-shot 样例';
-            evidence = (failedToolMsgs[0].content || failedToolMsgs[0].toolResult || '').slice(0, 300);
+            evidence = (failedToolMsgs[0].toolErrorDetail ? `【失败工具: ${failedToolMsgs[0].specificToolName}】\n报错详情: ${failedToolMsgs[0].toolErrorDetail}\n\n原始返回:\n` : '') + firstFailText.slice(0, 300);
           } else if (isTaskInterrupted) {
             badcaseType = 'task_interrupted';
             badcaseTypeName = '任务中断/异常截断';
@@ -1945,18 +2060,25 @@ window.__ModuleLoader__.load({
             evidence = anomalyEvidence.slice(0, 300);
           } else {
             const tm = failedToolMsgs[0];
+            const text = tm.content || tm.toolResult || '';
+            const specificName = tm.specificToolName || tm.toolName || 'Tool';
             badcaseType = 'tool_error';
             badcaseTypeName = '工具调用异常';
             severity = '严重';
-            phenomenon = `工具 [${tm.toolName || 'Tool'}] 调用执行失败或抛出异常`;
-            suspectedCause = '工具接口入参格式不合规、接口超时或目标后台服务抛出 5xx/鉴权错误';
+            phenomenon = `具体工具 [${specificName}] 调用执行失败${tm.toolErrorDetail ? `（${tm.toolErrorDetail}）` : ''}`;
+            suspectedCause = `工具接口入参格式不合规、接口超时或目标后台服务报错。报错信息: ${tm.toolErrorDetail || '执行异常'}`;
             recommendation = '在系统提示词增加参数格式示例校验，增加工具超时重试机制与降级策略';
-            evidence = (tm.content || tm.toolResult || '').slice(0, 300);
+            evidence = (tm.toolErrorDetail ? `【失败工具: ${specificName}】\n报错详情: ${tm.toolErrorDetail}\n\n原始返回:\n` : '') + text.slice(0, 300);
           }
+
+          const failedToolsList = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
+          const clientRunIds = [...new Set(messages.map(m => m.runId).filter(Boolean))];
 
           return {
             id: `bad_${c.sessionId?.slice(-24) || c.id}`,
             sessionId: c.sessionId,
+            runId: clientRunIds[0] || c.runId || '',
+            runIds: clientRunIds.length > 0 ? clientRunIds : (c.runIds || []),
             title: c.title,
             badcaseType,
             badcaseTypeName,
@@ -1972,7 +2094,13 @@ window.__ModuleLoader__.load({
             turnsCount: c.turnsCount || 1,
             toolCallsCount: c.toolCallsCount || 0,
             toolFailuresCount: failedToolMsgs.length,
-            toolNames: c.toolNames || [],
+            failedToolNames: failedToolsList,
+            failedToolDetails: failedToolMsgs.map(t => ({
+              toolName: t.specificToolName || t.toolName,
+              errorDetail: t.toolErrorDetail,
+              args: t.toolArgs
+            })),
+            toolNames: [...new Set(toolMsgs.map(t => getToolExecutionDetails(t).specificName).filter(Boolean))],
             modelId: c.modelId,
             createdAt: c.createdAt,
             messages: messages
@@ -2118,6 +2246,9 @@ window.__ModuleLoader__.load({
             return {
               ...item,
               id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              sessionId: item.sessionId || '',
+              runId: item.runId || '',
+              runIds: item.runIds || (item.runId ? [item.runId] : []),
               sourceType,
               sourceDate: item.sourceDate || srcDate || (item.createdAt ? item.createdAt.slice(0, 10) : ''),
               sourceEnv: item.sourceEnv || srcEnv || 'prod',
@@ -2541,6 +2672,28 @@ window.__ModuleLoader__.load({
                 throw new Error(errData.error || `HTTP ${res.status}`);
               }
               const json = await res.json();
+              if (Array.isArray(json.cases)) {
+                for (const c of json.cases) {
+                  if (!c.runId && Array.isArray(c.messages)) {
+                    const rids = [...new Set(c.messages.map(m => m.runId).filter(Boolean))];
+                    if (rids.length > 0) {
+                      c.runId = rids[0];
+                      c.runIds = rids;
+                    }
+                  }
+                }
+              }
+              if (Array.isArray(json.badcases)) {
+                for (const b of json.badcases) {
+                  if (!b.runId && Array.isArray(b.messages)) {
+                    const rids = [...new Set(b.messages.map(m => m.runId).filter(Boolean))];
+                    if (rids.length > 0) {
+                      b.runId = rids[0];
+                      b.runIds = rids;
+                    }
+                  }
+                }
+              }
               if ((!json.badcases || json.badcases.length === 0) && json.cases && json.cases.length > 0) {
                 const clientBads = extractBadcasesFromCases(json.cases);
                 json.badcases = clientBads;
@@ -2774,7 +2927,8 @@ window.__ModuleLoader__.load({
 - **综合缺陷标签**: ${(b.defectTags || [b.badcaseTypeName]).join(' / ')}
 - **交互步数**: ${b.stepCount || b.messages?.length || 0} 步
 - **工具调用统计**: ${b.toolCallsCount || 0} 次 (报错 ${b.toolFailuresCount || 0} 次)
-- **关联会话 ID**: ${b.sessionId}
+- **关联会话 ID**: ${b.sessionId || 'N/A'}
+- **关联 Run ID**: ${b.runId || 'N/A'}
 - **模型版本**: ${b.modelId || 'MiniMax-M3.1-Flash'}
 - **创建时间**: ${b.createdAt || 'N/A'}
 ${b.sampleRepetitions > 1 ? `- **同类聚合频次**: 出现 ${b.sampleRepetitions} 次\n` : ''}
@@ -3275,6 +3429,17 @@ ${b.evidence}
                         ),
                         h('div', { className: 'ed-card-meta' },
                           h('span', null, `${c.turnsCount} 轮对话 · ${c.modelId || 'M3.1'}`),
+                          c.runId && h('span', {
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '10.5px',
+                              color: 'var(--ed-accent)',
+                              background: 'var(--ed-accent-light, rgba(59,130,246,0.08))',
+                              padding: '1px 4px',
+                              borderRadius: '3px'
+                            },
+                            title: `run_id: ${c.runId}`
+                          }, `run: ${c.runId.length > 16 ? c.runId.slice(0, 16) + '…' : c.runId}`),
                           h('span', null, (c.createdAt || '').slice(11, 16))
                         )
                       );
@@ -3338,9 +3503,37 @@ ${b.evidence}
                           )
                         ),
                         h('div', { className: 'ed-card-title' }, b.title),
+                        b.failedToolNames && b.failedToolNames.length > 0 && h('div', {
+                          style: { display: 'flex', gap: '4px', flexWrap: 'wrap', margin: '4px 0' }
+                        }, b.failedToolNames.map((ft, fidx) => h('span', {
+                          key: fidx,
+                          style: {
+                            fontSize: '11px',
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            color: '#dc2626',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            fontWeight: '500'
+                          }
+                        }, `✕ ${ft}`))),
                         h('div', { className: 'ed-badcase-card-desc' }, cleanPhenomenon),
                         h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
                           h('span', null, `${b.turnsCount} 轮 · ${b.stepCount || 0} 步 · ${b.modelId || 'M3.1'}`),
+                          b.runId && h('span', {
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '10.5px',
+                              color: '#dc2626',
+                              background: 'rgba(239, 68, 68, 0.08)',
+                              padding: '1px 4px',
+                              borderRadius: '3px'
+                            },
+                            title: `run_id: ${b.runId}`
+                          }, `run: ${b.runId.length > 16 ? b.runId.slice(0, 16) + '…' : b.runId}`),
                           h('span', null, (b.createdAt || '').slice(11, 16))
                         )
                       );
@@ -3417,6 +3610,17 @@ ${b.evidence}
                         h('div', { className: 'ed-badcase-card-desc' }, oc.evalCriteria || oc.userPrompt),
                         h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
                           h('span', null, `来源: ${oc.sourceDate || '手动'} (${oc.sourceEnv || 'prod'}) · ${oc.turnsCount || 1} 轮`),
+                          oc.runId && h('span', {
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '10.5px',
+                              color: 'var(--ed-accent)',
+                              background: 'var(--ed-accent-light, rgba(59,130,246,0.08))',
+                              padding: '1px 4px',
+                              borderRadius: '3px'
+                            },
+                            title: `run_id: ${oc.runId}`
+                          }, `run: ${oc.runId.length > 16 ? oc.runId.slice(0, 16) + '…' : oc.runId}`),
                           h('span', null, `入库 ${(oc.addedAt || '').slice(5, 16).replace('T', ' ')}`)
                         )
                       );
@@ -3434,7 +3638,29 @@ ${b.evidence}
                       h('div', { className: 'ed-detail-title' },
                         h('h2', null, activeCase.title),
                         h('div', { className: 'ed-detail-sub' },
-                          h('span', null, `评测 ID: ${activeCase.id}`),
+                          activeCase.runId && h('span', {
+                            className: 'ed-meta-chip',
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              background: 'var(--ed-bg-layer2)',
+                              color: 'var(--ed-text1)',
+                              borderColor: 'var(--ed-border1)'
+                            },
+                            title: `点击复制完整 run_id: ${activeCase.runId}`,
+                            onClick: () => copyToClipboard(activeCase.runId, 'run_id')
+                          }, `run_id: ${activeCase.runId}`, copied === 'run_id' ? ' (已复制)' : ''),
+                          activeCase.sessionId && h('span', {
+                            className: 'ed-meta-chip',
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            },
+                            title: `点击复制完整 session_id: ${activeCase.sessionId}`,
+                            onClick: () => copyToClipboard(activeCase.sessionId, 'session_id')
+                          }, `会话: ${activeCase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
                           h('span', null, `分类: ${activeCase.category}`),
                           h('span', null, `价值评分: ${activeCase.valueScore}分`),
                           h('span', null, `创建时间: ${activeCase.createdAt}`)
@@ -3536,14 +3762,53 @@ ${b.evidence}
                         // Timeline Transcript with Markdown support for assistant
                         h('div', { key: 'timeline', className: 'ed-msg-timeline' },
                           activeCase.messages.map((m, idx) => {
+                            const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
+                            const isToolFail = toolDetails ? toolDetails.isFailed : false;
                             const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
-                            return h('div', { key: idx, className: `ed-bubble ${roleClass}` },
+                            return h('div', {
+                              key: idx,
+                              className: `ed-bubble ${roleClass}`,
+                              style: isToolFail ? {
+                                border: '1.5px solid #ef4444',
+                                background: 'rgba(239, 68, 68, 0.03)'
+                              } : {}
+                            },
                               h('div', { className: 'ed-bubble-head' },
-                                h('span', null, m.role === 'user' ? '👤 客户 / 访客提问' : (m.role === 'assistant' ? '🤖 客服助理回复' : (m.role === 'tool' ? `🔧 工具执行: ${m.toolName || '未命名'}` : `🧠 模型思考推理 (${m.role})`))),
+                                h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                                  h('span', null, m.role === 'user'
+                                    ? '👤 客户 / 访客提问'
+                                    : (m.role === 'assistant'
+                                      ? '🤖 客服助理回复'
+                                      : (m.role === 'tool'
+                                        ? `🔧 工具: ${toolDetails.specificName}`
+                                        : `🧠 模型思考推理 (${m.role})`))),
+                                  isToolFail && h('span', {
+                                    style: {
+                                      fontSize: '11px',
+                                      color: '#dc2626',
+                                      background: 'rgba(239, 68, 68, 0.1)',
+                                      padding: '1px 5px',
+                                      borderRadius: '3px',
+                                      fontWeight: '600'
+                                    }
+                                  }, '✕ 执行失败')
+                                ),
                                 h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
                               ),
                               h('div', { className: 'ed-bubble-body' },
                                 m.role === 'tool' ? [
+                                  isToolFail && toolDetails.errorDetail && h('div', {
+                                    key: 'err_banner',
+                                    style: {
+                                      background: 'rgba(239, 68, 68, 0.08)',
+                                      color: '#dc2626',
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      marginBottom: '6px',
+                                      fontSize: '11.5px',
+                                      fontWeight: '500'
+                                    }
+                                  }, `⚠️ 报错原因: ${toolDetails.errorDetail}`),
                                   m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
                                     h('strong', null, '入参: '),
                                     h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
@@ -3575,7 +3840,29 @@ ${b.evidence}
                           }, h(Glyph, { kind: 'alertCircle', size: 12 }), `报错 ${activeBadcase.toolFailuresCount} 次`),
                           h('span', { className: 'ed-meta-chip' }, `交互 ${activeBadcase.stepCount || 0} 步 / ${activeBadcase.turnsCount || 1} 轮`),
                           h('span', { className: 'ed-meta-chip' }, `模型: ${activeBadcase.modelId || 'M3.1'}`),
-                          h('span', { className: 'ed-meta-chip', title: activeBadcase.sessionId }, `会话: ${(activeBadcase.sessionId || '').slice(0, 20)}...`),
+                          activeBadcase.runId && h('span', {
+                            className: 'ed-meta-chip',
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              background: 'var(--ed-bg-layer2)',
+                              color: 'var(--ed-text1)',
+                              borderColor: 'var(--ed-border1)'
+                            },
+                            title: `点击复制完整 run_id: ${activeBadcase.runId}`,
+                            onClick: () => copyToClipboard(activeBadcase.runId, 'run_id')
+                          }, `run_id: ${activeBadcase.runId}`, copied === 'run_id' ? ' (已复制)' : ''),
+                          activeBadcase.sessionId && h('span', {
+                            className: 'ed-meta-chip',
+                            style: {
+                              fontFamily: 'ui-monospace, monospace',
+                              fontSize: '11px',
+                              cursor: 'pointer'
+                            },
+                            title: `点击复制完整 session_id: ${activeBadcase.sessionId}`,
+                            onClick: () => copyToClipboard(activeBadcase.sessionId, 'session_id')
+                          }, `会话: ${activeBadcase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
                           h('span', { className: 'ed-meta-chip' }, activeBadcase.createdAt || '')
                         )
                       ),
@@ -3644,6 +3931,69 @@ ${b.evidence}
                               }, '技术归因')
                             ),
                             h('div', { className: 'ed-diag-text' }, activeBadcase.suspectedCause)
+                          ),
+
+                          // Specific Failed Tools Table/Card (when available)
+                          activeBadcase.failedToolDetails && activeBadcase.failedToolDetails.length > 0 && h('div', {
+                            className: 'ed-diag-section',
+                            style: { borderColor: 'rgba(239, 68, 68, 0.25)', background: 'rgba(239, 68, 68, 0.02)' }
+                          },
+                            h('div', { className: 'ed-diag-section-head' },
+                              h('div', { className: 'ed-diag-section-title', style: { color: '#dc2626' } },
+                                h(Glyph, { kind: 'alertCircle', size: 14 }),
+                                `异常失败的具体工具清单 (${activeBadcase.failedToolDetails.length} 个)`
+                              ),
+                              h('span', {
+                                className: 'ed-diag-section-tag',
+                                style: { background: 'rgba(239,68,68,0.1)', color: '#dc2626' }
+                              }, '明确工具名')
+                            ),
+                            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' } },
+                              activeBadcase.failedToolDetails.map((ftd, fidx) => h('div', {
+                                key: fidx,
+                                style: {
+                                  background: 'var(--ed-bg-layer1)',
+                                  border: '1px solid var(--ed-border1)',
+                                  borderRadius: '6px',
+                                  padding: '8px 12px'
+                                }
+                              },
+                                h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' } },
+                                  h('span', {
+                                    style: {
+                                      fontWeight: '650',
+                                      fontSize: '12.5px',
+                                      color: '#dc2626',
+                                      fontFamily: 'ui-monospace, monospace'
+                                    }
+                                  }, `🔧 ${ftd.toolName}`),
+                                  ftd.errorDetail && h('span', {
+                                    style: {
+                                      fontSize: '11px',
+                                      color: '#b91c1c',
+                                      background: 'rgba(239, 68, 68, 0.08)',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px'
+                                    }
+                                  }, ftd.errorDetail)
+                                ),
+                                ftd.args && h('div', {
+                                  style: {
+                                    fontSize: '11.5px',
+                                    color: 'var(--ed-text2)',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-all',
+                                    maxHeight: '80px',
+                                    overflowY: 'auto',
+                                    background: 'var(--ed-bg-layer2)',
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    marginTop: '4px',
+                                    fontFamily: 'ui-monospace, monospace'
+                                  }
+                                }, `入参: ${typeof ftd.args === 'string' ? ftd.args : JSON.stringify(ftd.args)}`)
+                              ))
+                            )
                           ),
 
                           // 3. Remediation
@@ -3716,14 +4066,53 @@ ${b.evidence}
                         // Badcase Timeline Replay
                         h('div', { key: 'b_timeline', className: 'ed-msg-timeline' },
                           activeBadcase.messages.map((m, idx) => {
+                            const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
+                            const isToolFail = toolDetails ? toolDetails.isFailed : false;
                             const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
-                            return h('div', { key: idx, className: `ed-bubble ${roleClass}` },
+                            return h('div', {
+                              key: idx,
+                              className: `ed-bubble ${roleClass}`,
+                              style: isToolFail ? {
+                                border: '1.5px solid #ef4444',
+                                background: 'rgba(239, 68, 68, 0.03)'
+                              } : {}
+                            },
                               h('div', { className: 'ed-bubble-head' },
-                                h('span', null, m.role === 'user' ? '👤 客户 / 访客提问' : (m.role === 'assistant' ? '🤖 客服助理回复' : (m.role === 'tool' ? `🔧 工具执行: ${m.toolName || '未命名'}` : `🧠 模型思考推理 (${m.role})`))),
+                                h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                                  h('span', null, m.role === 'user'
+                                    ? '👤 客户 / 访客提问'
+                                    : (m.role === 'assistant'
+                                      ? '🤖 客服助理回复'
+                                      : (m.role === 'tool'
+                                        ? `🔧 工具: ${toolDetails.specificName}`
+                                        : `🧠 模型思考推理 (${m.role})`))),
+                                  isToolFail && h('span', {
+                                    style: {
+                                      fontSize: '11px',
+                                      color: '#dc2626',
+                                      background: 'rgba(239, 68, 68, 0.1)',
+                                      padding: '1px 5px',
+                                      borderRadius: '3px',
+                                      fontWeight: '600'
+                                    }
+                                  }, '✕ 执行失败')
+                                ),
                                 h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
                               ),
                               h('div', { className: 'ed-bubble-body' },
                                 m.role === 'tool' ? [
+                                  isToolFail && toolDetails.errorDetail && h('div', {
+                                    key: 'err_banner',
+                                    style: {
+                                      background: 'rgba(239, 68, 68, 0.08)',
+                                      color: '#dc2626',
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      marginBottom: '6px',
+                                      fontSize: '11.5px',
+                                      fontWeight: '500'
+                                    }
+                                  }, `⚠️ 报错原因: ${toolDetails.errorDetail}`),
                                   m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
                                     h('strong', null, '入参: '),
                                     h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
@@ -3783,6 +4172,29 @@ ${b.evidence}
                             }, isBadSource ? '⚠️ 缺陷回归基准' : (isManualSource ? '✍️ 手动构建基准' : '🎯 正向能力基准')),
                             h('span', { className: 'ed-cat-tag' }, activeOfficialCase.categoryName || '通用业务咨询'),
                             activeOfficialCase.sourceDate && h('span', { className: 'ed-meta-chip' }, `提取日期: ${activeOfficialCase.sourceDate}`),
+                            activeOfficialCase.runId && h('span', {
+                              className: 'ed-meta-chip',
+                              style: {
+                                fontFamily: 'ui-monospace, monospace',
+                                fontSize: '11px',
+                                cursor: 'pointer',
+                                background: 'var(--ed-bg-layer2)',
+                                color: 'var(--ed-text1)',
+                                borderColor: 'var(--ed-border1)'
+                              },
+                              title: `点击复制完整 run_id: ${activeOfficialCase.runId}`,
+                              onClick: () => copyToClipboard(activeOfficialCase.runId, 'run_id')
+                            }, `run_id: ${activeOfficialCase.runId}`, copied === 'run_id' ? ' (已复制)' : ''),
+                            activeOfficialCase.sessionId && h('span', {
+                              className: 'ed-meta-chip',
+                              style: {
+                                fontFamily: 'ui-monospace, monospace',
+                                fontSize: '11px',
+                                cursor: 'pointer'
+                              },
+                              title: `点击复制完整 session_id: ${activeOfficialCase.sessionId}`,
+                              onClick: () => copyToClipboard(activeOfficialCase.sessionId, 'session_id')
+                            }, `会话: ${activeOfficialCase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
                             activeOfficialCase.addedAt && h('span', { className: 'ed-meta-chip' }, `入库: ${(activeOfficialCase.addedAt || '').slice(0, 10)}`),
                             matchedRegTasks.length > 0 && h('span', {
                               className: 'ed-meta-chip',

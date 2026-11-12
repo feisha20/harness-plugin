@@ -122,6 +122,9 @@ export function normalizeOfficialCaseItem(item, sourceDate, sourceEnv) {
   return {
     ...item,
     id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    sessionId: item.sessionId || '',
+    runId: item.runId || '',
+    runIds: item.runIds || (item.runId ? [item.runId] : []),
     sourceType,
     sourceDate: item.sourceDate || sourceDate || (item.createdAt ? item.createdAt.slice(0, 10) : ''),
     sourceEnv: item.sourceEnv || sourceEnv || 'prod',
@@ -388,6 +391,7 @@ export async function fetchMessagesForSession(sessionId, pageSize = 50, targetEn
   return rawList.map(m => ({
     messageId: m.messageId,
     sessionId: m.sessionId,
+    runId: m.runId,
     role: m.role,
     content: parseMessageContent(m.content),
     toolName: m.toolName,
