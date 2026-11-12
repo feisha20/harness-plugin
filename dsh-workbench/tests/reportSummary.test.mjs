@@ -25,3 +25,22 @@ test('空周期和模型错误不覆盖旧报告',async()=>{
  await assert.rejects(reorganizeReport(original,[record],async()=>{throw Error('模型不可用')}),/模型不可用/)
  assert.equal(original.summaryMarkdown,'保留原文')
 })
+test('AI 重新整理周报规范化保留6个维度',async()=>{
+ const original={type:'weekly',periodKey:'2026-W45',startDate:'2026-11-03',endDate:'2026-11-09',markdown:'旧周报',isEdited:false}
+ const attribution={provider:'acp-antigravity-acp',model:'gemini-3.8-flash',usedFallback:false}
+ const updated=await reorganizeReport(original,[record],async input=>{
+   return {
+     text:`工作周报（2026-11-03 ~ 2026-11-09）
+### 一、本周重点工作
+• 排查接口超时及调用链配置问题`,
+     attribution,
+   }
+ })
+ assert.equal(updated.aiOrganized,true)
+ assert.match(updated.markdown,/本周完成的工作/)
+ assert.match(updated.markdown,/本周产出了哪些商业价值（带来的业绩、提效、合理降本等）/)
+ assert.match(updated.markdown,/下周工作计划/)
+ assert.match(updated.markdown,/针对不足，你将采取的措施是什么？/)
+ assert.match(updated.markdown,/重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？/)
+ assert.match(updated.markdown,/本周下来团队存在最大的问题是什么？（至少写一项）/)
+})

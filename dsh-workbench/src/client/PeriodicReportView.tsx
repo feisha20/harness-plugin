@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import type { DailyReport, PeriodicReport, Task } from '../shared/types.ts'
 import { copyReport } from '../shared/reportClipboard.ts'
-import { ReportEngine } from '../shared/reportEngine.ts'
+import { ReportEngine, normalizeWeeklyReport } from '../shared/reportEngine.ts'
 import { MarkdownRenderer } from './MarkdownRenderer.tsx'
 import { ReportOrganizingReveal, useReportOrganizingMotion } from './ReportOrganizingMotion.tsx'
 import { ReportIntake } from './ReportIntake.tsx'
@@ -120,7 +120,10 @@ export function PeriodicReportView({
 
   const cachedReport = reportType === 'weekly' ? weeklyReports[activeKey] : monthlyReports[activeKey]
   const currentReport = report?.type === reportType && report.periodKey === activeKey ? report : cachedReport
-  const currentMarkdown = (currentReport?.isEdited || currentReport?.aiOrganized) ? (currentReport.markdown || '') : synthesizedReport.markdown
+  const rawMarkdown = (currentReport?.isEdited || currentReport?.aiOrganized) ? (currentReport.markdown || '') : synthesizedReport.markdown
+  const currentMarkdown = (reportType === 'weekly' && !currentReport?.isEdited)
+    ? normalizeWeeklyReport(rawMarkdown)
+    : rawMarkdown
 
   const handleRegenerate = async () => {
     if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
@@ -131,8 +134,11 @@ export function PeriodicReportView({
           reportType === 'weekly'
             ? await onFetchWeeklyReport(selectedWeek, true)
             : await onFetchMonthlyReport(selectedMonth, true)
-        setReport(res)
-        setEditedMarkdown(res.markdown)
+        const finalReport = reportType === 'weekly'
+          ? { ...res, markdown: normalizeWeeklyReport(res.markdown) }
+          : res
+        setReport(finalReport)
+        setEditedMarkdown(finalReport.markdown)
         setIsEditing(false)
       })
     } catch (err: unknown) {

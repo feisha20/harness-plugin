@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { WorkbenchStore } from './store.ts'
-import { ReportEngine, recordDay } from './reportEngine.ts'
+import { ReportEngine, recordDay, normalizeWeeklyReport } from './reportEngine.ts'
 import { reorganizeReport, inferDailyInsight } from './reportSummary.ts'
 import { SessionCollector } from './collector.ts'
 import { safeAiError } from './aiFailure.ts'
@@ -144,6 +144,8 @@ export function createWorkbenchHttpHandler(
         }
         if (!snapshot.weeklyReports[weekKey] || (!snapshot.weeklyReports[weekKey].isEdited && !snapshot.weeklyReports[weekKey].aiOrganized)) {
           snapshot.weeklyReports[weekKey] = ReportEngine.generateWeeklyReport(weekKey, snapshot.tasks, snapshot.dailyReports)
+        } else if (snapshot.weeklyReports[weekKey] && !snapshot.weeklyReports[weekKey].isEdited) {
+          snapshot.weeklyReports[weekKey].markdown = normalizeWeeklyReport(snapshot.weeklyReports[weekKey].markdown)
         }
         if (!snapshot.monthlyReports[monthKey] || (!snapshot.monthlyReports[monthKey].isEdited && !snapshot.monthlyReports[monthKey].aiOrganized)) {
           snapshot.monthlyReports[monthKey] = ReportEngine.generateMonthlyReport(monthKey, snapshot.tasks, snapshot.dailyReports)
@@ -377,7 +379,14 @@ export function createWorkbenchHttpHandler(
           if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateWeeklyReport(weekKey, snapshot.tasks, snapshot.dailyReports)
             if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
+            report.markdown = normalizeWeeklyReport(report.markdown)
             store.savePeriodicReport(report)
+          } else if (report && !report.isEdited) {
+            const normalized = normalizeWeeklyReport(report.markdown)
+            if (normalized !== report.markdown) {
+              report = { ...report, markdown: normalized }
+              store.savePeriodicReport(report)
+            }
           }
           sendJson(res, 200, report)
           return

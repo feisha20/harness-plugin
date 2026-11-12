@@ -93,15 +93,66 @@ export function summarizeWork(tasks: Task[]): PeriodicSection[] {
 
 type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
-const valuePattern = /^(?:今日)?(?:商业价值|业务价值|价值|业绩|收益|降本增效|降本|提效|成果)[:：]/
-const sectionNumbers = ['一', '二', '三', '四', '五']
+const valuePattern = /^(?:今日|本周)?(?:商业价值|业务价值|价值|业绩|收益|降本增效|降本|提效|成果)[:：]/
+const sectionNumbers = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
 
-// 日报固定包含商业价值与明日计划两个必填章节，未提供记录时保留待补充提示，提交前补齐即可。
+// 日报包含商业价值与明日计划必填章节；周报包含完成工作、商业价值、下周计划、针对不足措施、重做思考、团队问题6个维度。
 export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicSection[] {
   const nextLabel = cadence === 'daily' ? '明日' : cadence === 'weekly' ? '下周' : '下月'
   const currentLabel = cadence === 'daily' ? '今日' : cadence === 'weekly' ? '本周' : '本月'
-  const planPattern = new RegExp(`^(?:${nextLabel}(?:计划|安排)?|下一步(?:计划|安排)?|计划)[:：]`)
+  const planPattern = new RegExp(`^(?:${nextLabel}(?:工作)?(?:计划|安排)?|下一步(?:计划|安排)?|计划)[:：]`)
   const issuePattern = /^(?:风险|阻塞|待协调|需协调|需支持|问题)[:：]/
+
+  const lines = (records:Task[], pattern:RegExp) => [...new Set(records.map(t => `• ${readableWork(t.title.trim().replace(pattern, ''))}`))]
+
+  if (cadence === 'weekly') {
+    const weeklyValuePattern = /^(?:本周)?(?:商业价值|业务价值|价值|业绩|收益|降本增效|降本|提效|成果)[:：]/
+    const weeklyPlanPattern = /^(?:下周(?:工作)?(?:计划|安排)?|下一步(?:计划|安排)?|计划)[:：]/
+    const weeklyMeasurePattern = /^(?:针对不足(?:采取的措施)?|不足措施|不足与改进|改进措施|不足反思|反思|不足)[:：]/
+    const weeklyRedoPattern = /^(?:重做(?:一遍)?(?:思考|方案|复盘)?|重做思考|复盘重做|重新来过)[:：]/
+    const weeklyTeamIssuePattern = /^(?:本周下来团队存在最大的问题是什么？?|团队(?:存在)?(?:最大的)?问题|团队问题|团队阻碍|团队协作问题|风险|阻塞|待协调|需协调|需支持|问题)[:：]/
+
+    const values = tasks.filter(t => weeklyValuePattern.test(t.title.trim()))
+    const plans = tasks.filter(t => weeklyPlanPattern.test(t.title.trim()))
+    const measures = tasks.filter(t => weeklyMeasurePattern.test(t.title.trim()))
+    const redos = tasks.filter(t => weeklyRedoPattern.test(t.title.trim()))
+    const teamIssues = tasks.filter(t => weeklyTeamIssuePattern.test(t.title.trim()))
+    const work = tasks.filter(t => !values.includes(t) && !plans.includes(t) && !measures.includes(t) && !redos.includes(t) && !teamIssues.includes(t))
+
+    const groups = summarizeWork(work)
+    const workLines = groups.flatMap((group, index) => [
+      `#### ${index + 1}. ${group.title}`,
+      ...group.items.map(item => `• ${item}`), '',
+    ])
+
+    return [
+      {
+        title: '一、本周完成的工作',
+        items: workLines.length ? workLines : ['暂无工作记录'],
+      },
+      {
+        title: '二、本周产出了哪些商业价值（带来的业绩、提效、合理降本等）',
+        items: values.length ? lines(values, weeklyValuePattern) : ['待补充：请补充本周产出的商业价值（如带来的业绩、提效、合理降本等）。'],
+      },
+      {
+        title: '三、下周工作计划',
+        items: plans.length ? lines(plans, weeklyPlanPattern) : ['待补充：请补充下周工作计划及预期产出。'],
+      },
+      {
+        title: '四、针对不足，你将采取的措施是什么？',
+        items: measures.length ? lines(measures, weeklyMeasurePattern) : ['待补充：请针对本周工作的不足，填写你将采取的改进措施。'],
+      },
+      {
+        title: '五、重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？',
+        items: redos.length ? lines(redos, weeklyRedoPattern) : ['待补充：请填写如果重做一遍应该怎么做、会带来哪些变化以及产生哪些商业价值。'],
+      },
+      {
+        title: '六、本周下来团队存在最大的问题是什么？（至少写一项）',
+        items: teamIssues.length ? lines(teamIssues, weeklyTeamIssuePattern) : ['待补充：请至少填写一项本周下来团队存在的最大问题。'],
+      },
+    ]
+  }
+
   const plans = tasks.filter(t => planPattern.test(t.title.trim()))
   const issues = tasks.filter(t => issuePattern.test(t.title.trim()))
   const values = cadence === 'daily' ? tasks.filter(t => valuePattern.test(t.title.trim())) : []
@@ -111,7 +162,6 @@ export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicS
     `#### ${index + 1}. ${group.title}`,
     ...group.items.map(item => `• ${item}`), '',
   ])
-  const lines = (records:Task[], pattern:RegExp) => [...new Set(records.map(t => `• ${readableWork(t.title.trim().replace(pattern, ''))}`))]
   const sections: PeriodicSection[] = [
     {title:`一、${currentLabel}${cadence === 'monthly' ? '重点工作与阶段进展' : '重点工作'}`,items:workLines.length ? workLines : ['暂无工作记录']},
   ]
@@ -167,6 +217,104 @@ export function normalizeDailyReport(markdown: string): string {
     number += 1
     return `### ${label}、`
   })).join('\n')
+}
+
+/**
+ * 为旧版或 AI 整理后的周报规范 6 个标准三级章节，
+ * 按标准顺序提取或补齐各章节内容，并严格按一至六编号。
+ */
+export function normalizeWeeklyReport(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  const titleLine = lines.find(l => /^(?:#{1,2}\s+)?(?:[📅📊📈🎯⏳📁\s]*)?工作周报/.test(l.trim()))
+
+  const sections: { key: string; title: string; lines: string[] }[] = []
+  let currentKey: string | null = null
+  let currentLines: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    const match = line.match(/^(?:#{2,3})\s+(.+)$/)
+    if (match && !/^(?:#{1,2}\s+)?(?:[📅📊📈🎯⏳📁\s]*)?工作周报/.test(trimmed)) {
+      if (currentKey) {
+        sections.push({ key: currentKey, title: match[1], lines: currentLines })
+      }
+      const rawTitle = match[1]
+        .replace(/[\*_`]/g, '')
+        .trim()
+        .replace(/^[一二三四五六七八九十\d]+[、.．]\s*/, '')
+        .trim()
+      if (/本周完成的工作|本周重点工作|核心工作产出与交付|重点攻坚与推进中事项|工作总结|本周工作|完成的工作/.test(rawTitle)) {
+        currentKey = 'work'
+      } else if (/(?:商业价值|业务价值|价值|产出.*价值|业绩|提效|合理降本|降本增效)/.test(rawTitle) && !/重做一遍/.test(rawTitle)) {
+        currentKey = 'value'
+      } else if (/下周工作计划|下周工作安排|下周计划|下周规划|规划与风险预警/.test(rawTitle)) {
+        currentKey = 'plan'
+      } else if (/针对不足|采取的措施|不足与改进|改进措施|不足反思|应对措施/.test(rawTitle)) {
+        currentKey = 'measure'
+      } else if (/重做一遍|重新来过|复盘重做/.test(rawTitle)) {
+        currentKey = 'redo'
+      } else if (/团队.*问题|团队存在最大的问题|团队最大问题|问题与需协调事项|风险与预警|需协调事项|存在的问题/.test(rawTitle)) {
+        currentKey = 'teamIssue'
+      } else {
+        currentKey = 'other'
+      }
+      currentLines = []
+    } else if (currentKey) {
+      currentLines.push(line)
+    }
+  }
+  if (currentKey) {
+    sections.push({ key: currentKey, title: '', lines: currentLines })
+  }
+
+  const getBody = (key: string, defaultPlaceholder: string): string[] => {
+    const found = sections.filter(s => s.key === key)
+    if (!found.length) return [defaultPlaceholder]
+    const content = found.flatMap(s => s.lines)
+    while (content.length && content[0].trim() === '') content.shift()
+    while (content.length && content[content.length - 1].trim() === '') content.pop()
+    return content.length ? content : [defaultPlaceholder]
+  }
+
+  const otherLines = sections.filter(s => s.key === 'other').flatMap(s => s.lines)
+  while (otherLines.length && otherLines[0].trim() === '') otherLines.shift()
+  while (otherLines.length && otherLines[otherLines.length - 1].trim() === '') otherLines.pop()
+
+  let workBody = getBody('work', '暂无工作记录')
+  if (otherLines.length) {
+    if (workBody.length === 1 && workBody[0] === '暂无工作记录') {
+      workBody = otherLines
+    } else {
+      workBody = [...workBody, '', ...otherLines]
+    }
+  }
+  const valueBody = getBody('value', '待补充：请补充本周产出的商业价值（如带来的业绩、提效、合理降本等）。')
+  const planBody = getBody('plan', '待补充：请补充下周工作计划及预期产出。')
+  const measureBody = getBody('measure', '待补充：请针对本周工作的不足，填写你将采取的改进措施。')
+  const redoBody = getBody('redo', '待补充：请填写如果重做一遍应该怎么做、会带来哪些变化以及产生哪些商业价值。')
+  const teamIssueBody = getBody('teamIssue', '待补充：请至少填写一项本周下来团队存在的最大问题。')
+
+  const result: string[] = []
+  if (titleLine) {
+    result.push(titleLine.trim(), '')
+  }
+
+  const standardSections = [
+    { title: '### 一、本周完成的工作', body: workBody },
+    { title: '### 二、本周产出了哪些商业价值（带来的业绩、提效、合理降本等）', body: valueBody },
+    { title: '### 三、下周工作计划', body: planBody },
+    { title: '### 四、针对不足，你将采取的措施是什么？', body: measureBody },
+    { title: '### 五、重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？', body: redoBody },
+    { title: '### 六、本周下来团队存在最大的问题是什么？（至少写一项）', body: teamIssueBody },
+  ]
+
+  for (const s of standardSections) {
+    result.push(s.title)
+    result.push(...s.body)
+    result.push('')
+  }
+
+  return result.join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 function reportSectionRange(lines: string[], test: (title: string) => boolean): { start: number; end: number } | null {
@@ -234,7 +382,7 @@ export class ReportEngine {
     return { id:`${type}-${key}`,type,periodKey:key,title,startDate,endDate,generatedAt:new Date().toISOString(),isEdited:false,
       stats:{ totalTasks:records.length,completedTasks:0,pendingTasks:0,activeProjects:new Set(records.map(t=>t.projectPath).filter(Boolean)).size,loggedDays:days.size },
       sections:reportSections(records,type === 'weekly' ? 'weekly' : 'monthly'),
-      markdown:[title,'',...(records.length ? this.grouped(records,type) : ['暂无工作记录'])].join('\n') }
+      markdown:[title,'',...((records.length || type === 'weekly') ? this.grouped(records,type) : ['暂无工作记录'])].join('\n') }
   }
   public static generateWeeklyReport(key:string,tasks:Task[],dailyReports:Record<string,DailyReport>): PeriodicReport { return this.period('weekly',key,tasks,dailyReports) }
   public static generateMonthlyReport(key:string,tasks:Task[],dailyReports:Record<string,DailyReport>): PeriodicReport { return this.period('monthly',key,tasks,dailyReports) }
