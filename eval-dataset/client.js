@@ -2149,8 +2149,9 @@ window.__ModuleLoader__.load({
           }, []);
 
           const [date, setDate] = React.useState(yesterdayStr);
-          const [currentEnv, setCurrentEnv] = React.useState('test');
-          const [config, setConfig] = React.useState(null);
+          const [selectedEnv, setSelectedEnv] = React.useState(null);
+          const [config, setConfig] = React.useState(undefined);
+          const currentEnv = selectedEnv || config?.activeEnv || 'prod';
           const [showConfigModal, setShowConfigModal] = React.useState(false);
           const [configEditing, setConfigEditing] = React.useState(null);
           const [data, setData] = React.useState(null);
@@ -2174,6 +2175,8 @@ window.__ModuleLoader__.load({
           const [visibleFields, setVisibleFields] = React.useState({});
           const [expandedEnv, setExpandedEnv] = React.useState('prod');
           const envDropdownRef = React.useRef(null);
+          const datasetRequestId = React.useRef(0);
+          const extractAfterSave = React.useRef(false);
 
           // Regression Testing states
           const [regressionTasks, setRegressionTasks] = React.useState([]);
@@ -2607,71 +2610,62 @@ window.__ModuleLoader__.load({
             return () => document.removeEventListener('mousedown', handleOutside);
           }, [envMenuOpen]);
 
-          // 1. Load configuration on startup
-          const loadConfig = React.useCallback(async () => {
-            // First read from localStorage if present
-            let currentLocalCfg = null;
-            try {
-              const local = localStorage.getItem('kuaibuddy_eval_config');
-              if (local) {
-                currentLocalCfg = JSON.parse(local);
-                setConfig(currentLocalCfg);
-                if (currentLocalCfg.activeEnv) {
-                  setCurrentEnv(currentLocalCfg.activeEnv);
-                }
-              }
-            } catch (e) {}
+          // 启动时合并配置，再发起数据请求。
+          React.useEffect(() => {
+            let cancelled = false;
+            const loadConfig = async () => {
+              let localConfig = null;
+              try {
+                localConfig = JSON.parse(localStorage.getItem('kuaibuddy_eval_config'));
+              } catch (e) {}
 
-            try {
-              const res = await fetch('/api/eval-dataset?action=get_config');
-              if (res.ok) {
-                const cfg = await res.json();
-                const merged = {
-                  ...cfg,
-                  activeEnv: currentLocalCfg?.activeEnv || cfg.activeEnv || 'prod',
+              let merged = localConfig;
+              try {
+                const res = await fetch('/api/eval-dataset?action=get_config');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const serverConfig = await res.json();
+                merged = {
+                  ...serverConfig,
+                  activeEnv: localConfig?.activeEnv || serverConfig.activeEnv || 'prod',
                   environments: {
-                    ...cfg.environments,
-                    ...(currentLocalCfg?.environments || {})
+                    ...serverConfig.environments,
+                    ...localConfig?.environments
                   }
                 };
-                if (cfg.environments.preprod) {
+                if (serverConfig.environments?.preprod) {
                   merged.environments.preprod = {
-                    ...cfg.environments.preprod,
-                    ...(currentLocalCfg?.environments?.preprod || {})
+                    ...serverConfig.environments.preprod,
+                    ...localConfig?.environments?.preprod
                   };
                 }
-                setConfig(merged);
-                if (merged.activeEnv) {
-                  setCurrentEnv(merged.activeEnv);
-                }
+              } catch (e) {
+                console.warn('获取配置失败:', e);
               }
-            } catch (e) {
-              console.warn('获取配置失败:', e);
-            }
+              if (!cancelled) setConfig(merged);
+            };
+            loadConfig();
+            return () => { cancelled = true; };
           }, []);
 
-          React.useEffect(() => {
-            loadConfig();
-          }, [loadConfig]);
-
-          // 2. Load dataset
-          const loadData = React.useCallback(async (force = false, envToUse = currentEnv) => {
+          const loadData = React.useCallback(async (force = false) => {
+            const requestId = ++datasetRequestId.current;
             setLoading(true);
             setError('');
             try {
-              const envData = config?.environments?.[envToUse];
+              const envData = config?.environments?.[currentEnv];
               let effectiveKey = envData?.key;
-              if (!effectiveKey && envToUse === 'preprod') {
+              if (!effectiveKey && currentEnv === 'preprod') {
                 effectiveKey = config?.environments?.prod?.key;
               }
               const keyParam = effectiveKey ? `&staffKey=${encodeURIComponent(effectiveKey)}` : '';
               const urlParam = envData?.url ? `&apiUrl=${encodeURIComponent(envData.url)}` : '';
-              const res = await fetch(`/api/eval-dataset?action=${force ? 'extract' : 'get_data'}&date=${date}&minScore=${minScore}&env=${envToUse}${keyParam}${urlParam}`);
+              const res = await fetch(`/api/eval-dataset?action=${force ? 'extract' : 'get_data'}&date=${date}&minScore=${minScore}&env=${currentEnv}${keyParam}${urlParam}`);
               if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.error || `HTTP ${res.status}`);
               }
               const json = await res.json();
+              if (requestId !== datasetRequestId.current) return;
               if (Array.isArray(json.cases)) {
                 for (const c of json.cases) {
                   if (!c.runId && Array.isArray(c.messages)) {
@@ -2722,25 +2716,27 @@ window.__ModuleLoader__.load({
                 setSelectedBadcaseIds(new Set());
               }
             } catch (err) {
-              setError(err.message);
+              if (requestId === datasetRequestId.current) setError(err.message);
             } finally {
-              setLoading(false);
+              if (requestId === datasetRequestId.current) setLoading(false);
             }
           }, [date, minScore, currentEnv, config]);
 
           React.useEffect(() => {
-            loadData(false, currentEnv);
-          }, [loadData, currentEnv]);
+            if (config === undefined) return;
+            const force = extractAfterSave.current;
+            extractAfterSave.current = false;
+            loadData(force);
+            return () => { datasetRequestId.current += 1; };
+          }, [config, loadData]);
 
           // Handle environment switch
           const handleEnvChange = (newEnv) => {
-            setCurrentEnv(newEnv);
+            setSelectedEnv(newEnv);
             const envData = config?.environments?.[newEnv];
             if (newEnv === 'prod' && (!envData?.key || envData.key.trim() === '')) {
               openConfigModal(newEnv);
-              return;
             }
-            loadData(false, newEnv);
           };
 
           const updateEnvField = (envKey, field, val) => {
@@ -2755,7 +2751,7 @@ window.__ModuleLoader__.load({
             });
           };
 
-          const openConfigModal = () => {
+          const openConfigModal = (env = currentEnv) => {
             const defaultEnvs = {
               prod: { name: '生产环境', tag: 'prd', url: 'https://kuaibuddy.kuaishang.cn', key: '', companyId: '', username: '', password: '' },
               preprod: { name: '预生产环境', tag: 'pre', url: 'https://test-kuaibuddy.dingningtalk.com', key: '', companyId: '232679', username: 'testpro', password: '' },
@@ -2770,10 +2766,10 @@ window.__ModuleLoader__.load({
               dev: { ...defaultEnvs.dev, ...(currentEnvs.dev || {}) }
             };
             setConfigEditing({
-              activeEnv: currentEnv,
+              activeEnv: env,
               environments: JSON.parse(JSON.stringify(mergedEnvs))
             });
-            setExpandedEnv(currentEnv);
+            setExpandedEnv(env);
             setShowConfigModal(true);
           };
 
@@ -2797,11 +2793,9 @@ window.__ModuleLoader__.load({
               if (res.ok) {
                 saved = await res.json();
               }
+              extractAfterSave.current = triggerFetch;
               setConfig(saved);
               setShowConfigModal(false);
-              if (triggerFetch) {
-                loadData(true, currentEnv);
-              }
             } catch (e) {
               alert(e.message);
             } finally {
@@ -3067,6 +3061,7 @@ ${b.evidence}
                     h('button', {
                       type: 'button',
                       className: `ed-env-trigger ${envMenuOpen ? 'open' : ''}`,
+                      disabled: config === undefined,
                       onClick: () => setEnvMenuOpen(!envMenuOpen),
                       title: '切换运行环境'
                     },
@@ -3108,6 +3103,7 @@ ${b.evidence}
                   // Environment Settings Button
                   h('button', {
                     className: 'ed-btn',
+                    disabled: config === undefined,
                     onClick: () => openConfigModal(currentEnv),
                     title: '配置环境地址与 Staff Key'
                   }, h(Glyph, { kind: 'gear', size: 13 }), '环境配置'),
@@ -3130,7 +3126,7 @@ ${b.evidence}
                   h('button', {
                     className: 'ed-btn',
                     disabled: loading,
-                    onClick: () => loadData(true, currentEnv)
+                    onClick: () => loadData(true)
                   }, h(Glyph, { kind: 'refresh', size: 13 }), loading ? '正在提取...' : '重新提取'),
                   // Regression Console Drawer entry button
                   h('button', {
