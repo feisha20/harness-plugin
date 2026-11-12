@@ -25,6 +25,7 @@
 __pycache__/
 *.py[cod]
 *.tsbuildinfo
+.dsh-meow
 
 # 测试生成的报告和录制
 playwright-report/

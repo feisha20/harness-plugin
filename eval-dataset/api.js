@@ -355,7 +355,7 @@ export async function fetchSessionsForDate(dateStr, targetEnv, overrideCreds) {
   return allSessions;
 }
 
-export async function fetchMessagesForSession(sessionId, pageSize = 50, targetEnv, overrideCreds) {
+export async function fetchMessagesForSession(sessionId, pageSize = 200, targetEnv, overrideCreds) {
   const { url, key, envName } = getCredentials(targetEnv, overrideCreds);
   if (!key) {
     throw new Error(`【${envName}】尚未配置 X-Staff-Key，请点击右上角「⚙️ 环境配置」填入对应的 Staff Key`);
@@ -363,32 +363,48 @@ export async function fetchMessagesForSession(sessionId, pageSize = 50, targetEn
 
   const endpoint = `${url}/web/agent/api/v1/staff/messages`;
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'X-Staff-Key': key,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      sessionId,
-      pageSize
-    })
-  });
+  let curPage = 1;
+  const allRawList = [];
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`KuaiBuddy [${envName}] messages API 失败 (${res.status}): ${text.slice(0, 200)}`);
+  while (true) {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'X-Staff-Key': key,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sessionId,
+        curPage,
+        pageSize
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`KuaiBuddy [${envName}] messages API 失败 (${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    const data = await res.json();
+    if (data.code !== 8) {
+      throw new Error(`KuaiBuddy 消息响应错误 [${data.code}]: ${data.msg || '未知错误'}`);
+    }
+
+    const pageList = data.data?.resultlist || [];
+    allRawList.push(...pageList);
+
+    const totalRecord = typeof data.data?.totalRecord === 'number' ? data.data.totalRecord : 0;
+    const totalPage = typeof data.data?.totalPage === 'number' ? data.data.totalPage : 1;
+
+    if (curPage >= totalPage || allRawList.length >= totalRecord || pageList.length === 0) {
+      break;
+    }
+    curPage++;
   }
 
-  const data = await res.json();
-  if (data.code !== 8) {
-    throw new Error(`KuaiBuddy 消息响应错误 [${data.code}]: ${data.msg || '未知错误'}`);
-  }
+  allRawList.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
 
-  const rawList = data.data?.resultlist || [];
-  rawList.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-
-  return rawList.map(m => ({
+  return allRawList.map(m => ({
     messageId: m.messageId,
     sessionId: m.sessionId,
     runId: m.runId,
@@ -411,7 +427,7 @@ export async function fetchMessagesBatch(sessionIds, concurrency = 6, targetEnv,
       const id = queue.shift();
       if (!id) break;
       try {
-        const msgs = await fetchMessagesForSession(id, 60, targetEnv, overrideCreds);
+        const msgs = await fetchMessagesForSession(id, 200, targetEnv, overrideCreds);
         results.set(id, msgs);
       } catch (err) {
         console.warn(`[eval-dataset] 获取会话 ${id} 消息失败:`, err.message);
