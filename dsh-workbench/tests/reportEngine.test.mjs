@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ReportEngine, readableWork, summarizeWork } from '../lib/shared/reportEngine.js'
+import { ReportEngine, readableWork, summarizeWork, normalizeDailyReport, applyDailyInsight, needsDailyInsight } from '../lib/shared/reportEngine.js'
 const task = (id,title,extra={}) => ({id,title,source:'manual',createdAt:'2026-11-07T02:00:00Z',...extra})
 test('汇报按工作内容归类，不将项目路径当作标题', () => {
   const report=ReportEngine.generateWeeklyReport('2026-W45',[
@@ -35,10 +35,72 @@ test('日周月采用对应汇报周期且标题不含装饰括号', () => {
   const records=[task('a','梳理会话采集方案')]
   const reports=[ReportEngine.generateDailyReport('2026-11-07',records).summaryMarkdown, ReportEngine.generateWeeklyReport('2026-W45',records,{}).markdown, ReportEngine.generateMonthlyReport('2026-11',records,{}).markdown]
   for(const text of reports) { assert.doesNotMatch(text,/[【】]/); assert.doesNotMatch(text,/围绕.*开展/); assert.match(text,/问题与需协调事项/) }
-  assert.match(reports[0],/明日工作安排/)
+  assert.match(reports[0],/今日产生的商业价值（业绩、提效、合理降本等）/)
+  assert.match(reports[0],/明日计划（事项、商业价值）/)
+  assert.doesNotMatch(reports[1],/商业价值/)
   assert.match(reports[1],/下周工作安排/)
   assert.match(reports[2],/本月重点工作与阶段进展/)
   assert.match(reports[2],/下月工作安排/)
+})
+test('日报固定包含商业价值与明日计划两个必填章节', () => {
+  const text=ReportEngine.generateDailyReport('2026-11-07',[task('a','梳理会话采集方案')]).summaryMarkdown
+  assert.match(text,/### 二、今日产生的商业价值（业绩、提效、合理降本等）/)
+  assert.match(text,/待补充：请补充今日产生的商业价值或业绩/)
+  assert.match(text,/### 四、明日计划（事项、商业价值）/)
+  assert.match(text,/待补充：请补充明日计划事项及预期商业价值/)
+})
+test('旧版日报补齐必填章节并重排章节序号', () => {
+  const old='### 一、今日重点工作\n• 完成方案\n\n### 二、问题与需协调事项\n待补充\n\n### 三、明日工作安排\n待补充'
+  const fixed=normalizeDailyReport(old)
+  assert.match(fixed,/### 二、今日产生的商业价值（业绩、提效、合理降本等）/)
+  assert.match(fixed,/### 三、问题与需协调事项/)
+  assert.match(fixed,/### 四、明日计划（事项、商业价值）/)
+  assert.doesNotMatch(fixed,/明日工作安排/)
+  assert.match(fixed,/待补充：请补充今日产生的商业价值或业绩/)
+})
+test('已包含必填章节的日报重排后保持结构', () => {
+  const report=ReportEngine.generateDailyReport('2026-11-07',[task('a','梳理会话采集方案')]).summaryMarkdown
+  const normalized=normalizeDailyReport(report)
+  assert.match(normalized,/### 二、今日产生的商业价值/)
+  assert.match(normalized,/### 四、明日计划（事项、商业价值）/)
+})
+test('无工作记录的日期也保留日报必填章节', () => {
+  const text=ReportEngine.generateDailyReport('2026-11-07',[]).summaryMarkdown
+  assert.match(text,/暂无工作记录/)
+  assert.match(text,/今日产生的商业价值（业绩、提效、合理降本等）/)
+  assert.match(text,/明日计划（事项、商业价值）/)
+})
+test('日报中的价值与计划记录进入对应必填章节，不重复归入工作分组', () => {
+  const text=ReportEngine.generateDailyReport('2026-11-07',[
+    task('a','梳理会话采集方案'),
+    task('b','商业价值：同步耗时从 10 分钟降到 2 分钟'),
+    task('c','明日计划：补充失败重试与告警；预期减少人工排查'),
+  ]).summaryMarkdown
+  const work=text.split('### 二、')[0]
+  const value=text.split('### 二、')[1].split('### 三、')[0]
+  const plan=text.split('### 四、')[1]
+  assert.match(work,/梳理会话采集方案/)
+  assert.doesNotMatch(work,/同步耗时|补充失败重试/)
+  assert.match(value,/同步耗时从 10 分钟降到 2 分钟/)
+  assert.doesNotMatch(value,/待补充/)
+  assert.match(plan,/补充失败重试与告警/)
+})
+test('日报占位章节需要 AI 归纳，填充后不再需要', () => {
+  const report=ReportEngine.generateDailyReport('2026-11-07',[task('a','梳理会话采集方案')]).summaryMarkdown
+  assert.equal(needsDailyInsight(report),true)
+  const filled=applyDailyInsight(report,{value:['减少人工整理与重复验证时间'],plan:['补充回归用例：降低漏测风险'],generatedAt:'2026-11-07T10:00:00.000Z'})
+  assert.match(filled,/• 减少人工整理与重复验证时间/)
+  assert.match(filled,/• 补充回归用例：降低漏测风险/)
+  assert.equal(needsDailyInsight(filled),false)
+})
+test('AI 归纳只替换商业价值与明日计划，其他章节保持不变', () => {
+  const report=ReportEngine.generateDailyReport('2026-11-07',[task('a','梳理会话采集方案'),task('b','风险：模型额度不足')]).summaryMarkdown
+  const filled=applyDailyInsight(report,{value:['缩短排查时间'],plan:['跟进模型额度：避免整理中断'],generatedAt:'2026-11-07T10:00:00.000Z'})
+  assert.match(filled,/### 一、今日重点工作/)
+  assert.match(filled,/梳理会话采集方案/)
+  assert.match(filled,/### 三、问题与需协调事项/)
+  assert.match(filled,/风险：模型额度不足|模型额度不足/)
+  assert.match(filled,/### 四、明日计划（事项、商业价值）/)
 })
 test('明确计划与问题单列，不把修复工作推断为未解决风险', () => {
   const records=[task('a','下周计划：补充接口用例'),task('b','需协调：申请测试账号'),task('c','修复登录异常')]

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import type { DailyReport, Task } from '../shared/types.ts'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import type { DailyInsight, DailyReport, Task } from '../shared/types.ts'
 import { copyReport } from '../shared/reportClipboard.ts'
-import { ReportEngine } from '../shared/reportEngine.ts'
+import { ReportEngine, normalizeDailyReport, applyDailyInsight, needsDailyInsight, recordDay } from '../shared/reportEngine.ts'
 import { MarkdownRenderer } from './MarkdownRenderer.tsx'
 import { ReportOrganizingReveal, useReportOrganizingMotion } from './ReportOrganizingMotion.tsx'
 import { ReportIntake } from './ReportIntake.tsx'
@@ -22,6 +22,7 @@ interface DailyReportViewProps {
   dailyReports: Record<string, DailyReport>
   onFetchDailyReport: (day: string, regenerate?: boolean) => Promise<DailyReport>
   onSaveDailyReport: (report: DailyReport) => Promise<void>
+  onGenerateInsight: (day: string) => Promise<DailyInsight>
 }
 
 export function DailyReportView({
@@ -30,6 +31,7 @@ export function DailyReportView({
   dailyReports,
   onFetchDailyReport,
   onSaveDailyReport,
+  onGenerateInsight,
 }: DailyReportViewProps) {
   const [selectedDay, setSelectedDay] = useState(currentDay)
   const [report, setReport] = useState<DailyReport | null>(dailyReports[selectedDay] || null)
@@ -40,8 +42,13 @@ export function DailyReportView({
   const [copySuccess, setCopySuccess] = useState(false)
   const [loading, setLoading] = useState(false)
   const { phase, organize, snapshot, viewportRef } = useReportOrganizingMotion()
-  const busy = loading || phase !== null
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [generatedInsight, setGeneratedInsight] = useState<DailyInsight | null>(null)
+  const [insightError, setInsightError] = useState<string | null>(null)
+  const [insightLoading, setInsightLoading] = useState(false)
+  const busy = loading || phase !== null || insightLoading
+  const insightRequested = useRef<string | null>(null)
+  const insightSeq = useRef(0)
 
   // 1. Sync report if dailyReports changes externally (e.g. initial snapshot arrives or background sync)
   useEffect(() => {
@@ -94,7 +101,48 @@ export function DailyReportView({
   // Computed synthesized markdown if not manually edited
   const synthesizedReport = ReportEngine.generateDailyReport(selectedDay, tasks)
   const currentReport = report?.day === selectedDay ? report : dailyReports[selectedDay]
-  const currentMarkdown = (currentReport?.isEdited || currentReport?.aiOrganized) ? (currentReport.summaryMarkdown || '') : synthesizedReport.summaryMarkdown
+  const insight = currentReport?.aiInsight ?? generatedInsight
+  const baseMarkdown = currentReport?.isEdited
+    ? (currentReport.summaryMarkdown || '')
+    : currentReport?.aiOrganized
+      ? normalizeDailyReport(currentReport.summaryMarkdown || '')
+      : synthesizedReport.summaryMarkdown
+  const currentMarkdown = insight && !currentReport?.isEdited
+    ? applyDailyInsight(baseMarkdown, insight)
+    : baseMarkdown
+
+  useEffect(() => {
+    insightSeq.current += 1
+    setGeneratedInsight(null)
+    setInsightError(null)
+    setInsightLoading(false)
+    insightRequested.current = null
+  }, [selectedDay])
+
+  const requestInsight = useCallback(async () => {
+    const seq = ++insightSeq.current
+    insightRequested.current = selectedDay
+    setInsightLoading(true)
+    setInsightError(null)
+    try {
+      const result = await onGenerateInsight(selectedDay)
+      if (seq === insightSeq.current) setGeneratedInsight(result)
+    } catch (err: unknown) {
+      if (seq === insightSeq.current) setInsightError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (seq === insightSeq.current) setInsightLoading(false)
+    }
+  }, [onGenerateInsight, selectedDay])
+
+  // 打开任意日期的日报时，若商业价值或明日计划仍是占位内容，自动让 AI 根据当天记录归纳一次。
+  useEffect(() => {
+    if (loading || isEditing || !currentReport || currentReport.isEdited) return
+    if (currentReport.aiInsight || generatedInsight) return
+    if (!needsDailyInsight(currentMarkdown)) return
+    if (!tasks.some(task => recordDay(task) === selectedDay)) return
+    if (insightRequested.current === selectedDay) return
+    void requestInsight()
+  }, [loading, isEditing, currentReport, selectedDay, generatedInsight, currentMarkdown, tasks, requestInsight])
 
   const handleRegenerate = async () => {
     if (isEditing && !window.confirm('AI 重新整理会替换当前报告，未保存的修改将丢失，是否继续？')) return
@@ -105,11 +153,20 @@ export function DailyReportView({
         setReport(res)
         setEditedMarkdown(res.summaryMarkdown)
         setIsEditing(false)
+        insightSeq.current += 1
+        setGeneratedInsight(null)
+        setInsightError(null)
+        insightRequested.current = null
       })
     } catch (err: unknown) {
       console.error('Failed to regenerate daily report:', err)
       setLoadError(err instanceof Error ? err.message : String(err))
     }
+  }
+
+  const handleRetryInsight = () => {
+    insightRequested.current = null
+    void requestInsight()
   }
 
   const handleStartEdit = () => {
@@ -320,6 +377,23 @@ export function DailyReportView({
         </div>
       </div>
 
+      {insightLoading && !isEditing && (
+        <div style={{padding:'8px 14px',fontSize:12,color:'var(--dsh-color-text-secondary,#64748b)',display:'flex',alignItems:'center',gap:'8px'}}>
+          <IconSync size={13} color="currentColor" spinning />
+          <span>AI 正在根据今日工作归纳商业价值与明日计划…</span>
+        </div>
+      )}
+      {insightError && !isEditing && (
+        <div role="alert" style={{padding:'8px 14px',fontSize:12,color:'#b45309',display:'flex',gap:'10px',alignItems:'center'}}>
+          <span style={{flex:1}}>AI 归纳商业价值与明日计划失败：{insightError}</span>
+          <button onClick={handleRetryInsight} style={{border:0,background:'transparent',color:'inherit',textDecoration:'underline',cursor:'pointer',fontSize:12}}>重试</button>
+        </div>
+      )}
+      {insight && !currentReport?.isEdited && !isEditing && (
+        <div style={{padding:'8px 14px',fontSize:12,color:'var(--dsh-color-text-secondary,#64748b)'}}>
+          商业价值与明日计划由 AI 根据今日工作归纳，请核对后提交。
+        </div>
+      )}
       {loadError && currentMarkdown && <div role="alert" style={{padding:'10px 14px',fontSize:12,color:'var(--dsh-color-text-primary,#242424)',border:'1px solid var(--dsh-color-border-subtle,#ddd)',borderRadius:6,overflowWrap:'anywhere'}}>AI 整理失败，已保留原报告：{loadError}</div>}
       {/* Main Content Area */}
       <div

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import type {
+  DailyInsight,
   DailyReport,
   PeriodicReport,
   SourceConfig,
@@ -177,6 +178,26 @@ export function WorkbenchApp() {
       showToast(`已保存 ${report.day} 日报`)
     }
   }, [showToast])
+
+  const handleGenerateInsight = useCallback(async (day: string): Promise<DailyInsight> => {
+    const res = await fetch('/api/workbench/reports/daily/insight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ day }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || 'AI 归纳失败，请检查模型配置')
+    }
+    const insight = (await res.json()) as DailyInsight
+    setSnapshot(prev => {
+      if (!prev) return prev
+      const report = prev.dailyReports[day]
+      if (!report) return prev
+      return { ...prev, dailyReports: { ...prev.dailyReports, [day]: { ...report, aiInsight: insight } } }
+    })
+    return insight
+  }, [])
 
   // Weekly & Monthly Report Handlers
   const handleFetchWeeklyReport = useCallback(async (weekKey: string, regenerate = false): Promise<PeriodicReport> => {
@@ -570,6 +591,7 @@ export function WorkbenchApp() {
             dailyReports={snapshot.dailyReports}
             onFetchDailyReport={handleFetchDailyReport}
             onSaveDailyReport={handleSaveDailyReport}
+            onGenerateInsight={handleGenerateInsight}
           />
         )}
 

@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { WorkbenchStore } from './store.ts'
-import { ReportEngine } from './reportEngine.ts'
-import { reorganizeReport } from './reportSummary.ts'
+import { ReportEngine, recordDay } from './reportEngine.ts'
+import { reorganizeReport, inferDailyInsight } from './reportSummary.ts'
 import { SessionCollector } from './collector.ts'
 import { safeAiError } from './aiFailure.ts'
 import type { createModelRouter, ModelGenerator } from './modelRouter.ts'
@@ -54,6 +54,7 @@ export function createWorkbenchHttpHandler(
   collector: SessionCollector | (() => SessionCollector),
   generateReport?: ModelGenerator,
   models?: Pick<ReturnType<typeof createModelRouter>, 'catalog' | 'hasModel'>,
+  generateInsight?: ModelGenerator,
 ) {
   let syncRunning = false
   // 重启后没有仍在运行的同步，不能沿用磁盘上的“采集中”。
@@ -83,6 +84,7 @@ export function createWorkbenchHttpHandler(
     try {
       const changesAiState = (pathname === '/api/workbench/model-settings' && req.method === 'PATCH')
         || (pathname === '/api/workbench/sync' && req.method === 'POST')
+        || (pathname === '/api/workbench/reports/daily/insight' && req.method === 'POST')
         || (pathname.startsWith('/api/workbench/reports/') && query.get('regenerate') === 'true')
       const origin = req.headers.origin
       if (changesAiState && (req.headers['sec-fetch-site'] === 'cross-site'
@@ -137,7 +139,7 @@ export function createWorkbenchHttpHandler(
         const weekKey = snapshot.activePeriod?.currentWeekKey || '2026-W45'
         const monthKey = snapshot.activePeriod?.currentMonthKey || '2026-11'
 
-        if (!snapshot.dailyReports[today] || (!snapshot.dailyReports[today].isEdited && !snapshot.dailyReports[today].aiOrganized)) {
+        if (!snapshot.dailyReports[today] || (!snapshot.dailyReports[today].isEdited && !snapshot.dailyReports[today].aiOrganized && !snapshot.dailyReports[today].aiInsight)) {
           snapshot.dailyReports[today] = ReportEngine.generateDailyReport(today, snapshot.tasks)
         }
         if (!snapshot.weeklyReports[weekKey] || (!snapshot.weeklyReports[weekKey].isEdited && !snapshot.weeklyReports[weekKey].aiOrganized)) {
@@ -301,13 +303,50 @@ export function createWorkbenchHttpHandler(
         return
       }
 
+      // 3.5 根据当天工作记录归纳商业价值与明日计划
+      if (pathname === '/api/workbench/reports/daily/insight' && req.method === 'POST') {
+        let body: { day?: string }
+        try {
+          body = await parseBody<{ day?: string }>(req)
+        } catch {
+          sendJson(res, 400, { error: '请求格式不正确' })
+          return
+        }
+        const day = typeof body.day === 'string' ? body.day.trim() : ''
+        const parsedDay = new Date(`${day}T00:00:00Z`)
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(parsedDay.getTime())
+          || parsedDay.toISOString().slice(0, 10) !== day) {
+          sendJson(res, 400, { error: '日期格式不正确' })
+          return
+        }
+        const snapshot = store.getSnapshot()
+        if (!snapshot.tasks.some(task => recordDay(task) === day)) {
+          sendJson(res, 400, { error: '当天没有工作记录，暂无法归纳' })
+          return
+        }
+        if (!generateInsight) {
+          sendJson(res, 503, { error: 'AI 归纳服务未连接，请检查模型设置' })
+          return
+        }
+        try {
+          const insight = await inferDailyInsight(day, snapshot.tasks, generateInsight)
+          const report = snapshot.dailyReports[day] ?? ReportEngine.generateDailyReport(day, snapshot.tasks)
+          report.aiInsight = insight
+          store.saveDailyReport(report)
+          sendJson(res, 200, insight)
+        } catch (cause) {
+          sendJson(res, 502, { error: safeAiError(cause instanceof Error ? cause.message : String(cause)) })
+        }
+        return
+      }
+
       // 4. Daily Report
       if (pathname === '/api/workbench/reports/daily') {
         if (req.method === 'GET') {
           const day = query.get('day') || new Date().toISOString().slice(0, 10)
           const snapshot = store.getSnapshot()
           let report = snapshot.dailyReports[day]
-          if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
+          if (!report || (!report.isEdited && !report.aiOrganized && !report.aiInsight) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateDailyReport(day, snapshot.tasks)
             if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
             store.saveDailyReport(report)

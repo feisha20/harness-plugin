@@ -59,6 +59,13 @@ export interface DailyReportItem {
   status: 'completed' | 'in_progress'
 }
 
+export interface DailyInsight {
+  value: string[]
+  plan: string[]
+  generatedAt: string
+  attribution?: ReportAiAttribution
+}
+
 export interface DailyReport {
   day: string // YYYY-MM-DD
   generatedAt: string
@@ -66,6 +73,7 @@ export interface DailyReport {
   summaryMarkdown: string
   aiOrganized?: boolean
   aiAttribution?: ReportAiAttribution
+  aiInsight?: DailyInsight
   isEdited: boolean
 }
 

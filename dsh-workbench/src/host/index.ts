@@ -1,4 +1,4 @@
-import { REPORT_INSTRUCTION } from './reportSummary.ts'
+import { REPORT_INSTRUCTION, DAILY_INSIGHT_INSTRUCTION } from './reportSummary.ts'
 import { SUMMARY_INSTRUCTION } from './sessionSummary.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -37,6 +37,7 @@ export function apply(ctx: Context): void {
     },
     (input, validate) => models.generator(settings(), REPORT_INSTRUCTION)(input, validate),
     models,
+    (input, validate) => models.generator(settings(), DAILY_INSIGHT_INSTRUCTION, 1200)(input, validate),
   )
 
   if (ctx.webServer) {

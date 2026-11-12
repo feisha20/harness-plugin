@@ -13,6 +13,8 @@ test('AI 重新整理只发送周期内工作概要，返回持久化的 AI 标�
    return {text:'工作日报\n### 一、今日重点工作\n• 排查接口超时及调用链配置问题',attribution}
  })
  assert.equal(calls,1);assert.equal(updated.aiOrganized,true);assert.match(updated.summaryMarkdown,/排查接口超时/)
+ assert.match(updated.summaryMarkdown,/今日产生的商业价值/)
+ assert.match(updated.summaryMarkdown,/明日计划（事项、商业价值）/)
  assert.deepEqual(updated.aiAttribution,attribution)
  assert.equal(original.summaryMarkdown,'旧报告')
 })

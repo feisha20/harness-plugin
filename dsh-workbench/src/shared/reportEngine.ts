@@ -1,4 +1,5 @@
 import type {
+  DailyInsight,
   DailyReport,
   DailyReportItem,
   PeriodicReport,
@@ -92,7 +93,10 @@ export function summarizeWork(tasks: Task[]): PeriodicSection[] {
 
 type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
-// 仅把明确标注的安排和待协调事项分出，避免把“修复异常”等工作误判为未解决风险。
+const valuePattern = /^(?:今日)?(?:商业价值|业务价值|价值|业绩|收益|降本增效|降本|提效|成果)[:：]/
+const sectionNumbers = ['一', '二', '三', '四', '五']
+
+// 日报固定包含商业价值与明日计划两个必填章节，未提供记录时保留待补充提示，提交前补齐即可。
 export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicSection[] {
   const nextLabel = cadence === 'daily' ? '明日' : cadence === 'weekly' ? '下周' : '下月'
   const currentLabel = cadence === 'daily' ? '今日' : cadence === 'weekly' ? '本周' : '本月'
@@ -100,18 +104,111 @@ export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicS
   const issuePattern = /^(?:风险|阻塞|待协调|需协调|需支持|问题)[:：]/
   const plans = tasks.filter(t => planPattern.test(t.title.trim()))
   const issues = tasks.filter(t => issuePattern.test(t.title.trim()))
-  const work = tasks.filter(t => !plans.includes(t) && !issues.includes(t))
+  const values = cadence === 'daily' ? tasks.filter(t => valuePattern.test(t.title.trim())) : []
+  const work = tasks.filter(t => !plans.includes(t) && !issues.includes(t) && !values.includes(t))
   const groups = summarizeWork(work)
   const workLines = groups.flatMap((group, index) => [
     `#### ${index + 1}. ${group.title}`,
     ...group.items.map(item => `• ${item}`), '',
   ])
   const lines = (records:Task[], pattern:RegExp) => [...new Set(records.map(t => `• ${readableWork(t.title.trim().replace(pattern, ''))}`))]
-  return [
+  const sections: PeriodicSection[] = [
     {title:`一、${currentLabel}${cadence === 'monthly' ? '重点工作与阶段进展' : '重点工作'}`,items:workLines.length ? workLines : ['暂无工作记录']},
-    {title:'二、问题与需协调事项',items:issues.length ? lines(issues,issuePattern) : ['待确认：当前记录未提供问题或需协调事项，请在提交前确认。']},
-    {title:`三、${nextLabel}工作安排`,items:plans.length ? lines(plans,planPattern) : [`待补充：请补充${nextLabel}的工作重点和预期产出。`]},
   ]
+  if (cadence === 'daily') {
+    sections.push({
+      title:`${sectionNumbers[sections.length]}、今日产生的商业价值（业绩、提效、合理降本等）`,
+      items:values.length ? lines(values,valuePattern) : ['待补充：请补充今日产生的商业价值或业绩（如提效、合理降本）。'],
+    })
+  }
+  sections.push(
+    {title:`${sectionNumbers[sections.length]}、问题与需协调事项`,items:issues.length ? lines(issues,issuePattern) : ['待确认：当前记录未提供问题或需协调事项，请在提交前确认。']},
+  )
+  sections.push(
+    {title:`${sectionNumbers[sections.length]}、${cadence === 'daily' ? '明日计划（事项、商业价值）' : `${nextLabel}工作安排`}`,
+      items:plans.length ? lines(plans,planPattern) : [cadence === 'daily' ? '待补充：请补充明日计划事项及预期商业价值。' : `待补充：请补充${nextLabel}的工作重点和预期产出。`]},
+  )
+  return sections
+}
+
+const numberedHeading = /^###\s+[一二三四五六七八九十]+、\s*/
+
+/**
+ * 为旧版日报补齐「今日产生的商业价值」和「明日计划」两个必填章节，
+ * 并把已有三级章节重新编号，避免插入后序号重复。
+ */
+export function normalizeDailyReport(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop()
+  const findHeading = (test: (title: string) => boolean) => lines.findIndex(line => {
+    const match = line.match(/^###\s+(.+)$/)
+    return match !== null && test(match[1])
+  })
+  const planIndex = findHeading(title => /明日计划|明日工作安排/.test(title))
+  if (planIndex >= 0) lines[planIndex] = lines[planIndex].replace('明日工作安排', '明日计划（事项、商业价值）')
+
+  if (findHeading(title => title.includes('商业价值') && !/明日计划|明日工作安排/.test(title)) < 0) {
+    const issueIndex = findHeading(title => title.includes('问题与需协调事项'))
+    const nextPlanIndex = findHeading(title => /明日计划|明日工作安排/.test(title))
+    const insertAt = issueIndex >= 0 ? issueIndex : nextPlanIndex >= 0 ? nextPlanIndex : lines.length
+    const block = ['### 二、今日产生的商业价值（业绩、提效、合理降本等）',
+      '待补充：请补充今日产生的商业价值或业绩（如提效、合理降本）。', '']
+    if (insertAt > 0 && lines[insertAt - 1].trim() !== '') block.unshift('')
+    lines.splice(insertAt, 0, ...block)
+  }
+
+  if (findHeading(title => /明日计划/.test(title)) < 0) {
+    lines.push('', '### 四、明日计划（事项、商业价值）', '待补充：请补充明日计划事项及预期商业价值。')
+  }
+
+  let number = 0
+  return lines.map(line => line.replace(numberedHeading, () => {
+    const label = sectionNumbers[number] ?? String(number + 1)
+    number += 1
+    return `### ${label}、`
+  })).join('\n')
+}
+
+function reportSectionRange(lines: string[], test: (title: string) => boolean): { start: number; end: number } | null {
+  const start = lines.findIndex(line => {
+    const match = line.match(/^###\s+(.+)$/)
+    return match !== null && test(match[1])
+  })
+  if (start < 0) return null
+  let end = lines.length
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^###\s+/.test(lines[index])) { end = index; break }
+  }
+  return { start, end }
+}
+
+function sectionIsPlaceholder(lines: string[], range: { start: number; end: number }): boolean {
+  const body = lines.slice(range.start + 1, range.end).map(line => line.trim()).filter(Boolean)
+  return body.length === 0 || body.every(line => line.startsWith('待补充') || line.startsWith('待确认') || /当前记录未提供|未提供可量化/.test(line))
+}
+
+/** 日报的商业价值或明日计划仍是占位内容时，需要 AI 根据工作记录归纳。 */
+export function needsDailyInsight(markdown: string): boolean {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  const value = reportSectionRange(lines, title => title.includes('商业价值') && !/明日计划/.test(title))
+  const plan = reportSectionRange(lines, title => title.includes('明日计划'))
+  return value === null || plan === null || sectionIsPlaceholder(lines, value) || sectionIsPlaceholder(lines, plan)
+}
+
+/** 把 AI 归纳的商业价值与明日计划写回日报对应章节，其他章节保持不变。 */
+export function applyDailyInsight(markdown: string, insight: DailyInsight): string {
+  const lines = normalizeDailyReport(markdown).split('\n')
+  const replaceBody = (test: (title: string) => boolean, items: string[], placeholder: string) => {
+    const range = reportSectionRange(lines, test)
+    if (range === null || !sectionIsPlaceholder(lines, range)) return
+    const body = items.length ? items.map(item => `• ${item}`) : [placeholder]
+    lines.splice(range.start + 1, range.end - range.start - 1, '', ...body, '')
+  }
+  replaceBody(title => title.includes('商业价值') && !/明日计划/.test(title), insight.value,
+    '待补充：请补充今日产生的商业价值或业绩（如提效、合理降本）。')
+  replaceBody(title => title.includes('明日计划'), insight.plan,
+    '待补充：请补充明日计划事项及预期商业价值。')
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()
 }
 
 export class ReportEngine {
@@ -126,7 +223,7 @@ export class ReportEngine {
     const records = tasks.filter(t => recordDay(t) === day)
     return { day, generatedAt:new Date().toISOString(), isEdited:false,
       items:records.map(t => ({ id:`item-${t.id}`, text:t.title, taskIds:[t.id], project:t.projectPath?.split('/').pop(), status:'completed' })),
-      summaryMarkdown:[`工作日报（${day}）`, '', ...(records.length ? this.grouped(records,'daily') : ['暂无工作记录'])].join('\n') }
+      summaryMarkdown:[`工作日报（${day}）`, '', ...this.grouped(records,'daily')].join('\n') }
   }
   private static period(type:'weekly'|'monthly', key:string, tasks:Task[], dailyReports:Record<string,DailyReport>): PeriodicReport {
     const {startDate,endDate} = type === 'weekly' ? getWeekRange(key) : getMonthRange(key)
