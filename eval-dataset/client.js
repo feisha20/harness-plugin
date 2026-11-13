@@ -1238,6 +1238,15 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--ed-border1);
   border-radius: 4px;
   color: var(--ed-text2);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ed-badcase-type-tag-danger {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.28);
+  color: #dc2626;
+  font-weight: 600;
 }
 .ed-badcase-count-tag {
   font-size: 10.5px;
@@ -1584,6 +1593,91 @@ window.__ModuleLoader__.load({
   overflow-y: auto;
   color: var(--ed-text1);
 }
+
+/* Segmented Control (ToolCallStatsPanel & sub-switchers) */
+.ed-seg-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--ed-bg-layer2);
+  border: 1px solid var(--ed-border1);
+  border-radius: 8px;
+}
+.ed-seg-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ed-text2);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+.ed-seg-btn:hover {
+  color: var(--ed-text1);
+}
+.ed-seg-btn.active {
+  background: var(--ed-bg-base);
+  color: var(--ed-text1);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+.ed-seg-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ed-text2);
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.ed-seg-btn.active .ed-seg-count {
+  color: var(--ed-accent);
+  background: rgba(30, 128, 255, 0.1);
+}
+
+/* Inline SVG Icon Alignment */
+.ed-ico-text,
+.ed-metric-label,
+.ed-tab-btn,
+.ed-tag-pill,
+.ed-tag-badge,
+.ed-reason-pill,
+.ed-card-official-pill,
+.ed-source-badge,
+.ed-eval-criteria-title,
+.ed-tool-tag,
+.ed-reg-status-pill,
+.ed-error-jump-info,
+.ed-meta-chip,
+.ed-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.ed-tag-badge,
+.ed-reason-pill,
+.ed-card-official-pill,
+.ed-source-badge,
+.ed-tool-tag,
+.ed-reg-status-pill,
+.ed-meta-chip,
+.ed-copy-btn {
+  gap: 4px;
+}
+.ed-form-label.ed-ico-text,
+.ed-form-label-sub.ed-ico-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 `;
 
     // Markdown Parser & Component
@@ -1784,33 +1878,61 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function Glyph({ kind = 'dataset', size = 16 }) {
-      const paths = {
-        dataset: 'M4 6h16M4 10h16M4 14h16M4 18h16',
-        filter: 'M3 4h18l-7 8v6l-4 2v-8L3 4z',
-        refresh: 'M20 7v5h-5 M4 17v-5h5 M6 7a7 7 0 0 1 12-2l2 3 M4 16l2 3a7 7 0 0 0 12-2',
-        download: 'M12 3v13m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2',
-        check: 'M5 13l4 4L19 7',
-        copy: 'M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.242a2 2 0 0 0-.602-1.43L16.08 2.57A2 2 0 0 0 14.65 2H10a2 2 0 0 0-2 2z',
-        gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4 1.4l1.6 1.2c.2.1.2.4.1.6l-1.5 2.6c-.1.2-.4.3-.6.2l-1.9-.8c-.4.3-.8.6-1.3.8l-.3 2c0 .2-.3.4-.5.4h-3c-.2 0-.5-.2-.5-.4l-.3-2c-.5-.2-.9-.5-1.3-.8l-1.9.8c-.2.1-.5 0-.6-.2l-1.5-2.6c-.1-.2 0-.5.1-.6l1.6-1.2c-.1-.5-.1-1 0-1.5l-1.6-1.2c-.2-.1-.2-.4-.1-.6l1.5-2.6c.1-.2.4-.3.6-.2l1.9.8c.4-.3.8-.6 1.3-.8l.3-2c0-.2.3-.4.5-.4h3c.2 0 .5.2.5.4l.3 2c.5.2.9.5 1.3.8l1.9-.8c.2-.1.5 0 .6.2l1.5 2.6c.1.2 0 .5-.1.6l-1.6 1.2c.1.5.1 1 0 1.5z',
-        close: 'M18 6L6 18M6 6l12 12',
-        chevronDown: 'M6 9l6 6 6-6',
-        eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
-        eyeOff: 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24 M1 1l22 22',
-        alertCircle: 'M12 8v4m0 4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0z',
-        target: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-6a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0-2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
-        tool: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z',
-        bookmark: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
-        plus: 'M12 5v14M5 12h14',
-        trash: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
-        edit: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'
+    function Glyph({ kind = 'dataset', size = 16, className = '', style = null, strokeWidth = 1.75 }) {
+      const specs = {
+        dataset: ['M4 6h16M4 10h16M4 14h16M4 18h16'],
+        filter: ['M3 4h18l-7 8v6l-4 2v-8L3 4z'],
+        refresh: ['M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8', 'M3 3v5h5', 'M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16', 'M16 16h5v5'],
+        spinner: ['M21 12a9 9 0 1 1-6.219-8.56'],
+        download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3'],
+        check: ['M5 12.5l4.2 4.2L19 7'],
+        copy: [{ rect: { x: 9, y: 9, width: 11, height: 11, rx: 2 } }, 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'],
+        gear: [{ circle: { cx: 12, cy: 12, r: 3 } }, 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'],
+        close: ['M18 6L6 18', 'M6 6l12 12'],
+        chevronDown: ['M6 9l6 6 6-6'],
+        eye: ['M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z', { circle: { cx: 12, cy: 12, r: 3 } }],
+        eyeOff: ['M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94', 'M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19', 'M14.12 14.12a3 3 0 1 1-4.24-4.24', 'M1 1l22 22'],
+        alertCircle: [{ circle: { cx: 12, cy: 12, r: 10 } }, 'M12 8v4', 'M12 16h.01'],
+        alertTriangle: ['M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z', 'M12 9v4', 'M12 17h.01'],
+        target: [{ circle: { cx: 12, cy: 12, r: 9.5 } }, { circle: { cx: 12, cy: 12, r: 5.5 } }, { circle: { cx: 12, cy: 12, r: 1.8 } }],
+        tool: ['M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'],
+        bookmark: ['M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'],
+        pin: ['M12 17v5', 'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z'],
+        plus: ['M12 5v14', 'M5 12h14'],
+        trash: ['M3 6h18', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2'],
+        edit: ['M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7', 'M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'],
+        brain: ['M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z', 'M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z', 'M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4', 'M12 18v-5'],
+        user: ['M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2', { circle: { cx: 12, cy: 7, r: 4 } }],
+        bot: ['M12 8V4H8', { rect: { x: 4, y: 8, width: 16, height: 12, rx: 3 } }, 'M2 14h2', 'M20 14h2', 'M9 13v2', 'M15 13v2'],
+        rocket: ['M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z', 'M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z', 'M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0', 'M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5'],
+        zap: ['M13 2L4 14h7l-1 8 9-12h-7l1-8z'],
+        chat: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
+        search: [{ circle: { cx: 11, cy: 11, r: 7.5 } }, 'M20 20l-3.8-3.8'],
+        clipboard: [{ rect: { x: 8, y: 2, width: 8, height: 4, rx: 1 } }, 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2', 'M9 12h6', 'M9 16h4'],
+        save: ['M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z', 'M17 21v-8H7v8', 'M7 3v5h8'],
+        stop: [{ rect: { x: 6, y: 6, width: 12, height: 12, rx: 2 } }],
+        layers: ['M12 2L2 7l10 5 10-5-10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5'],
+        barChart: ['M3 3v18h18', 'M18 17V9', 'M13 17V5', 'M8 17v-3']
       };
+      const items = specs[kind] || specs.dataset;
       return h('svg', {
-        width: size, height: size, viewBox: '0 0 24 24',
-        fill: 'none', stroke: 'currentColor', strokeWidth: 1.6,
-        strokeLinecap: 'round', strokeLinejoin: 'round',
+        width: size,
+        height: size,
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        className: className || undefined,
+        style: Object.assign({ flexShrink: 0, verticalAlign: 'middle' }, style || {}),
         'aria-hidden': true
-      }, h('path', { d: paths[kind] || paths.dataset }));
+      }, items.map((item, idx) => {
+        if (typeof item === 'string') return h('path', { key: idx, d: item });
+        if (item.circle) return h('circle', { key: idx, ...item.circle });
+        if (item.rect) return h('rect', { key: idx, ...item.rect });
+        return null;
+      }));
     }
 
     function SidebarIcon({ size = 20 }) {
@@ -1832,9 +1954,10 @@ window.__ModuleLoader__.load({
     function renderReasoningMessage(message, key) {
       return h('details', { key, className: 'ed-bubble ed-bubble-tool ed-bubble-reasoning' },
         h('summary', { className: 'ed-bubble-head' },
-          h('span', { className: 'ed-bubble-reasoning-title' },
+          h('span', { className: 'ed-bubble-reasoning-title ed-ico-text' },
             h(Glyph, { kind: 'chevronDown', size: 12 }),
-            `🧠 模型思考推理 (${message.role})`
+            h(Glyph, { kind: 'brain', size: 13 }),
+            `模型思考推理 (${message.role})`
           ),
           h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (message.createdAt || '').slice(11, 19))
         ),
@@ -1991,7 +2114,8 @@ window.__ModuleLoader__.load({
           return h('div', { className: 'ed-msg-timeline' },
             errorItems.length > 0 && h('div', { className: 'ed-error-jump-bar' },
               h('div', { className: 'ed-error-jump-info' },
-                h('span', null, `⚠️ 发现 ${errorItems.length} 处错误 (${activeErrorIdx + 1}/${errorItems.length})`)
+                h(Glyph, { kind: 'alertTriangle', size: 13 }),
+                h('span', null, `发现 ${errorItems.length} 处错误 (${activeErrorIdx + 1}/${errorItems.length})`)
               ),
               h('div', { className: 'ed-error-jump-chips' },
                 errorItems.map((item, eIdx) => h('button', {
@@ -2035,21 +2159,23 @@ window.__ModuleLoader__.load({
               },
                 h('div', { className: 'ed-bubble-head' },
                   h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-                    h('span', null, m.role === 'user'
-                      ? '👤 客户 / 访客提问'
+                    h('span', { className: 'ed-ico-text' }, m.role === 'user'
+                      ? [h(Glyph, { key: 'i', kind: 'user', size: 13 }), '客户 / 访客提问']
                       : (m.role === 'assistant'
-                        ? '🤖 客服助理回复'
-                        : `🔧 工具: ${toolDetails.specificName}`)),
+                        ? [h(Glyph, { key: 'i', kind: 'bot', size: 13 }), '客服助理回复']
+                        : [h(Glyph, { key: 'i', kind: 'tool', size: 13 }), `工具: ${toolDetails.specificName}`])),
                     isToolFail && h('span', {
+                      className: 'ed-ico-text',
                       style: {
                         fontSize: '10.5px',
                         fontWeight: '600',
                         color: '#dc2626',
                         background: 'rgba(239, 68, 68, 0.12)',
                         padding: '1px 6px',
-                        borderRadius: '4px'
+                        borderRadius: '4px',
+                        gap: '3px'
                       }
-                    }, '✕ 执行失败')
+                    }, h(Glyph, { kind: 'close', size: 11 }), '执行失败')
                   ),
                   h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
                 ),
@@ -2066,7 +2192,7 @@ window.__ModuleLoader__.load({
                         fontSize: '11.5px',
                         color: '#b91c1c'
                       }
-                    }, h('strong', null, '⚠️ 报错原因: '), toolDetails.errorDetail),
+                    }, h('strong', { className: 'ed-ico-text', style: { marginRight: '4px' } }, h(Glyph, { kind: 'alertTriangle', size: 12 }), '报错原因:'), toolDetails.errorDetail),
                     m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
                       h('strong', null, '入参: '),
                       h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
@@ -2132,51 +2258,126 @@ window.__ModuleLoader__.load({
           return specificName;
         }
 
-        function ToolCallStatsPanel({ messages }) {
-          const stats = React.useMemo(() => {
-            const msgs = Array.isArray(messages) ? messages : [];
-            const map = new Map();
-            let totalCalls = 0;
-            let totalFailed = 0;
-            for (const m of msgs) {
-              if (m.role !== 'tool' && !m.toolName) continue;
-              const details = getToolExecutionDetails(m);
-              const name = getToolDisplayLabel(m, details);
-              totalCalls += 1;
-              if (details.isFailed) totalFailed += 1;
-              const entry = map.get(name) || { name, count: 0, failCount: 0, successCount: 0 };
-              entry.count += 1;
-              if (details.isFailed) entry.failCount += 1;
-              else entry.successCount += 1;
-              map.set(name, entry);
+        function getMaxTurnModelInteractions(messages) {
+          const msgs = Array.isArray(messages) ? messages : [];
+          let maxTurnModel = 0;
+          let curTurnModel = 0;
+          let hasTurn = false;
+          for (const m of msgs) {
+            if (m.role === 'user') {
+              if (hasTurn && curTurnModel > maxTurnModel) maxTurnModel = curTurnModel;
+              hasTurn = true;
+              curTurnModel = 0;
+            } else if (m.role !== 'tool' && !m.toolName) {
+              if (!hasTurn) hasTurn = true;
+              curTurnModel += 1;
             }
-            const items = Array.from(map.values())
-              .sort((a, b) => b.count - a.count || b.failCount - a.failCount || a.name.localeCompare(b.name));
-            return { items, totalCalls, totalFailed, totalSuccess: totalCalls - totalFailed };
+          }
+          if (hasTurn && curTurnModel > maxTurnModel) maxTurnModel = curTurnModel;
+          return maxTurnModel;
+        }
+
+        function summarizeToolMessages(msgs) {
+          const map = new Map();
+          let totalCalls = 0;
+          let totalFailed = 0;
+          let modelInteractions = 0;
+          let execSteps = 0;
+          for (const m of msgs) {
+            if (m.role !== 'user' && m.role !== 'assistant') execSteps += 1;
+            if (m.role !== 'tool' && !m.toolName) {
+              if (m.role !== 'user') modelInteractions += 1;
+              continue;
+            }
+            const details = getToolExecutionDetails(m);
+            const name = getToolDisplayLabel(m, details);
+            totalCalls += 1;
+            if (details.isFailed) totalFailed += 1;
+            const entry = map.get(name) || { name, count: 0, failCount: 0, successCount: 0 };
+            entry.count += 1;
+            if (details.isFailed) entry.failCount += 1;
+            else entry.successCount += 1;
+            map.set(name, entry);
+          }
+          const items = Array.from(map.values())
+            .sort((a, b) => b.count - a.count || b.failCount - a.failCount || a.name.localeCompare(b.name));
+          return { items, totalCalls, totalFailed, totalSuccess: totalCalls - totalFailed, modelInteractions, execSteps };
+        }
+
+        function ToolCallStatsPanel({ messages }) {
+          const { turns, allStats } = React.useMemo(() => {
+            const msgs = Array.isArray(messages) ? messages : [];
+            const rawTurns = [];
+            let current = null;
+            for (const m of msgs) {
+              if (m.role === 'user' || !current) {
+                current = {
+                  turnIndex: rawTurns.length + 1,
+                  userPrompt: m.role === 'user' ? (m.content || '').replace(/<[^>]+>/g, '').trim() : '',
+                  createdAt: m.createdAt || '',
+                  msgs: []
+                };
+                rawTurns.push(current);
+              }
+              current.msgs.push(m);
+            }
+            const computedTurns = rawTurns.map(t => ({
+              ...t,
+              ...summarizeToolMessages(t.msgs)
+            }));
+            return {
+              turns: computedTurns,
+              allStats: summarizeToolMessages(msgs)
+            };
           }, [messages]);
 
-          if (stats.totalCalls === 0) {
-            return h('div', { className: 'ed-empty-state' }, '该对话过程中未检测到工具调用');
+          const [viewScope, setViewScope] = React.useState('by_turn');
+          const [expandedTurns, setExpandedTurns] = React.useState(() => (
+            turns.length === 1 ? new Set([turns[0].turnIndex]) : new Set()
+          ));
+          React.useEffect(() => {
+            setViewScope('by_turn');
+            setExpandedTurns(turns.length === 1 ? new Set([turns[0].turnIndex]) : new Set());
+          }, [turns]);
+
+          const toggleTurn = (turnIdx) => {
+            setExpandedTurns(prev => {
+              const next = new Set(prev);
+              if (next.has(turnIdx)) next.delete(turnIdx);
+              else next.add(turnIdx);
+              return next;
+            });
+          };
+
+          if (turns.length === 0 || (allStats.totalCalls === 0 && allStats.modelInteractions === 0)) {
+            return h('div', { className: 'ed-empty-state' }, '该对话过程中未检测到工具或模型交互记录');
           }
 
-          return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+          const renderStatsBlock = (stat) => h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
             h('div', {
               style: {
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
                 gap: '8px'
               }
             },
               [
-                { label: '总调用次数', value: `${stats.totalCalls} 次`, color: 'var(--ed-text1)', bg: 'var(--ed-bg-layer1)', border: 'var(--ed-border1)' },
-                { label: '涉及工具数', value: `${stats.items.length} 个`, color: '#2563eb', bg: 'rgba(37, 99, 235, 0.03)', border: 'rgba(37, 99, 235, 0.14)' },
-                { label: '执行成功', value: `${stats.totalSuccess} 次`, color: '#059669', bg: 'rgba(16, 185, 129, 0.04)', border: 'rgba(16, 185, 129, 0.16)' },
+                {
+                  label: '与模型交互',
+                  value: `${stat.modelInteractions} 次`,
+                  color: stat.modelInteractions > 100 ? '#dc2626' : '#7c3aed',
+                  bg: stat.modelInteractions > 100 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(124, 58, 237, 0.04)',
+                  border: stat.modelInteractions > 100 ? 'rgba(239, 68, 68, 0.22)' : 'rgba(124, 58, 237, 0.16)'
+                },
+                { label: '总调用次数', value: `${stat.totalCalls} 次`, color: 'var(--ed-text1)', bg: 'var(--ed-bg-layer1)', border: 'var(--ed-border1)' },
+                { label: '涉及工具数', value: `${stat.items.length} 个`, color: '#2563eb', bg: 'rgba(37, 99, 235, 0.03)', border: 'rgba(37, 99, 235, 0.14)' },
+                { label: '执行成功', value: `${stat.totalSuccess} 次`, color: '#059669', bg: 'rgba(16, 185, 129, 0.04)', border: 'rgba(16, 185, 129, 0.16)' },
                 {
                   label: '异常/失败',
-                  value: `${stats.totalFailed} 次`,
-                  color: stats.totalFailed > 0 ? '#dc2626' : 'var(--ed-text2)',
-                  bg: stats.totalFailed > 0 ? 'rgba(239, 68, 68, 0.04)' : 'var(--ed-bg-layer1)',
-                  border: stats.totalFailed > 0 ? 'rgba(239, 68, 68, 0.18)' : 'var(--ed-border1)'
+                  value: `${stat.totalFailed} 次`,
+                  color: stat.totalFailed > 0 ? '#dc2626' : 'var(--ed-text2)',
+                  bg: stat.totalFailed > 0 ? 'rgba(239, 68, 68, 0.04)' : 'var(--ed-bg-layer1)',
+                  border: stat.totalFailed > 0 ? 'rgba(239, 68, 68, 0.18)' : 'var(--ed-border1)'
                 }
               ].map((card, idx) => h('div', {
                 key: idx,
@@ -2195,7 +2396,17 @@ window.__ModuleLoader__.load({
                 h('span', { style: { fontSize: '15px', fontWeight: 600, color: card.color, fontVariantNumeric: 'tabular-nums' } }, card.value)
               ))
             ),
-            h('div', {
+            stat.items.length === 0 ? h('div', {
+              style: {
+                padding: '12px',
+                fontSize: '12px',
+                color: 'var(--ed-text2)',
+                background: 'var(--ed-bg-layer1)',
+                border: '1px solid var(--ed-border1)',
+                borderRadius: '8px',
+                textAlign: 'center'
+              }
+            }, '本轮未调用工具') : h('div', {
               style: {
                 background: 'var(--ed-bg-layer1)',
                 border: '1px solid var(--ed-border1)',
@@ -2223,8 +2434,8 @@ window.__ModuleLoader__.load({
                 h('span', { style: { paddingLeft: '4px' } }, '调用占比'),
                 h('span', { style: { textAlign: 'right' } }, '成功 / 失败')
               ),
-              stats.items.map((item, idx) => {
-                const pct = Math.round((item.count / stats.totalCalls) * 100);
+              stat.items.map((item, idx) => {
+                const pct = Math.round((item.count / stat.totalCalls) * 100);
                 const isTop3 = idx < 3;
                 return h('div', {
                   key: item.name,
@@ -2236,7 +2447,7 @@ window.__ModuleLoader__.load({
                     padding: '7px 12px',
                     fontSize: '12px',
                     background: item.failCount > 0 ? 'rgba(239, 68, 68, 0.02)' : (idx % 2 === 1 ? 'rgba(0, 0, 0, 0.012)' : 'transparent'),
-                    borderBottom: idx < stats.items.length - 1 ? '1px solid var(--ed-border1)' : 'none'
+                    borderBottom: idx < stat.items.length - 1 ? '1px solid var(--ed-border1)' : 'none'
                   }
                 },
                   h('div', { style: { display: 'flex', justifyContent: 'center' } },
@@ -2331,6 +2542,188 @@ window.__ModuleLoader__.load({
               })
             )
           );
+
+          const allExpanded = turns.length > 0 && expandedTurns.size === turns.length;
+
+          return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+            h('div', {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                flexWrap: 'wrap'
+              }
+            },
+              h('div', { className: 'ed-seg-control', role: 'tablist', 'aria-label': '工具调用统计视图切换' },
+                h('button', {
+                  type: 'button',
+                  role: 'tab',
+                  'aria-selected': viewScope === 'by_turn',
+                  className: `ed-seg-btn ${viewScope === 'by_turn' ? 'active' : ''}`,
+                  onClick: () => setViewScope('by_turn')
+                },
+                  h(Glyph, { kind: 'layers', size: 13 }),
+                  h('span', null, '按轮次统计'),
+                  h('span', { className: 'ed-seg-count' }, `${turns.length} 轮`)
+                ),
+                h('button', {
+                  type: 'button',
+                  role: 'tab',
+                  'aria-selected': viewScope === 'all',
+                  className: `ed-seg-btn ${viewScope === 'all' ? 'active' : ''}`,
+                  onClick: () => setViewScope('all')
+                },
+                  h(Glyph, { kind: 'barChart', size: 13 }),
+                  h('span', null, '全会话汇总'),
+                  h('span', { className: 'ed-seg-count' }, `${allStats.totalCalls} 工具 · ${allStats.modelInteractions} 交互`)
+                )
+              ),
+              viewScope === 'by_turn' && h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, '点击轮次展开工具调用明细'),
+                h('button', {
+                  type: 'button',
+                  className: 'ed-copy-btn',
+                  onClick: () => setExpandedTurns(allExpanded ? new Set() : new Set(turns.map(t => t.turnIndex)))
+                }, allExpanded ? '全部折叠' : '全部展开')
+              )
+            ),
+            viewScope === 'all'
+              ? renderStatsBlock(allStats)
+              : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+                turns.map(t => {
+                  const isOpen = expandedTurns.has(t.turnIndex);
+                  const hasAlert = t.modelInteractions > 100 || t.totalFailed > 0;
+                  return h('div', {
+                    key: t.turnIndex,
+                    style: {
+                      borderRadius: '8px',
+                      border: `1px solid ${hasAlert ? 'rgba(239, 68, 68, 0.25)' : 'var(--ed-border1)'}`,
+                      background: 'var(--ed-bg-layer1)',
+                      overflow: 'hidden'
+                    }
+                  },
+                    h('div', {
+                      role: 'button',
+                      tabIndex: 0,
+                      onClick: () => toggleTurn(t.turnIndex),
+                      onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTurn(t.turnIndex); } },
+                      style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        padding: '9px 12px',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        background: isOpen ? 'var(--ed-bg-layer2)' : (hasAlert ? 'rgba(239, 68, 68, 0.02)' : 'var(--ed-bg-layer1)')
+                      }
+                    },
+                      h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 } },
+                        h('span', {
+                          style: {
+                            fontSize: '11px',
+                            color: 'var(--ed-text2)',
+                            width: '12px',
+                            textAlign: 'center',
+                            flexShrink: 0,
+                            transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.12s ease'
+                          }
+                        }, '▸'),
+                        h('span', {
+                          style: {
+                            fontSize: '11.5px',
+                            fontWeight: 500,
+                            color: 'var(--ed-text1)',
+                            background: 'var(--ed-bg-layer2)',
+                            border: '1px solid var(--ed-border1)',
+                            borderRadius: '5px',
+                            padding: '1px 7px',
+                            flexShrink: 0
+                          }
+                        }, `第 ${t.turnIndex} 轮`),
+                        t.userPrompt && h('span', {
+                          title: t.userPrompt,
+                          style: {
+                            fontSize: '12px',
+                            color: 'var(--ed-text1)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }
+                        }, t.userPrompt)
+                      ),
+                      h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 } },
+                        t.modelInteractions > 100 && h('span', {
+                          style: {
+                            fontSize: '10.5px',
+                            fontWeight: 500,
+                            color: '#dc2626',
+                            background: 'rgba(220, 38, 38, 0.08)',
+                            border: '1px solid rgba(220, 38, 38, 0.25)',
+                            borderRadius: '4px',
+                            padding: '1px 6px'
+                          }
+                        }, '步骤超限'),
+                        t.execSteps > 100 && h('span', {
+                          style: {
+                            fontSize: '10.5px',
+                            fontWeight: 500,
+                            color: '#d97706',
+                            background: 'rgba(217, 119, 6, 0.08)',
+                            border: '1px solid rgba(217, 119, 6, 0.25)',
+                            borderRadius: '4px',
+                            padding: '1px 6px'
+                          }
+                        }, `单轮${t.execSteps}步·需关注`),
+                        h('span', {
+                          style: {
+                            fontSize: '11px',
+                            padding: '1px 7px',
+                            borderRadius: '999px',
+                            background: t.modelInteractions > 100 ? 'rgba(220, 38, 38, 0.08)' : 'rgba(124, 58, 237, 0.08)',
+                            color: t.modelInteractions > 100 ? '#dc2626' : '#7c3aed',
+                            fontVariantNumeric: 'tabular-nums'
+                          }
+                        }, `模型 ${t.modelInteractions} 次`),
+                        h('span', {
+                          style: {
+                            fontSize: '11px',
+                            padding: '1px 7px',
+                            borderRadius: '999px',
+                            background: t.totalCalls > 0 ? 'rgba(37, 99, 235, 0.08)' : 'var(--ed-bg-layer2)',
+                            color: t.totalCalls > 0 ? '#2563eb' : 'var(--ed-text2)',
+                            fontVariantNumeric: 'tabular-nums'
+                          }
+                        }, `工具 ${t.totalCalls} 次`),
+                        t.totalFailed > 0 && h('span', {
+                          style: {
+                            fontSize: '11px',
+                            padding: '1px 7px',
+                            borderRadius: '999px',
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            color: '#dc2626',
+                            fontWeight: 500,
+                            fontVariantNumeric: 'tabular-nums'
+                          }
+                        }, `失败 ${t.totalFailed} 次`),
+                        t.createdAt && h('span', {
+                          style: { fontSize: '11px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums', marginLeft: '2px' }
+                        }, t.createdAt.slice(11, 19))
+                      )
+                    ),
+                    isOpen && h('div', {
+                      style: {
+                        padding: '10px 12px',
+                        borderTop: '1px solid var(--ed-border1)',
+                        background: 'var(--ed-bg-layer2)'
+                      }
+                    }, renderStatsBlock(t))
+                  );
+                })
+              )
+          );
         }
 
         function detectBadcaseItem(c) {
@@ -2355,38 +2748,58 @@ window.__ModuleLoader__.load({
             }
           }
 
-          // 按单轮对话计算最大步数（每个 user 消息开启一轮）
+          // 按单轮对话计算最大步数与单轮最大模型交互次数（每个 user 消息开启一轮）
           let maxTurnSteps = 0;
           let maxTurnToolCalls = 0;
           let maxTurnIndex = 1;
+          let maxTurnModelInteractions = 0;
+          let maxModelTurnIndex = 1;
           let curTurnSteps = 0;
           let curTurnTools = 0;
+          let curTurnModel = 0;
           let curTurnIdx = 0;
+          let modelInteractions = 0;
+
+          const commitTurn = () => {
+            if (curTurnIdx <= 0) return;
+            if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
+              maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
+              maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
+              maxTurnIndex = curTurnIdx;
+            }
+            if (curTurnModel > maxTurnModelInteractions) {
+              maxTurnModelInteractions = curTurnModel;
+              maxModelTurnIndex = curTurnIdx;
+            }
+          };
+
           for (const m of messages) {
+            if (m.role !== 'user' && m.role !== 'tool' && !m.toolName) {
+              modelInteractions++;
+            }
             if (m.role === 'user') {
-              if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
-                maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
-                maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
-                maxTurnIndex = curTurnIdx || 1;
-              }
+              commitTurn();
               curTurnIdx++;
               curTurnSteps = 0;
               curTurnTools = 0;
+              curTurnModel = 0;
             } else {
               if (curTurnIdx === 0) curTurnIdx = 1;
               if (m.role !== 'assistant') {
                 curTurnSteps++;
               }
-              if (m.role === 'tool') curTurnTools++;
+              if (m.role === 'tool' || m.toolName) {
+                curTurnTools++;
+              } else {
+                curTurnModel++;
+              }
             }
           }
-          if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
-            maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
-            maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
-            maxTurnIndex = curTurnIdx || 1;
-          }
+          commitTurn();
 
-          const isStepExceeded = maxTurnSteps >= 100 || maxTurnToolCalls >= 100;
+          // 步骤超限约定为单轮与模型交互超过 100 次；单轮步骤数超过 100 标记为需要关注的 case
+          const isStepExceeded = maxTurnModelInteractions > 100;
+          const isHighTurnSteps = maxTurnSteps > 100;
           const isFrequentToolFail = failedToolMsgs.length >= 2;
 
           let isTaskInterrupted = false;
@@ -2453,7 +2866,8 @@ window.__ModuleLoader__.load({
           const isSingleToolError = failedToolMsgs.length === 1;
 
           const defectTags = [];
-          if (isStepExceeded) defectTags.push('步骤超过100步');
+          if (isStepExceeded) defectTags.push('步骤超限');
+          if (isHighTurnSteps) defectTags.push('单轮高步数(需关注)');
           if (isFrequentToolFail) defectTags.push(`工具高频失败(${failedToolMsgs.length}次)`);
           else if (isSingleToolError) defectTags.push('工具调用异常');
           if (isTaskInterrupted) defectTags.push('任务中断');
@@ -2484,6 +2898,8 @@ window.__ModuleLoader__.load({
                 recommendation: '检查工作流逻辑与提示词负向约束，纳入重点回归集',
                 evidence: title,
                 stepCount: maxTurnSteps,
+                modelInteractionsCount: maxTurnModelInteractions,
+                totalModelInteractionsCount: modelInteractions,
                 userPrompt: c.userPrompt,
                 referenceAnswer: c.referenceAnswer,
                 turnsCount: c.turnsCount || 1,
@@ -2508,12 +2924,12 @@ window.__ModuleLoader__.load({
 
           if (isStepExceeded) {
             badcaseType = 'step_limit_exceeded';
-            badcaseTypeName = '步骤超限/死循环';
+            badcaseTypeName = '步骤超限';
             severity = '严重';
-            phenomenon = `第 ${maxTurnIndex} 轮单轮交互步数达到 ${maxTurnSteps} 步 (该轮工具调用 ${maxTurnToolCalls} 次)，超过 100 步阈值，疑似死循环或推理未收敛`;
-            suspectedCause = '智能体未设置单轮步数熔断上限，或在连续重试动作中缺少退出/跳出收敛条件';
-            recommendation = '增加任务单轮最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户';
-            evidence = `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总步数: ${messages.length} 步`;
+            phenomenon = `第 ${maxModelTurnIndex} 轮与模型交互达到 ${maxTurnModelInteractions} 次（单轮最大 ${maxTurnSteps} 步，全会话模型交互 ${modelInteractions} 次），超过 100 次阈值`;
+            suspectedCause = '智能体单轮与模型交互轮次未设置合理上限，或在工具调用/重试循环中未及时收敛';
+            recommendation = '增加单轮模型交互次数与步数 Hard Limit 熔断机制，防止死循环或过度推理消耗资源';
+            evidence = `单轮最高模型交互: ${maxTurnModelInteractions} 次 (第 ${maxModelTurnIndex} 轮) | 单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总消息: ${messages.length} 条`;
           } else if (isFrequentToolFail) {
             const failedTools = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
             const failureSummary = failedToolMsgs.map(t => `${t.specificToolName || t.toolName}: ${t.toolErrorDetail || '执行异常'}`).slice(0, 3).join('；');
@@ -2565,7 +2981,7 @@ window.__ModuleLoader__.load({
             suspectedCause = '网关超时、上游模型服务抖动或上下文超出最大 Token 限制';
             recommendation = '缩减上下文轮数，增加模型输出流式断线重连与优雅兜底提示';
             evidence = anomalyEvidence.slice(0, 300);
-          } else {
+          } else if (failedToolMsgs.length > 0) {
             const tm = failedToolMsgs[0];
             const text = tm.content || tm.toolResult || '';
             const specificName = tm.specificToolName || tm.toolName || 'Tool';
@@ -2576,6 +2992,14 @@ window.__ModuleLoader__.load({
             suspectedCause = `工具接口入参格式不合规、接口超时或目标后台服务报错。报错信息: ${tm.toolErrorDetail || '执行异常'}`;
             recommendation = '在系统提示词增加参数格式示例校验，增加工具超时重试机制与降级策略';
             evidence = (tm.toolErrorDetail ? `【失败工具: ${specificName}】\n报错详情: ${tm.toolErrorDetail}\n\n原始返回:\n` : '') + text.slice(0, 300);
+          } else {
+            badcaseType = 'high_turn_steps';
+            badcaseTypeName = '单轮高步数(需关注)';
+            severity = '关注';
+            phenomenon = `第 ${maxTurnIndex} 轮单轮步骤数达到 ${maxTurnSteps} 步（该轮工具调用 ${maxTurnToolCalls} 次），超过 100 步，建议人工关注`;
+            suspectedCause = '单轮任务链路较长或连续工具调用较多，虽未超出模型交互上限，但单轮执行复杂度偏高';
+            recommendation = '复核该轮执行链路与提示词引导，评估是否可精简或合并工具调用步骤';
+            evidence = `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 与模型交互: ${modelInteractions} 次 | 会话总消息: ${messages.length} 条`;
           }
 
           const failedToolsList = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
@@ -2596,6 +3020,8 @@ window.__ModuleLoader__.load({
             recommendation,
             evidence,
             stepCount: maxTurnSteps,
+            modelInteractionsCount: maxTurnModelInteractions,
+            totalModelInteractionsCount: modelInteractions,
             userPrompt: c.userPrompt,
             referenceAnswer: c.referenceAnswer,
             turnsCount: c.turnsCount || 1,
@@ -2644,7 +3070,7 @@ window.__ModuleLoader__.load({
             }
             return rep;
           });
-          const sevRank = { '严重': 3, '高': 2, '中': 1 };
+          const sevRank = { '严重': 3, '高': 2, '关注': 1, '中': 1 };
           finalBads.sort((a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0));
           return finalBads;
         }
@@ -2900,9 +3326,9 @@ window.__ModuleLoader__.load({
             }
 
             if (addedCount > 0) {
-              showToast(`✓ 已选入 ${addedCount} 条用例至「正式评测集」（当前共 ${nextList.length} 条）`);
+              showToast(`已选入 ${addedCount} 条用例至「正式评测集」（当前共 ${nextList.length} 条）`);
             } else {
-              showToast(`✓ 所选用例已在「正式评测集」中（共 ${nextList.length} 条）`);
+              showToast(`所选用例已在「正式评测集」中（共 ${nextList.length} 条）`);
             }
           }, [officialCases, normalizeOfficialItemClient, date, currentEnv, persistOfficialDataset, selectedOfficialCaseId, showToast]);
 
@@ -2956,7 +3382,7 @@ window.__ModuleLoader__.load({
             const nextList = officialCases.map(oc => oc.id === updated.id ? updated : oc);
             await persistOfficialDataset(nextList);
             setEditingOfficialCase(null);
-            showToast('✓ 已保存正式评测集用例配置');
+            showToast('已保存正式评测集用例配置');
           }, [editingOfficialCase, officialCases, persistOfficialDataset, showToast]);
 
           const handleCreateManualOfficialCase = React.useCallback(async () => {
@@ -3002,7 +3428,7 @@ window.__ModuleLoader__.load({
               evalCriteria: '',
               referenceAnswer: ''
             });
-            showToast('✓ 已创建并收录至「正式评测集」');
+            showToast('已创建并收录至「正式评测集」');
           }, [newOfficialDraft, normalizeOfficialItemClient, date, currentEnv, officialCases, persistOfficialDataset, showToast]);
 
           const toggleFieldVisible = (fieldId) => {
@@ -3412,12 +3838,12 @@ window.__ModuleLoader__.load({
 
           const filteredOfficialCases = React.useMemo(() => {
             return officialCases.filter(c => {
-              if (selectedOfficialFilter === '🎯 正向基准' && c.sourceType === 'badcase') return false;
-              if (selectedOfficialFilter === '⚠️ 缺陷回归' && c.sourceType !== 'badcase') return false;
+              if (selectedOfficialFilter === '正向基准' && c.sourceType === 'badcase') return false;
+              if (selectedOfficialFilter === '缺陷回归' && c.sourceType !== 'badcase') return false;
               if (
                 selectedOfficialFilter !== '全部' &&
-                selectedOfficialFilter !== '🎯 正向基准' &&
-                selectedOfficialFilter !== '⚠️ 缺陷回归' &&
+                selectedOfficialFilter !== '正向基准' &&
+                selectedOfficialFilter !== '缺陷回归' &&
                 (c.category || c.badcaseTypeName || '综合问答') !== selectedOfficialFilter
               ) {
                 return false;
@@ -3599,7 +4025,7 @@ ${b.evidence}
 
           const categories = ['全部', ...Object.keys(summary.categoryBreakdown || {})];
           const badcaseCategories = ['全部', ...Object.keys(summary.badcaseBreakdown || {})];
-          const officialCategories = ['全部', '🎯 正向基准', '⚠️ 缺陷回归', ...Object.keys(officialCategoryBreakdown)];
+          const officialCategories = ['全部', '正向基准', '缺陷回归', ...Object.keys(officialCategoryBreakdown)];
           const currentSelectedCount = viewMode === 'official'
             ? selectedOfficialIds.size
             : (viewMode === 'badcases' ? selectedBadcaseIds.size : selectedIds.size);
@@ -3697,8 +4123,8 @@ ${b.evidence}
                     onClick: () => setRegressionDrawerOpen(true)
                   },
                     regressionTasks.some(t => t.status === 'running')
-                      ? h('span', { className: 'ed-reg-spin' }, '⚡')
-                      : h('span', null, '⚡'),
+                      ? h(Glyph, { kind: 'spinner', size: 13, className: 'ed-reg-spin' })
+                      : h(Glyph, { kind: 'zap', size: 13 }),
                     regressionTasks.some(t => t.status === 'running')
                       ? `回归测试 (${regressionTasks.filter(t => t.status === 'running').length} 运行中)`
                       : `回归测试进展 (${regressionTasks.length})`
@@ -3732,7 +4158,7 @@ ${b.evidence}
                           : allBadcases.filter(b => selectedBadcaseIds.has(b.id)));
                       openRunRegressionModal(selectedList);
                     }
-                  }, `🚀 批量回归测试 (${currentSelectedCount})`),
+                  }, h(Glyph, { kind: 'rocket', size: 13 }), `批量回归测试 (${currentSelectedCount})`),
 
                   // Export buttons
                   h('button', {
@@ -3765,7 +4191,7 @@ ${b.evidence}
                   style: { cursor: 'pointer', borderColor: viewMode === 'sessions' ? 'var(--ed-accent)' : undefined },
                   onClick: () => setViewMode('sessions')
                 },
-                  h('span', { className: 'ed-metric-label' }, `会话总量 (${data?.envName || (currentEnv === 'prod' ? '生产' : '测试')})`),
+                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'dataset', size: 13 }), `会话总量 (${data?.envName || (currentEnv === 'prod' ? '生产' : '测试')})`),
                   h('span', { className: 'ed-metric-val' }, summary.totalRawSessions),
                   h('span', { className: 'ed-metric-sub' }, `清洗排除脚本探测 ${summary.noiseFilteredOut} 条 · 点击查看全部`)
                 ),
@@ -3774,7 +4200,7 @@ ${b.evidence}
                   style: { cursor: 'pointer', borderColor: viewMode === 'cases' ? 'var(--ed-accent)' : undefined },
                   onClick: () => setViewMode('cases')
                 },
-                  h('span', { className: 'ed-metric-label' }, '🎯 提取评测用例'),
+                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'target', size: 13 }), '提取评测用例'),
                   h('span', { className: 'ed-metric-val', style: { color: 'var(--ed-accent)' } }, summary.extractedCount),
                   h('span', { className: 'ed-metric-sub' }, '结构化去重 · 点击查看用例')
                 ),
@@ -3783,7 +4209,7 @@ ${b.evidence}
                   style: { cursor: 'pointer', borderColor: viewMode === 'badcases' ? '#cf1322' : undefined },
                   onClick: () => setViewMode('badcases')
                 },
-                  h('span', { className: 'ed-metric-label' }, '⚠️ Badcase 回归集'),
+                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'alertTriangle', size: 13 }), 'Badcase 回归集'),
                   h('span', { className: 'ed-metric-val', style: { color: '#cf1322' } }, summary.badcasesCount || allBadcases.length),
                   h('span', { className: 'ed-metric-sub' }, `已归因 ${Object.keys(summary.badcaseBreakdown || {}).length} 类缺陷 · 点击查看`)
                 ),
@@ -3792,12 +4218,12 @@ ${b.evidence}
                   style: { cursor: 'pointer', borderColor: viewMode === 'official' ? '#059669' : undefined },
                   onClick: () => setViewMode('official')
                 },
-                  h('span', { className: 'ed-metric-label' }, '📌 正式评测集管理'),
+                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'pin', size: 13 }), '正式评测集管理'),
                   h('span', { className: 'ed-metric-val', style: { color: '#059669' } }, officialCases.length),
                   h('span', { className: 'ed-metric-sub' }, `正向 ${officialPosCount} · 缺陷 ${officialBadCount} · 点击管理`)
                 ),
                 h('div', { className: 'ed-metric-card' },
-                  h('span', { className: 'ed-metric-label' }, '🔧 工具调用场景'),
+                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'tool', size: 13 }), '工具调用场景'),
                   h('span', { className: 'ed-metric-val', style: { color: 'var(--ed-success)' } }, summary.withToolCallsCount),
                   h('span', { className: 'ed-metric-sub' }, '包含多步工具排障推理场景')
                 )
@@ -3822,8 +4248,8 @@ ${b.evidence}
                     else countLabel = ` (${allRawSessions.filter(s => s.isNoise).length})`;
                   } else if (viewMode === 'official') {
                     if (cat === '全部') countLabel = ` (${officialCases.length})`;
-                    else if (cat === '🎯 正向基准') countLabel = ` (${officialPosCount})`;
-                    else if (cat === '⚠️ 缺陷回归') countLabel = ` (${officialBadCount})`;
+                    else if (cat === '正向基准') countLabel = ` (${officialPosCount})`;
+                    else if (cat === '缺陷回归') countLabel = ` (${officialBadCount})`;
                     else countLabel = ` (${officialCategoryBreakdown[cat] || 0})`;
                   } else {
                     if (cat === '全部') countLabel = ` (${viewMode === 'cases' ? allCases.length : allBadcases.length})`;
@@ -3838,7 +4264,11 @@ ${b.evidence}
                       else if (viewMode === 'cases') setSelectedCategory(cat);
                       else setSelectedBadcaseType(cat);
                     }
-                  }, `${cat}${countLabel}`);
+                  },
+                    viewMode === 'official' && cat === '正向基准' ? h(Glyph, { kind: 'target', size: 12 }) : null,
+                    viewMode === 'official' && cat === '缺陷回归' ? h(Glyph, { kind: 'alertTriangle', size: 12 }) : null,
+                    `${cat}${countLabel}`
+                  );
                 })
               ),
               h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
@@ -3875,7 +4305,7 @@ ${b.evidence}
                 justifyContent: 'space-between'
               }
             },
-              h('span', null, `⚠️ ${error}`),
+              h('span', { className: 'ed-ico-text' }, h(Glyph, { kind: 'alertTriangle', size: 14 }), error),
               h('button', {
                 className: 'ed-btn',
                 style: { padding: '2px 8px', fontSize: '11px' },
@@ -3930,20 +4360,31 @@ ${b.evidence}
                             s.isNoise
                               ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(107, 114, 128, 0.12)', color: '#6b7280' } }, '噪音/脚本探测')
                               : (s.badcaseTypeName
-                                ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' } }, `⚠️ ${s.badcaseTypeName}`)
+                                ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' } }, h(Glyph, { kind: 'alertTriangle', size: 11 }), s.badcaseTypeName)
                                 : (s.caseCategory
-                                  ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(16, 185, 129, 0.1)', color: '#059669' } }, `🎯 ${s.caseCategory}`)
+                                  ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(16, 185, 129, 0.1)', color: '#059669' } }, h(Glyph, { kind: 'target', size: 11 }), s.caseCategory)
                                   : h('span', { className: 'ed-tag-badge', style: { background: 'var(--ed-bg-layer2)', color: 'var(--ed-text2)' } }, '普通会话'))),
                             (s.execSteps !== undefined || s.messageCount > 0) && h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } },
                               `${s.execSteps !== undefined ? s.execSteps : 0} 步${s.durationLabel ? ` · 耗时 ${s.durationLabel}` : ''}`
-                            )
+                            ),
+                            (s.execSteps || 0) > 100 && h('span', {
+                              style: {
+                                fontSize: '10px',
+                                color: '#d97706',
+                                background: 'rgba(217, 119, 6, 0.08)',
+                                border: '1px solid rgba(217, 119, 6, 0.25)',
+                                borderRadius: '4px',
+                                padding: '1px 5px',
+                                fontWeight: '600'
+                              },
+                              title: `单轮步骤数达 ${s.execSteps} 步 (>100)，需关注`
+                            }, '单轮高步数·需关注')
                           ),
                           h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, (s.createdAt || '').slice(11, 16))
                         ),
                         h('div', { className: 'ed-card-title' }, s.title || s.sessionId),
-                        h('div', { className: 'ed-card-meta' },
-                          s.model ? h('span', null, s.model) : null,
-                          s.runId && h('span', { className: 'ed-runid-tag' }, `run: ${s.runId.slice(0, 14)}...`)
+                        s.model && h('div', { className: 'ed-card-meta' },
+                          h('span', null, s.model)
                         )
                       );
                     })
@@ -3953,6 +4394,7 @@ ${b.evidence}
                       const isSelected = selectedCaseId === c.id;
                       const isChecked = selectedIds.has(c.id);
                       const inOfficial = isCaseInOfficial(c);
+                      const caseModelCnt = c.modelInteractionsCount ?? getMaxTurnModelInteractions(c.messages);
                       const scoreClass = c.valueScore >= 95 ? 'ed-score-100' : (c.valueScore >= 80 ? 'ed-score-high' : 'ed-score-mid');
                       return h('div', {
                         key: c.id,
@@ -3968,6 +4410,22 @@ ${b.evidence}
                             }),
                             h('span', { className: `ed-score-badge ${scoreClass}` }, `${c.valueScore}分`),
                             h('span', { className: 'ed-category-tag' }, c.category),
+                            (c.needsAttention || (c.maxTurnSteps || 0) > 100) && h('span', {
+                              style: {
+                                fontSize: '10px',
+                                color: '#d97706',
+                                background: 'rgba(217, 119, 6, 0.08)',
+                                border: '1px solid rgba(217, 119, 6, 0.25)',
+                                borderRadius: '4px',
+                                padding: '1px 5px',
+                                fontWeight: '600'
+                              },
+                              title: `单轮步骤数达 ${c.maxTurnSteps || 0} 步 (>100)，需关注`
+                            }, c.attentionTag || '单轮高步数(需关注)'),
+                            caseModelCnt > 100 && h('span', {
+                              className: 'ed-badcase-type-tag ed-badcase-type-tag-danger',
+                              title: `单轮与模型交互峰值 ${caseModelCnt} 次 (>100)`
+                            }, h(Glyph, { kind: 'alertTriangle', size: 11 }), '步骤超限'),
                             c.sampleRepetitions > 1 && h('span', {
                               style: {
                                 fontSize: '10px',
@@ -3983,14 +4441,15 @@ ${b.evidence}
                           ),
                           h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
                             c.toolCallsCount > 0 && h('span', {
-                              style: { fontSize: '10px', color: 'var(--ed-accent)', fontWeight: '600' }
-                            }, `🔧 ${c.toolCallsCount}次工具`),
+                              className: 'ed-ico-text',
+                              style: { fontSize: '10px', color: 'var(--ed-accent)', fontWeight: '600', gap: '3px' }
+                            }, h(Glyph, { kind: 'tool', size: 11 }), `${c.toolCallsCount}次工具`),
                             h('button', {
                               type: 'button',
                               className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
                               onClick: e => handleToggleCaseOfficial(c, e),
                               title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该用例加入正式评测集'
-                            }, inOfficial ? '✓ 已在正式集' : '+ 选入正式集')
+                            }, inOfficial ? [h(Glyph, { key: 'i', kind: 'check', size: 11 }), '已在正式集'] : '+ 选入正式集')
                           )
                         ),
                         h('div', { className: 'ed-card-title' }, c.title),
@@ -3999,17 +4458,6 @@ ${b.evidence}
                         ),
                         h('div', { className: 'ed-card-meta' },
                           h('span', null, `${c.turnsCount} 轮对话 · ${c.modelId || 'M3.1'}`),
-                          c.runId && h('span', {
-                            style: {
-                              fontFamily: 'ui-monospace, monospace',
-                              fontSize: '10.5px',
-                              color: 'var(--ed-accent)',
-                              background: 'var(--ed-accent-light, rgba(59,130,246,0.08))',
-                              padding: '1px 4px',
-                              borderRadius: '3px'
-                            },
-                            title: `run_id: ${c.runId}`
-                          }, `run: ${c.runId.length > 16 ? c.runId.slice(0, 16) + '…' : c.runId}`),
                           h('span', null, (c.createdAt || '').slice(11, 16))
                         )
                       );
@@ -4035,19 +4483,36 @@ ${b.evidence}
                               onChange: e => toggleSelectOne(b.id, e)
                             }),
                             h('span', { className: `ed-severity-badge ed-severity-${sevClass}` }, b.severity),
-                            h('span', { className: 'ed-badcase-type-tag' }, b.badcaseTypeName),
+                            h('span', {
+                              className: `ed-badcase-type-tag ${b.badcaseTypeName === '步骤超限' ? 'ed-badcase-type-tag-danger' : ''}`
+                            },
+                              b.badcaseTypeName === '步骤超限' ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
+                              b.badcaseTypeName
+                            ),
                             b.toolFailuresCount > 0 && h('span', { className: 'ed-badcase-count-tag' }, `${b.toolFailuresCount}次报错`),
-                            b.stepCount >= 100 && h('span', {
-                              style: {
-                                fontSize: '10px',
-                                color: '#d97706',
-                                background: 'rgba(217, 119, 6, 0.08)',
-                                border: '1px solid rgba(217, 119, 6, 0.25)',
-                                borderRadius: '4px',
-                                padding: '1px 5px',
-                                fontWeight: '600'
-                              }
-                            }, `${b.stepCount}步超限`),
+                            (() => {
+                              const modelCnt = b.modelInteractionsCount ?? getMaxTurnModelInteractions(b.messages);
+                              return [
+                                modelCnt > 100 && b.badcaseTypeName !== '步骤超限' && h('span', {
+                                  key: 'step_limit_tag',
+                                  className: 'ed-badcase-type-tag ed-badcase-type-tag-danger',
+                                  title: `单轮与模型交互峰值 ${modelCnt} 次 (>100)`
+                                }, h(Glyph, { kind: 'alertTriangle', size: 11 }), '步骤超限'),
+                                (b.stepCount || 0) > 100 && h('span', {
+                                  key: 'high_turn_tag',
+                                  style: {
+                                    fontSize: '10px',
+                                    color: '#d97706',
+                                    background: 'rgba(217, 119, 6, 0.08)',
+                                    border: '1px solid rgba(217, 119, 6, 0.25)',
+                                    borderRadius: '4px',
+                                    padding: '1px 5px',
+                                    fontWeight: '600'
+                                  },
+                                  title: `单轮步骤数达 ${b.stepCount} 步 (>100)，需关注`
+                                }, `单轮${b.stepCount}步·需关注`)
+                              ];
+                            })(),
                             b.sampleRepetitions > 1 && h('span', {
                               style: {
                                 fontSize: '10px',
@@ -4069,7 +4534,7 @@ ${b.evidence}
                               className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
                               onClick: e => handleToggleCaseOfficial(b, e),
                               title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该 Badcase 加入正式评测集'
-                            }, inOfficial ? '✓ 已在正式集' : '+ 选入正式集')
+                            }, inOfficial ? [h(Glyph, { key: 'i', kind: 'check', size: 11 }), '已在正式集'] : '+ 选入正式集')
                           )
                         ),
                         h('div', { className: 'ed-card-title' }, b.title),
@@ -4086,24 +4551,13 @@ ${b.evidence}
                             border: '1px solid rgba(239, 68, 68, 0.25)',
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '2px',
+                            gap: '3px',
                             fontWeight: '500'
                           }
-                        }, `✕ ${ft}`))),
+                        }, h(Glyph, { kind: 'close', size: 10 }), ft))),
                         h('div', { className: 'ed-badcase-card-desc' }, cleanPhenomenon),
                         h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
                           h('span', null, `${b.turnsCount} 轮 · ${b.stepCount || 0} 步 · ${b.modelId || 'M3.1'}`),
-                          b.runId && h('span', {
-                            style: {
-                              fontFamily: 'ui-monospace, monospace',
-                              fontSize: '10.5px',
-                              color: '#dc2626',
-                              background: 'rgba(239, 68, 68, 0.08)',
-                              padding: '1px 4px',
-                              borderRadius: '3px'
-                            },
-                            title: `run_id: ${b.runId}`
-                          }, `run: ${b.runId.length > 16 ? b.runId.slice(0, 16) + '…' : b.runId}`),
                           h('span', null, (b.createdAt || '').slice(11, 16))
                         )
                       );
@@ -4114,7 +4568,7 @@ ${b.evidence}
                         officialCases.length === 0 ? '正式评测集暂未收录用例' : '无匹配的正式评测集用例'
                       ),
                       h('div', { style: { fontSize: '11.5px', lineHeight: 1.5, maxWidth: '300px' } },
-                        '你可以从每天抓取的「🎯 高价值评测集」或「⚠️ Badcase 诊断与回归集」中点击「+ 选入正式集」，沉淀为日常回归与评估 Agent 能力的标准库。'
+                        '你可以从每天抓取的「高价值评测集」或「Badcase 诊断与回归集」中点击「+ 选入正式集」，沉淀为日常回归与评估 Agent 能力的标准库。'
                       ),
                       officialCases.length === 0 && h('div', { style: { display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap', justifyContent: 'center' } },
                         h('button', {
@@ -4156,14 +4610,23 @@ ${b.evidence}
                             h('span', { className: `ed-prio-badge ed-prio-${prio}` }, prio),
                             h('span', {
                               className: `ed-source-badge ${oc.isManual ? 'ed-source-manual' : (isBad ? 'ed-source-badcase' : 'ed-source-case')}`
-                            }, oc.isManual ? '✍️ 手动构建' : (isBad ? '⚠️ 缺陷回归' : '🎯 正向基准')),
+                            },
+                              h(Glyph, { kind: oc.isManual ? 'edit' : (isBad ? 'alertTriangle' : 'target'), size: 11 }),
+                              oc.isManual ? '手动构建' : (isBad ? '缺陷回归' : '正向基准')
+                            ),
                             h('span', { className: 'ed-category-tag' }, oc.category || oc.badcaseTypeName || '综合问答')
                           ),
                           h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
                             latestTask && h('span', {
                               className: `ed-reg-status-pill ed-reg-status-${latestTask.status}`,
                               style: { fontSize: '10px', padding: '1px 5px' }
-                            }, latestTask.status === 'completed' ? '✓ 已回归' : (latestTask.status === 'running' ? '⚡ 回归中' : '✕ 回归异常')),
+                            },
+                              latestTask.status === 'completed'
+                                ? [h(Glyph, { key: 'i', kind: 'check', size: 10 }), '已回归']
+                                : (latestTask.status === 'running'
+                                  ? [h(Glyph, { key: 'i', kind: 'spinner', size: 10, className: 'ed-reg-spin' }), '回归中']
+                                  : [h(Glyph, { key: 'i', kind: 'close', size: 10 }), '回归异常'])
+                            ),
                             h('button', {
                               type: 'button',
                               className: 'ed-icon-btn',
@@ -4180,17 +4643,6 @@ ${b.evidence}
                         h('div', { className: 'ed-badcase-card-desc' }, oc.evalCriteria || oc.userPrompt),
                         h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
                           h('span', null, `来源: ${oc.sourceDate || '手动'} (${oc.sourceEnv || 'prod'}) · ${oc.turnsCount || 1} 轮`),
-                          oc.runId && h('span', {
-                            style: {
-                              fontFamily: 'ui-monospace, monospace',
-                              fontSize: '10.5px',
-                              color: 'var(--ed-accent)',
-                              background: 'var(--ed-accent-light, rgba(59,130,246,0.08))',
-                              padding: '1px 4px',
-                              borderRadius: '3px'
-                            },
-                            title: `run_id: ${oc.runId}`
-                          }, `run: ${oc.runId.length > 16 ? oc.runId.slice(0, 16) + '…' : oc.runId}`),
                           h('span', null, `入库 ${(oc.addedAt || '').slice(5, 16).replace('T', ' ')}`)
                         )
                       );
@@ -4267,11 +4719,11 @@ ${b.evidence}
                           className: `ed-btn ${isCaseInOfficial(activeCase) ? 'ed-btn-official-added' : 'ed-btn-official'}`,
                           onClick: e => handleToggleCaseOfficial(activeCase, e),
                           title: isCaseInOfficial(activeCase) ? '点击从正式评测集中移出' : '选入正式评测集，作为日常回归基准'
-                        }, h(Glyph, { kind: 'bookmark', size: 12 }), isCaseInOfficial(activeCase) ? '✓ 已在正式评测集' : '📌 选入正式评测集'),
+                        }, h(Glyph, { kind: isCaseInOfficial(activeCase) ? 'check' : 'pin', size: 12 }), isCaseInOfficial(activeCase) ? '已在正式评测集' : '选入正式评测集'),
                         h('button', {
                           className: 'ed-btn ed-btn-regression',
                           onClick: () => openRunRegressionModal([activeCase])
-                        }, '🚀 发起回归测试'),
+                        }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试'),
                         h('button', {
                           className: 'ed-btn',
                           onClick: () => copyToClipboard(JSON.stringify(activeCase, null, 2), 'case')
@@ -4284,11 +4736,11 @@ ${b.evidence}
                       h('button', {
                         className: `ed-tab-btn ${activeTab === 'case' ? 'active' : ''}`,
                         onClick: () => setActiveTab('case')
-                      }, '评测输入与标准答案'),
+                      }, h(Glyph, { kind: 'clipboard', size: 13 }), '评测输入与标准答案'),
                       h('button', {
                         className: `ed-tab-btn ${activeTab === 'timeline' ? 'active' : ''}`,
                         onClick: () => setActiveTab('timeline')
-                      }, `完整对话回放 (${activeCase.messages.length})`)
+                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${activeCase.messages.length})`)
                     ),
 
                     // Detail Body
@@ -4344,7 +4796,7 @@ ${b.evidence}
                               key: i,
                               className: 'ed-reason-pill',
                               style: { padding: '4px 8px', fontSize: '12px' }
-                            }, `✓ ${r}`))
+                            }, h(Glyph, { kind: 'check', size: 11 }), r))
                           ),
                           activeCase.toolNames.length > 0 && h('div', { style: { marginTop: '10px', fontSize: '12px' } },
                             h('span', { style: { color: 'var(--ed-text2)' } }, '涉及工具列表: '),
@@ -4368,12 +4820,24 @@ ${b.evidence}
                         h('h2', null, activeBadcase.title),
                         h('div', { className: 'ed-meta-chips-row' },
                           h('span', { className: `ed-severity-badge ed-severity-${activeBadcase.severity === '严重' ? 'critical' : (activeBadcase.severity === '高' ? 'high' : 'medium')}` }, activeBadcase.severity),
-                          h('span', { className: 'ed-badcase-type-tag' }, activeBadcase.badcaseTypeName),
+                          h('span', {
+                            className: `ed-badcase-type-tag ${activeBadcase.badcaseTypeName === '步骤超限' ? 'ed-badcase-type-tag-danger' : ''}`
+                          },
+                            activeBadcase.badcaseTypeName === '步骤超限' ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
+                            activeBadcase.badcaseTypeName
+                          ),
                           activeBadcase.toolFailuresCount > 0 && h('span', {
                             className: 'ed-meta-chip',
                             style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' }
                           }, h(Glyph, { kind: 'alertCircle', size: 12 }), `报错 ${activeBadcase.toolFailuresCount} 次`),
                           h('span', { className: 'ed-meta-chip' }, `交互 ${activeBadcase.stepCount || 0} 步 / ${activeBadcase.turnsCount || 1} 轮`),
+                          (() => {
+                            const modelCnt = activeBadcase.modelInteractionsCount ?? getMaxTurnModelInteractions(activeBadcase.messages);
+                            return h('span', {
+                              className: 'ed-meta-chip',
+                              style: modelCnt > 100 ? { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' } : undefined
+                            }, `单轮模型交互 ${modelCnt} 次`);
+                          })(),
                           h('span', { className: 'ed-meta-chip' }, `模型: ${activeBadcase.modelId || 'M3.1'}`),
                           activeBadcase.runId && h('span', {
                             className: 'ed-meta-chip',
@@ -4406,11 +4870,11 @@ ${b.evidence}
                         h('button', {
                           className: `ed-btn ${isCaseInOfficial(activeBadcase) ? 'ed-btn-official-added' : 'ed-btn-official'}`,
                           onClick: (e) => handleToggleCaseOfficial(activeBadcase, e)
-                        }, isCaseInOfficial(activeBadcase) ? '✓ 已在正式评测集 (点击移出)' : '📌 选入正式评测集'),
+                        }, h(Glyph, { kind: isCaseInOfficial(activeBadcase) ? 'check' : 'pin', size: 12 }), isCaseInOfficial(activeBadcase) ? '已在正式评测集 (点击移出)' : '选入正式评测集'),
                         h('button', {
                           className: 'ed-btn ed-btn-regression',
                           onClick: () => openRunRegressionModal([activeBadcase])
-                        }, '🚀 发起回归测试'),
+                        }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试'),
                         h('button', {
                           className: 'ed-btn',
                           onClick: () => copyBadcaseReport(activeBadcase)
@@ -4427,15 +4891,15 @@ ${b.evidence}
                       h('button', {
                         className: `ed-tab-btn ${badcaseTab === 'diag' ? 'active' : ''}`,
                         onClick: () => setBadcaseTab('diag')
-                      }, '🔍 诊断与归因分析报告'),
+                      }, h(Glyph, { kind: 'search', size: 13 }), '诊断与归因分析报告'),
                       h('button', {
                         className: `ed-tab-btn ${badcaseTab === 'timeline' ? 'active' : ''}`,
                         onClick: () => setBadcaseTab('timeline')
-                      }, `💬 完整对话回放 (${activeBadcase.messages.length})`),
+                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${activeBadcase.messages.length})`),
                       h('button', {
                         className: `ed-tab-btn ${badcaseTab === 'tools' ? 'active' : ''}`,
                         onClick: () => setBadcaseTab('tools')
-                      }, `🔧 工具调用统计 (${(activeBadcase.messages || []).filter(m => m.role === 'tool' || m.toolName).length})`)
+                      }, h(Glyph, { kind: 'tool', size: 13 }), `工具调用统计 (${(activeBadcase.messages || []).filter(m => m.role === 'tool' || m.toolName).length})`)
                     ),
 
                     // Badcase Body
@@ -4500,13 +4964,14 @@ ${b.evidence}
                               },
                                 h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' } },
                                   h('span', {
+                                    className: 'ed-ico-text',
                                     style: {
                                       fontWeight: '650',
                                       fontSize: '12.5px',
                                       color: '#dc2626',
                                       fontFamily: 'ui-monospace, monospace'
                                     }
-                                  }, `🔧 ${ftd.toolName}`),
+                                  }, h(Glyph, { kind: 'tool', size: 13 }), ftd.toolName),
                                   ftd.errorDetail && h('span', {
                                     style: {
                                       fontSize: '11px',
@@ -4615,16 +5080,27 @@ ${b.evidence}
                   // Official Evaluation Dataset Detail Inspector
                   !activeOfficialCase ? (
                     h('div', { className: 'ed-empty-state', style: { gap: '12px' } },
-                      h('div', { style: { fontSize: '28px' } }, '📌'),
+                      h('div', {
+                        style: {
+                          width: '48px',
+                          height: '48px',
+                          borderRadius: '12px',
+                          background: 'rgba(5, 150, 105, 0.08)',
+                          color: '#059669',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }
+                      }, h(Glyph, { kind: 'pin', size: 24 })),
                       h('div', { style: { fontSize: '14px', fontWeight: 650, color: 'var(--ed-text1)' } }, '正式评测集详情与回归基准台'),
                       h('div', { style: { maxWidth: '420px', lineHeight: 1.6 } },
-                        '请在左侧列表选择一条正式评测用例；或前往「🎯 高价值评测集」与「⚠️ Badcase 诊断与回归集」挑选每日典型会话沉淀入库。'
+                        '请在左侧列表选择一条正式评测用例；或前往「高价值评测集」与「Badcase 诊断与回归集」挑选每日典型会话沉淀入库。'
                       ),
                       h('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' } },
                         h('button', {
                           className: 'ed-btn ed-btn-official',
                           onClick: () => setNewOfficialModalOpen(true)
-                        }, '➕ 手动新增正式用例'),
+                        }, h(Glyph, { kind: 'plus', size: 12 }), '手动新增正式用例'),
                         h('button', {
                           className: 'ed-btn',
                           onClick: () => setViewMode('cases')
@@ -4651,7 +5127,10 @@ ${b.evidence}
                             h('span', { className: `ed-prio-badge ed-prio-${prio}` }, `${prio} 级基准`),
                             h('span', {
                               className: `ed-source-badge ${isBadSource ? 'ed-source-bad' : (isManualSource ? 'ed-source-manual' : 'ed-source-pos')}`
-                            }, isBadSource ? '⚠️ 缺陷回归基准' : (isManualSource ? '✍️ 手动构建基准' : '🎯 正向能力基准')),
+                            },
+                              h(Glyph, { kind: isBadSource ? 'alertTriangle' : (isManualSource ? 'edit' : 'target'), size: 11 }),
+                              isBadSource ? '缺陷回归基准' : (isManualSource ? '手动构建基准' : '正向能力基准')
+                            ),
                             h('span', { className: 'ed-cat-tag' }, activeOfficialCase.categoryName || '通用业务咨询'),
                             activeOfficialCase.sourceDate && h('span', { className: 'ed-meta-chip' }, `提取日期: ${activeOfficialCase.sourceDate}`),
                             activeOfficialCase.runId && h('span', {
@@ -4682,14 +5161,14 @@ ${b.evidence}
                             matchedRegTasks.length > 0 && h('span', {
                               className: 'ed-meta-chip',
                               style: { color: '#7c3aed', borderColor: 'rgba(124,58,237,0.3)', background: 'rgba(124,58,237,0.06)' }
-                            }, `⚡ 已回归 ${matchedRegTasks.length} 次`)
+                            }, h(Glyph, { kind: 'zap', size: 11 }), `已回归 ${matchedRegTasks.length} 次`)
                           )
                         ),
                         h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
                           h('button', {
                             className: 'ed-btn ed-btn-regression',
                             onClick: () => openRunRegressionModal([activeOfficialCase])
-                          }, '🚀 发起回归测试'),
+                          }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试'),
                           h('button', {
                             className: 'ed-btn',
                             onClick: () => {
@@ -4728,15 +5207,15 @@ ${b.evidence}
                         h('button', {
                           className: `ed-tab-btn ${officialTab === 'spec' ? 'active' : ''}`,
                           onClick: () => setOfficialTab('spec')
-                        }, '📋 评测基准与通关判据'),
+                        }, h(Glyph, { kind: 'clipboard', size: 13 }), '评测基准与通关判据'),
                         h('button', {
                           className: `ed-tab-btn ${officialTab === 'reg_history' ? 'active' : ''}`,
                           onClick: () => setOfficialTab('reg_history')
-                        }, `⚡ 历史回归记录 (${matchedRegTasks.length})`),
+                        }, h(Glyph, { kind: 'zap', size: 13 }), `历史回归记录 (${matchedRegTasks.length})`),
                         Array.isArray(activeOfficialCase.messages) && activeOfficialCase.messages.length > 0 && h('button', {
                           className: `ed-tab-btn ${officialTab === 'timeline' ? 'active' : ''}`,
                           onClick: () => setOfficialTab('timeline')
-                        }, `💬 原始完整对话回放 (${activeOfficialCase.messages.length})`)
+                        }, h(Glyph, { kind: 'chat', size: 13 }), `原始完整对话回放 (${activeOfficialCase.messages.length})`)
                       ),
 
                       // Official Case Detail Body
@@ -4757,10 +5236,10 @@ ${b.evidence}
                               }
                             },
                               h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-                                h('span', { style: { fontSize: '13.5px', fontWeight: 700, color: '#7c3aed' } }, '✏️ 编辑正式评测用例与 Agent 能力通关判据'),
+                                h('span', { className: 'ed-ico-text', style: { fontSize: '13.5px', fontWeight: 700, color: '#7c3aed' } }, h(Glyph, { kind: 'edit', size: 14 }), '编辑正式评测用例与 Agent 能力通关判据'),
                                 h('div', { style: { display: 'flex', gap: '8px' } },
                                   h('button', { className: 'ed-btn', onClick: () => setEditingOfficialCase(null) }, '取消'),
-                                  h('button', { className: 'ed-btn ed-btn-official', onClick: handleSaveOfficialEdit }, '💾 保存修改')
+                                  h('button', { className: 'ed-btn ed-btn-official', onClick: handleSaveOfficialEdit }, h(Glyph, { kind: 'save', size: 12 }), '保存修改')
                                 )
                               ),
                               h('div', { style: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' } },
@@ -4791,9 +5270,9 @@ ${b.evidence}
                                     value: editingOfficialCase.sourceType,
                                     onChange: e => setEditingOfficialCase(p => ({ ...p, sourceType: e.target.value }))
                                   },
-                                    h('option', { value: 'positive' }, '🎯 正向能力基准'),
-                                    h('option', { value: 'badcase' }, '⚠️ 缺陷回归基准'),
-                                    h('option', { value: 'manual' }, '✍️ 手动构建基准')
+                                    h('option', { value: 'positive' }, '正向能力基准'),
+                                    h('option', { value: 'badcase' }, '缺陷回归基准'),
+                                    h('option', { value: 'manual' }, '手动构建基准')
                                   )
                                 ),
                                 h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
@@ -4816,7 +5295,7 @@ ${b.evidence}
                                 })
                               ),
                               h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
-                                h('label', { className: 'ed-form-label-sub' }, '🎯 Agent 能力评价标准与通关判据 (Eval Criteria)'),
+                                h('label', { className: 'ed-form-label-sub ed-ico-text' }, h(Glyph, { kind: 'target', size: 12 }), 'Agent 能力评价标准与通关判据 (Eval Criteria)'),
                                 h('textarea', {
                                   className: 'ed-form-input',
                                   rows: 3,
@@ -4842,7 +5321,8 @@ ${b.evidence}
                             h('div', { key: 'o_criteria', className: 'ed-eval-criteria-box' },
                               h('div', { className: 'ed-eval-criteria-head' },
                                 h('div', { className: 'ed-eval-criteria-title' },
-                                  '🎯 Agent 能力评价标准与通关判据 (Evaluation Criteria)'
+                                  h(Glyph, { kind: 'target', size: 14 }),
+                                  'Agent 能力评价标准与通关判据 (Evaluation Criteria)'
                                 ),
                                 h('button', {
                                   className: 'ed-copy-btn',
@@ -4857,7 +5337,7 @@ ${b.evidence}
                                     referenceAnswer: activeOfficialCase.referenceAnswer || '',
                                     notes: activeOfficialCase.notes || ''
                                   })
-                                }, '✏️ 修改判据')
+                                }, h(Glyph, { kind: 'edit', size: 11 }), '修改判据')
                               ),
                               h('div', { style: { fontSize: '13px', color: 'var(--ed-text1)', lineHeight: 1.65, whiteSpace: 'pre-wrap' } },
                                 activeOfficialCase.evalCriteria || '验证 Agent 对该核心业务场景的意图理解、工具调用准确性与回复完整性。'
@@ -4882,7 +5362,7 @@ ${b.evidence}
                                 h('h3', null, `期望 / 关联工具调用链 (${activeOfficialCase.toolsUsed.length})`)
                               ),
                               h('div', { className: 'ed-card-tags' },
-                                activeOfficialCase.toolsUsed.map(t => h('span', { key: t, className: 'ed-tool-tag' }, `🔧 ${t}`))
+                                activeOfficialCase.toolsUsed.map(t => h('span', { key: t, className: 'ed-tool-tag' }, h(Glyph, { kind: 'tool', size: 11 }), t))
                               )
                             ),
 
@@ -4939,7 +5419,7 @@ ${b.evidence}
                                 className: 'ed-btn ed-btn-regression',
                                 style: { marginTop: '6px' },
                                 onClick: () => openRunRegressionModal([activeOfficialCase])
-                              }, '🚀 立即对该用例发起回归测试')
+                              }, h(Glyph, { kind: 'rocket', size: 12 }), '立即对该用例发起回归测试')
                             )
                           ) : (
                             h('div', { key: 'reg_list', style: { display: 'flex', flexDirection: 'column', gap: '14px' } },
@@ -4960,8 +5440,12 @@ ${b.evidence}
                                   h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' } },
                                     h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
                                       h('span', { className: `ed-reg-status-pill ed-reg-status-${t.status}` },
-                                        isRunning && h('span', { className: 'ed-reg-spin' }, '⚡'),
-                                        t.status === 'completed' ? '✓ 回归完成' : (t.status === 'running' ? '正在执行' : (t.status === 'failed' ? '✕ 执行失败' : t.status))
+                                        isRunning
+                                          ? h(Glyph, { kind: 'spinner', size: 11, className: 'ed-reg-spin' })
+                                          : (t.status === 'completed'
+                                            ? h(Glyph, { kind: 'check', size: 11 })
+                                            : (t.status === 'failed' ? h(Glyph, { kind: 'close', size: 11 }) : null)),
+                                        t.status === 'completed' ? '回归完成' : (t.status === 'running' ? '正在执行' : (t.status === 'failed' ? '执行失败' : t.status))
                                       ),
                                       h('span', { className: 'ed-meta-chip' }, `环境: ${t.envName || t.env}`),
                                       t.durationMs > 0 && h('span', { className: 'ed-meta-chip' }, `耗时: ${(t.durationMs / 1000).toFixed(1)}s`),
@@ -4975,11 +5459,11 @@ ${b.evidence}
                                       }
                                     }, '打开回归详情看板 →')
                                   ),
-                                  t.error && h('div', { style: { color: '#dc2626', fontSize: '12px' } }, `🚨 异常: ${t.error}`),
+                                  t.error && h('div', { className: 'ed-ico-text', style: { color: '#dc2626', fontSize: '12px' } }, h(Glyph, { kind: 'alertTriangle', size: 13 }), `异常: ${t.error}`),
                                   h('div', { className: 'ed-reg-compare-grid' },
                                     h('div', { className: 'ed-reg-compare-col' },
                                       h('div', { className: 'ed-reg-compare-head' },
-                                        h('span', { style: { color: '#059669' } }, '⚡ 回归实测输出 (Actual Output)')
+                                        h('span', { className: 'ed-ico-text', style: { color: '#059669' } }, h(Glyph, { kind: 'zap', size: 12 }), '回归实测输出 (Actual Output)')
                                       ),
                                       h('div', { className: 'ed-reg-compare-body', style: { maxHeight: '240px' } },
                                         t.answer ? h(MarkdownView, { content: t.answer }) : '（执行中或无输出）'
@@ -4987,19 +5471,21 @@ ${b.evidence}
                                     ),
                                     h('div', { className: 'ed-reg-compare-col' },
                                       h('div', { className: 'ed-reg-compare-head' },
-                                        h('span', { style: { color: '#7c3aed' } }, '📌 正式评测集参考基准与通关判据')
+                                        h('span', { className: 'ed-ico-text', style: { color: '#7c3aed' } }, h(Glyph, { kind: 'pin', size: 12 }), '正式评测集参考基准与通关判据')
                                       ),
                                       h('div', { className: 'ed-reg-compare-body', style: { maxHeight: '240px' } },
                                         activeOfficialCase.evalCriteria && h('div', {
+                                          className: 'ed-ico-text',
                                           style: {
                                             padding: '6px 10px',
                                             marginBottom: '8px',
                                             borderRadius: '6px',
                                             background: 'rgba(124, 58, 237, 0.08)',
                                             fontSize: '12px',
-                                            color: '#6d28d9'
+                                            color: '#6d28d9',
+                                            display: 'flex'
                                           }
-                                        }, `🎯 判据: ${activeOfficialCase.evalCriteria}`),
+                                        }, h(Glyph, { kind: 'target', size: 12 }), `判据: ${activeOfficialCase.evalCriteria}`),
                                         activeOfficialCase.referenceAnswer
                                           ? h(MarkdownView, { content: activeOfficialCase.referenceAnswer })
                                           : '（无参考标准答案）'
@@ -5031,7 +5517,7 @@ ${b.evidence}
                 onClick: e => e.stopPropagation()
               },
                 h('div', { className: 'ed-modal-header' },
-                  h('h2', null, '⚙️ KuaiBuddy 环境与 Staff-Key 配置'),
+                  h('h2', { className: 'ed-ico-text' }, h(Glyph, { kind: 'gear', size: 16 }), 'KuaiBuddy 环境与 Staff-Key 配置'),
                   h('button', {
                     style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ed-text2)' },
                     onClick: () => setShowConfigModal(false)
@@ -5179,8 +5665,9 @@ ${b.evidence}
 
                         // 3. Login Credentials (CompanyId, Username, Password)
                         h('div', { className: 'ed-credentials-grid' },
-                          h('div', { className: 'ed-credentials-title' },
-                            '👤 账号登录信息 (用于 E2E 回归测试 / 会话登录验证)'
+                          h('div', { className: 'ed-credentials-title ed-ico-text' },
+                            h(Glyph, { kind: 'user', size: 13 }),
+                            '账号登录信息 (用于 E2E 回归测试 / 会话登录验证)'
                           ),
                           h('div', { className: 'ed-form-item', style: { marginBottom: 0 } },
                             h('label', { className: 'ed-form-label-sub' }, '公司 ID'),
@@ -5247,7 +5734,7 @@ ${b.evidence}
             regressionModalOpen && h('div', { className: 'ed-modal-overlay', onClick: () => setRegressionModalOpen(false) },
               h('div', { className: 'ed-modal-content', style: { maxWidth: '560px' }, onClick: e => e.stopPropagation() },
                 h('div', { className: 'ed-modal-header' },
-                  h('h3', null, `🚀 发起回归测试 (${regressionTargetCases.length} 条用例)`),
+                  h('h3', { className: 'ed-ico-text' }, h(Glyph, { kind: 'rocket', size: 15 }), `发起回归测试 (${regressionTargetCases.length} 条用例)`),
                   h('button', { className: 'ed-icon-btn', onClick: () => setRegressionModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
                 ),
                 h('div', { className: 'ed-modal-body', style: { maxHeight: '65vh' } },
@@ -5277,7 +5764,7 @@ ${b.evidence}
                         { key: 'preprod', name: '预生产环境 (Pre-production)', tip: '推荐！与生产同库，使用独立客服账号，安全无污染' },
                         { key: 'test', name: '测试环境 (Test)', tip: '用于联调与测试验证' },
                         { key: 'dev', name: '开发环境 (Dev)', tip: '本地或开发测试集群环境' },
-                        { key: 'prod', name: '生产环境 (Production)', tip: '⚠️ 注意：将在生产客服产生真实会话交互记录' }
+                        { key: 'prod', name: '生产环境 (Production)', tip: '注意：将在生产客服产生真实会话交互记录' }
                       ].map(envItem => {
                         const isSelected = regressionTargetEnv === envItem.key;
                         const envData = config?.environments?.[envItem.key];
@@ -5329,15 +5816,15 @@ ${b.evidence}
                 // Header
                 h('div', { className: 'ed-reg-drawer-header' },
                   h('div', { className: 'ed-reg-drawer-title' },
-                    h('h3', null, '⚡ 对话回归测试进展看板'),
+                    h('h3', { className: 'ed-ico-text' }, h(Glyph, { kind: 'zap', size: 15 }), '对话回归测试进展看板'),
                     h('span', { className: 'ed-meta-chip' }, `总计 ${regressionTasks.length} 项`),
                     regressionTasks.some(t => t.status === 'running') && h('span', {
                       className: 'ed-reg-status-pill ed-reg-status-running'
-                    }, h('span', { className: 'ed-reg-spin' }, '⚡'), `${regressionTasks.filter(t => t.status === 'running').length} 运行中`),
-                    h('span', { className: 'ed-reg-status-pill ed-reg-status-completed' }, `✓ 成功 ${regressionTasks.filter(t => t.status === 'completed').length}`),
+                    }, h(Glyph, { kind: 'spinner', size: 11, className: 'ed-reg-spin' }), `${regressionTasks.filter(t => t.status === 'running').length} 运行中`),
+                    h('span', { className: 'ed-reg-status-pill ed-reg-status-completed' }, h(Glyph, { kind: 'check', size: 11 }), `成功 ${regressionTasks.filter(t => t.status === 'completed').length}`),
                     regressionTasks.some(t => t.status === 'failed') && h('span', {
                       className: 'ed-reg-status-pill ed-reg-status-failed'
-                    }, `✕ 失败 ${regressionTasks.filter(t => t.status === 'failed').length}`)
+                    }, h(Glyph, { kind: 'close', size: 11 }), `失败 ${regressionTasks.filter(t => t.status === 'failed').length}`)
                   ),
                   h('div', { style: { display: 'flex', gap: '8px' } },
                     h('button', { className: 'ed-btn', onClick: loadRegressionTasks }, h(Glyph, { kind: 'refresh', size: 12 }), '刷新'),
@@ -5355,7 +5842,7 @@ ${b.evidence}
                     ),
                     h('div', { className: 'ed-reg-task-list' },
                       regressionTasks.length === 0 ? (
-                        h('div', { className: 'ed-empty-state', style: { padding: '40px 10px' } }, '暂无回归测试任务\n可在用例详情或列表中点击「🚀 发起回归测试」')
+                        h('div', { className: 'ed-empty-state', style: { padding: '40px 10px' } }, '暂无回归测试任务\n可在用例详情或列表中点击「发起回归测试」')
                       ) : (
                         regressionTasks.map(t => {
                           const isSelected = selectedRegressionTaskId === t.id;
@@ -5373,7 +5860,7 @@ ${b.evidence}
                           },
                             h('div', { className: 'ed-reg-card-head' },
                               h('span', { className: `ed-reg-status-pill ed-reg-status-${statusClass}` },
-                                t.status === 'running' && h('span', { className: 'ed-reg-spin' }, '⚡'),
+                                t.status === 'running' && h(Glyph, { kind: 'spinner', size: 11, className: 'ed-reg-spin' }),
                                 statusLabel
                               ),
                               h('span', { style: { fontSize: '10.5px', color: 'var(--ed-text2)' } }, t.durationMs ? `${(t.durationMs / 1000).toFixed(1)}s` : (t.createdAt || '').slice(11, 16))
@@ -5404,7 +5891,7 @@ ${b.evidence}
                       h('div', { className: 'ed-reg-detail-meta' },
                         h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
                           h('span', { className: `ed-reg-status-pill ed-reg-status-${activeTask.status}` },
-                            isRunning && h('span', { className: 'ed-reg-spin' }, '⚡'),
+                            isRunning && h(Glyph, { kind: 'spinner', size: 11, className: 'ed-reg-spin' }),
                             activeTask.status === 'running' ? '正在执行' : (activeTask.status === 'completed' ? '执行完成' : (activeTask.status === 'failed' ? '执行失败' : activeTask.status))
                           ),
                           h('span', { className: 'ed-meta-chip' }, `环境: ${activeTask.envName || activeTask.env}`),
@@ -5416,7 +5903,7 @@ ${b.evidence}
                           className: 'ed-btn',
                           style: { color: '#f53f3f', borderColor: 'rgba(245,63,63,0.3)' },
                           onClick: () => handleCancelRegressionTask(activeTask.id)
-                        }, '⏹ 中止执行')
+                        }, h(Glyph, { kind: 'stop', size: 12 }), '中止执行')
                       ),
 
                       // Error Alert if failed
@@ -5431,7 +5918,7 @@ ${b.evidence}
                           lineHeight: '1.5'
                         }
                       },
-                        h('div', { style: { fontWeight: 600, marginBottom: '2px' } }, '🚨 报错原因:'),
+                        h('div', { className: 'ed-ico-text', style: { fontWeight: 600, marginBottom: '2px' } }, h(Glyph, { kind: 'alertTriangle', size: 13 }), '报错原因:'),
                         h('div', null, activeTask.error)
                       ),
 
@@ -5450,7 +5937,7 @@ ${b.evidence}
                       // Section: Reasoning Thinking Process (if present)
                       activeTask.reasoning && h('div', { className: 'ed-section' },
                         h('div', { className: 'ed-section-head', style: { cursor: 'pointer' }, onClick: () => setReasoningExpanded(p => !p) },
-                          h('h3', null, `🧠 深度思考推理 (Thinking / CoT) · ${reasoningExpanded ? '收起 ▴' : '展开 ▾'}`),
+                          h('h3', { className: 'ed-ico-text' }, h(Glyph, { kind: 'brain', size: 13 }), `深度思考推理 (Thinking / CoT) · ${reasoningExpanded ? '收起 ▴' : '展开 ▾'}`),
                           h('button', {
                             className: 'ed-copy-btn',
                             onClick: (e) => { e.stopPropagation(); copyToClipboard(activeTask.reasoning, 'reg_reasoning'); }
@@ -5467,8 +5954,8 @@ ${b.evidence}
                         // Column 1: New Regression Result
                         h('div', { className: 'ed-reg-compare-col' },
                           h('div', { className: 'ed-reg-compare-head' },
-                            h('span', { style: { color: isRunning ? '#165dff' : '#00b42a' } },
-                              isRunning ? '⚡ 本次回归实时输出 (Streaming...)' : '✓ 本次回归交付结果'
+                            h('span', { className: 'ed-ico-text', style: { color: isRunning ? '#165dff' : '#00b42a' } },
+                              isRunning ? [h(Glyph, { key: 'i', kind: 'zap', size: 12 }), '本次回归实时输出 (Streaming...)'] : [h(Glyph, { key: 'i', kind: 'check', size: 12 }), '本次回归交付结果']
                             ),
                             h('button', {
                               className: 'ed-copy-btn',
@@ -5480,7 +5967,7 @@ ${b.evidence}
                               ? h(MarkdownView, { content: activeTask.answer })
                               : (isRunning
                                 ? h('div', { style: { color: 'var(--ed-accent)', display: 'flex', alignItems: 'center', gap: '6px' } },
-                                    h('span', { className: 'ed-reg-spin' }, '⚡'),
+                                    h(Glyph, { kind: 'spinner', size: 13, className: 'ed-reg-spin' }),
                                     '模型正在思考推理并执行工具...'
                                   )
                                 : h('div', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '未生成文本输出')
@@ -5490,7 +5977,7 @@ ${b.evidence}
                         // Column 2: Historical Baseline / Reference
                         h('div', { className: 'ed-reg-compare-col' },
                           h('div', { className: 'ed-reg-compare-head' },
-                            h('span', null, '📌 历史参考基准 / 原始状态'),
+                            h('span', { className: 'ed-ico-text' }, h(Glyph, { kind: 'pin', size: 12 }), '历史参考基准 / 原始状态'),
                             activeTask.referenceAnswer && h('button', {
                               className: 'ed-copy-btn',
                               onClick: () => copyToClipboard(activeTask.referenceAnswer, 'base_ans')
@@ -5513,7 +6000,7 @@ ${b.evidence}
             newOfficialModalOpen && h('div', { className: 'ed-modal-overlay', onClick: () => setNewOfficialModalOpen(false) },
               h('div', { className: 'ed-modal-content', style: { maxWidth: '640px' }, onClick: e => e.stopPropagation() },
                 h('div', { className: 'ed-modal-header' },
-                  h('h3', null, '➕ 手动新增正式评测集用例'),
+                  h('h3', { className: 'ed-ico-text' }, h(Glyph, { kind: 'plus', size: 15 }), '手动新增正式评测集用例'),
                   h('button', { className: 'ed-icon-btn', onClick: () => setNewOfficialModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
                 ),
                 h('div', { className: 'ed-modal-body', style: { maxHeight: '70vh' } },
@@ -5546,9 +6033,9 @@ ${b.evidence}
                         value: newOfficialDraft.sourceType,
                         onChange: e => setNewOfficialDraft(p => ({ ...p, sourceType: e.target.value }))
                       },
-                        h('option', { value: 'positive' }, '🎯 正向能力基准'),
-                        h('option', { value: 'badcase' }, '⚠️ 缺陷回归基准'),
-                        h('option', { value: 'manual' }, '✍️ 手动构建基准')
+                        h('option', { value: 'positive' }, '正向能力基准'),
+                        h('option', { value: 'badcase' }, '缺陷回归基准'),
+                        h('option', { value: 'manual' }, '手动构建基准')
                       )
                     )
                   ),
@@ -5572,7 +6059,7 @@ ${b.evidence}
                     })
                   ),
                   h('div', { className: 'ed-form-item' },
-                    h('label', { className: 'ed-form-label' }, '🎯 Agent 能力评价标准与通关判据 (Eval Criteria)'),
+                    h('label', { className: 'ed-form-label ed-ico-text' }, h(Glyph, { kind: 'target', size: 13 }), 'Agent 能力评价标准与通关判据 (Eval Criteria)'),
                     h('textarea', {
                       className: 'ed-form-input',
                       rows: 3,
@@ -5600,7 +6087,7 @@ ${b.evidence}
                   h('button', {
                     className: 'ed-btn ed-btn-official',
                     onClick: handleCreateManualOfficialCase
-                  }, '📌 确认加入正式评测集')
+                  }, h(Glyph, { kind: 'pin', size: 12 }), '确认加入正式评测集')
                 )
               )
             )
