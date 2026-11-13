@@ -123,6 +123,8 @@ export function normalizeOfficialCaseItem(item, sourceDate, sourceEnv) {
     ...item,
     id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     sessionId: item.sessionId || '',
+    compId: item.compId ?? '',
+    userId: item.userId ?? '',
     runId: item.runId || '',
     runIds: item.runIds || (item.runId ? [item.runId] : []),
     sourceType,

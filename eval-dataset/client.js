@@ -2931,6 +2931,33 @@ window.__ModuleLoader__.load({
             setTimeout(() => setCopied(''), 2000);
           };
 
+          const renderIdentityChips = (item) => {
+            if (!item) return null;
+            const hasCompId = item.compId !== undefined && item.compId !== null && item.compId !== '';
+            const hasUserId = item.userId !== undefined && item.userId !== null && item.userId !== '';
+            const chipStyle = {
+              fontFamily: 'ui-monospace, monospace',
+              fontSize: '11px',
+              cursor: 'pointer'
+            };
+            return [
+              hasCompId && h('span', {
+                key: 'comp_id',
+                className: 'ed-meta-chip',
+                style: chipStyle,
+                title: `点击复制公司ID: ${item.compId}`,
+                onClick: () => copyToClipboard(String(item.compId), 'comp_id')
+              }, `公司ID: ${item.compId}`, copied === 'comp_id' ? ' (已复制)' : ''),
+              hasUserId && h('span', {
+                key: 'user_id',
+                className: 'ed-meta-chip',
+                style: chipStyle,
+                title: `点击复制 userId: ${item.userId}`,
+                onClick: () => copyToClipboard(String(item.userId), 'user_id')
+              }, `userId: ${item.userId}`, copied === 'user_id' ? ' (已复制)' : '')
+            ];
+          };
+
           const copyBadcaseReport = (b) => {
             if (!b) return;
             const report = `# ⚠️ KuaiBuddy Badcase 诊断与归因分析报告
@@ -3678,6 +3705,7 @@ ${b.evidence}
                             title: `点击复制完整 session_id: ${activeCase.sessionId}`,
                             onClick: () => copyToClipboard(activeCase.sessionId, 'session_id')
                           }, `会话: ${activeCase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
+                          ...(renderIdentityChips(activeCase) || []),
                           h('span', null, `分类: ${activeCase.category}`),
                           h('span', null, `价值评分: ${activeCase.valueScore}分`),
                           h('span', null, `创建时间: ${activeCase.createdAt}`)
@@ -3879,6 +3907,7 @@ ${b.evidence}
                             title: `点击复制完整 session_id: ${activeBadcase.sessionId}`,
                             onClick: () => copyToClipboard(activeBadcase.sessionId, 'session_id')
                           }, `会话: ${activeBadcase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
+                          ...(renderIdentityChips(activeBadcase) || []),
                           h('span', { className: 'ed-meta-chip' }, activeBadcase.createdAt || '')
                         )
                       ),
@@ -4210,6 +4239,7 @@ ${b.evidence}
                               title: `点击复制完整 session_id: ${activeOfficialCase.sessionId}`,
                               onClick: () => copyToClipboard(activeOfficialCase.sessionId, 'session_id')
                             }, `会话: ${activeOfficialCase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
+                            ...(renderIdentityChips(activeOfficialCase) || []),
                             activeOfficialCase.addedAt && h('span', { className: 'ed-meta-chip' }, `入库: ${(activeOfficialCase.addedAt || '').slice(0, 10)}`),
                             matchedRegTasks.length > 0 && h('span', {
                               className: 'ed-meta-chip',

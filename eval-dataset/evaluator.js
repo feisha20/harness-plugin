@@ -611,6 +611,8 @@ export function scoreAndCategorizeSession(session, messages) {
   return {
     id: `eval_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
     sessionId: session.sessionId,
+    compId: session.compId ?? '',
+    userId: session.userId ?? '',
     runId,
     runIds,
     title: displayTitle,
@@ -657,6 +659,8 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
       rawBadcases.push({
         id: `bad_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
         sessionId: session.sessionId,
+        compId: session.compId ?? '',
+        userId: session.userId ?? '',
         runId: badRunId,
         runIds: badRunIds,
         title: displayTitle,
