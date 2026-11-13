@@ -1949,7 +1949,105 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const CLIENT_METRICS_VERSION = 3;
+    const BADCASE_LABEL_MODEL_LIMIT = '模型交互达上限';
+    const BADCASE_LABEL_HIGH_STEPS = '单轮高步数(>100步)';
     const conversationRoles = new Set(['user', 'assistant', 'tool']);
+
+    function isFollowupMessage(m) {
+      return Boolean(m) && m.role === 'followup';
+    }
+
+    function isToolCallMessage(m) {
+      return Boolean(m) && (m.role === 'tool' || Boolean(m.toolName));
+    }
+
+    function isStepMessage(m) {
+      return Boolean(m) && m.role !== 'user' && m.role !== 'assistant' && !isFollowupMessage(m);
+    }
+
+    function isModelInteractionMessage(m) {
+      return Boolean(m) && m.role !== 'user' && !isFollowupMessage(m) && !isToolCallMessage(m);
+    }
+
+    function getModelInteractionKey(m, idx) {
+      const id = m && m.messageId ? String(m.messageId) : '';
+      return id ? id.replace(/-(text|thinking)$/, '') : `__msg_${idx}`;
+    }
+
+    function computeConversationMetrics(messages) {
+      const msgs = Array.isArray(messages) ? messages : [];
+      let turnsCount = 0;
+      let totalSteps = 0;
+      let maxTurnSteps = 0;
+      let maxTurnToolCalls = 0;
+      let maxTurnIndex = 1;
+      let maxTurnModelInteractions = 0;
+      let maxModelTurnIndex = 1;
+      let toolCallsCount = 0;
+      let curTurnSteps = 0;
+      let curTurnTools = 0;
+      let curTurnModelKeys = new Set();
+      const allModelKeys = new Set();
+      let curTurnIdx = 0;
+
+      const commitTurn = () => {
+        if (curTurnIdx <= 0) return;
+        if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
+          maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
+          maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
+          maxTurnIndex = curTurnIdx;
+        }
+        if (curTurnModelKeys.size > maxTurnModelInteractions) {
+          maxTurnModelInteractions = curTurnModelKeys.size;
+          maxModelTurnIndex = curTurnIdx;
+        }
+      };
+
+      for (let i = 0; i < msgs.length; i++) {
+        const m = msgs[i];
+        if (!m || isFollowupMessage(m)) continue;
+        if (isModelInteractionMessage(m)) {
+          allModelKeys.add(getModelInteractionKey(m, i));
+        }
+        if (m.role === 'user') {
+          commitTurn();
+          curTurnIdx += 1;
+          turnsCount += 1;
+          curTurnSteps = 0;
+          curTurnTools = 0;
+          curTurnModelKeys = new Set();
+        } else {
+          if (curTurnIdx === 0) {
+            curTurnIdx = 1;
+            turnsCount = 1;
+          }
+          if (isStepMessage(m)) {
+            curTurnSteps += 1;
+            totalSteps += 1;
+          }
+          if (isToolCallMessage(m)) {
+            curTurnTools += 1;
+            toolCallsCount += 1;
+          } else if (isModelInteractionMessage(m)) {
+            curTurnModelKeys.add(getModelInteractionKey(m, i));
+          }
+        }
+      }
+      commitTurn();
+
+      return {
+        turnsCount: Math.max(1, turnsCount),
+        totalSteps,
+        maxTurnSteps,
+        maxTurnToolCalls,
+        maxTurnIndex,
+        maxTurnModelInteractions,
+        maxModelTurnIndex,
+        modelInteractions: allModelKeys.size,
+        toolCallsCount
+      };
+    }
 
     function renderReasoningMessage(message, key) {
       return h('details', { key, className: 'ed-bubble ed-bubble-tool ed-bubble-reasoning' },
@@ -2088,7 +2186,7 @@ window.__ModuleLoader__.load({
             setHighlightMsgIdx(null);
           }, [scopeId]);
 
-          const safeMessages = Array.isArray(messages) ? messages : [];
+          const safeMessages = (Array.isArray(messages) ? messages : []).filter(m => !isFollowupMessage(m));
           const errorItems = [];
           safeMessages.forEach((m, idx) => {
             if (conversationRoles.has(m.role) && m.role === 'tool') {
@@ -2259,34 +2357,44 @@ window.__ModuleLoader__.load({
         }
 
         function getMaxTurnModelInteractions(messages) {
-          const msgs = Array.isArray(messages) ? messages : [];
-          let maxTurnModel = 0;
-          let curTurnModel = 0;
-          let hasTurn = false;
-          for (const m of msgs) {
-            if (m.role === 'user') {
-              if (hasTurn && curTurnModel > maxTurnModel) maxTurnModel = curTurnModel;
-              hasTurn = true;
-              curTurnModel = 0;
-            } else if (m.role !== 'tool' && !m.toolName) {
-              if (!hasTurn) hasTurn = true;
-              curTurnModel += 1;
-            }
+          return computeConversationMetrics(messages).maxTurnModelInteractions;
+        }
+
+        function getBadcaseCardMetrics(b) {
+          const msgs = Array.isArray(b?.messages) ? b.messages : [];
+          if (msgs.length > 0) {
+            const metrics = computeConversationMetrics(msgs);
+            return {
+              turnsCount: metrics.turnsCount,
+              totalSteps: metrics.totalSteps,
+              maxTurnSteps: metrics.maxTurnSteps,
+              maxTurnModel: metrics.maxTurnModelInteractions,
+              totalModel: metrics.modelInteractions,
+              toolCallsCount: metrics.toolCallsCount
+            };
           }
-          if (hasTurn && curTurnModel > maxTurnModel) maxTurnModel = curTurnModel;
-          return maxTurnModel;
+          return {
+            turnsCount: b?.turnsCount || 1,
+            totalSteps: b?.totalStepCount ?? b?.stepCount ?? 0,
+            maxTurnSteps: b?.maxTurnSteps ?? b?.stepCount ?? 0,
+            maxTurnModel: b?.modelInteractionsCount ?? 0,
+            totalModel: b?.totalModelInteractionsCount ?? b?.modelInteractionsCount ?? 0,
+            toolCallsCount: b?.toolCallsCount || 0
+          };
         }
 
         function summarizeToolMessages(msgs) {
           const map = new Map();
+          const modelKeys = new Set();
           let totalCalls = 0;
           let totalFailed = 0;
-          let modelInteractions = 0;
           let execSteps = 0;
-          for (const m of msgs) {
-            if (m.role !== 'user' && m.role !== 'assistant') execSteps += 1;
-            if (m.role !== 'tool' && !m.toolName) {
-              if (m.role !== 'user') modelInteractions += 1;
+          for (let i = 0; i < msgs.length; i++) {
+            const m = msgs[i];
+            if (!m || isFollowupMessage(m)) continue;
+            if (isStepMessage(m)) execSteps += 1;
+            if (!isToolCallMessage(m)) {
+              if (isModelInteractionMessage(m)) modelKeys.add(getModelInteractionKey(m, i));
               continue;
             }
             const details = getToolExecutionDetails(m);
@@ -2301,12 +2409,12 @@ window.__ModuleLoader__.load({
           }
           const items = Array.from(map.values())
             .sort((a, b) => b.count - a.count || b.failCount - a.failCount || a.name.localeCompare(b.name));
-          return { items, totalCalls, totalFailed, totalSuccess: totalCalls - totalFailed, modelInteractions, execSteps };
+          return { items, totalCalls, totalFailed, totalSuccess: totalCalls - totalFailed, modelInteractions: modelKeys.size, execSteps };
         }
 
         function ToolCallStatsPanel({ messages }) {
           const { turns, allStats } = React.useMemo(() => {
-            const msgs = Array.isArray(messages) ? messages : [];
+            const msgs = (Array.isArray(messages) ? messages : []).filter(m => !isFollowupMessage(m));
             const rawTurns = [];
             let current = null;
             for (const m of msgs) {
@@ -2365,9 +2473,9 @@ window.__ModuleLoader__.load({
                 {
                   label: '与模型交互',
                   value: `${stat.modelInteractions} 次`,
-                  color: stat.modelInteractions > 100 ? '#dc2626' : '#7c3aed',
-                  bg: stat.modelInteractions > 100 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(124, 58, 237, 0.04)',
-                  border: stat.modelInteractions > 100 ? 'rgba(239, 68, 68, 0.22)' : 'rgba(124, 58, 237, 0.16)'
+                  color: stat.modelInteractions >= 100 ? '#dc2626' : '#7c3aed',
+                  bg: stat.modelInteractions >= 100 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(124, 58, 237, 0.04)',
+                  border: stat.modelInteractions >= 100 ? 'rgba(239, 68, 68, 0.22)' : 'rgba(124, 58, 237, 0.16)'
                 },
                 { label: '总调用次数', value: `${stat.totalCalls} 次`, color: 'var(--ed-text1)', bg: 'var(--ed-bg-layer1)', border: 'var(--ed-border1)' },
                 { label: '涉及工具数', value: `${stat.items.length} 个`, color: '#2563eb', bg: 'rgba(37, 99, 235, 0.03)', border: 'rgba(37, 99, 235, 0.14)' },
@@ -2593,7 +2701,7 @@ window.__ModuleLoader__.load({
               : h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
                 turns.map(t => {
                   const isOpen = expandedTurns.has(t.turnIndex);
-                  const hasAlert = t.modelInteractions > 100 || t.totalFailed > 0;
+                  const hasAlert = t.modelInteractions >= 100 || t.totalFailed > 0;
                   return h('div', {
                     key: t.turnIndex,
                     style: {
@@ -2655,7 +2763,7 @@ window.__ModuleLoader__.load({
                         }, t.userPrompt)
                       ),
                       h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 } },
-                        t.modelInteractions > 100 && h('span', {
+                        t.modelInteractions >= 100 && h('span', {
                           style: {
                             fontSize: '10.5px',
                             fontWeight: 500,
@@ -2665,7 +2773,7 @@ window.__ModuleLoader__.load({
                             borderRadius: '4px',
                             padding: '1px 6px'
                           }
-                        }, '步骤超限'),
+                        }, BADCASE_LABEL_MODEL_LIMIT),
                         t.execSteps > 100 && h('span', {
                           style: {
                             fontSize: '10.5px',
@@ -2682,8 +2790,8 @@ window.__ModuleLoader__.load({
                             fontSize: '11px',
                             padding: '1px 7px',
                             borderRadius: '999px',
-                            background: t.modelInteractions > 100 ? 'rgba(220, 38, 38, 0.08)' : 'rgba(124, 58, 237, 0.08)',
-                            color: t.modelInteractions > 100 ? '#dc2626' : '#7c3aed',
+                            background: t.modelInteractions >= 100 ? 'rgba(220, 38, 38, 0.08)' : 'rgba(124, 58, 237, 0.08)',
+                            color: t.modelInteractions >= 100 ? '#dc2626' : '#7c3aed',
                             fontVariantNumeric: 'tabular-nums'
                           }
                         }, `模型 ${t.modelInteractions} 次`),
@@ -2728,9 +2836,10 @@ window.__ModuleLoader__.load({
 
         function detectBadcaseItem(c) {
           const messages = c.messages || [];
+          const visibleMsgCount = messages.filter(m => !isFollowupMessage(m)).length;
           const userMsgs = messages.filter(m => m.role === 'user');
           const assistantMsgs = messages.filter(m => m.role === 'assistant');
-          const toolMsgs = messages.filter(m => m.role === 'tool' || m.toolName);
+          const toolMsgs = messages.filter(m => isToolCallMessage(m));
 
           if (userMsgs.length === 0 && !c.title) return null;
           const title = (c.title || '').replace(/<[^>]+>/g, '').trim();
@@ -2748,57 +2857,19 @@ window.__ModuleLoader__.load({
             }
           }
 
-          // 按单轮对话计算最大步数与单轮最大模型交互次数（每个 user 消息开启一轮）
-          let maxTurnSteps = 0;
-          let maxTurnToolCalls = 0;
-          let maxTurnIndex = 1;
-          let maxTurnModelInteractions = 0;
-          let maxModelTurnIndex = 1;
-          let curTurnSteps = 0;
-          let curTurnTools = 0;
-          let curTurnModel = 0;
-          let curTurnIdx = 0;
-          let modelInteractions = 0;
+          // 按单轮对话计算最大步数与单轮最大模型交互次数（已排除 followup，并按 base messageId 去重）
+          const {
+            totalSteps,
+            maxTurnSteps,
+            maxTurnToolCalls,
+            maxTurnIndex,
+            maxTurnModelInteractions,
+            maxModelTurnIndex,
+            modelInteractions
+          } = computeConversationMetrics(messages);
 
-          const commitTurn = () => {
-            if (curTurnIdx <= 0) return;
-            if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
-              maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
-              maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
-              maxTurnIndex = curTurnIdx;
-            }
-            if (curTurnModel > maxTurnModelInteractions) {
-              maxTurnModelInteractions = curTurnModel;
-              maxModelTurnIndex = curTurnIdx;
-            }
-          };
-
-          for (const m of messages) {
-            if (m.role !== 'user' && m.role !== 'tool' && !m.toolName) {
-              modelInteractions++;
-            }
-            if (m.role === 'user') {
-              commitTurn();
-              curTurnIdx++;
-              curTurnSteps = 0;
-              curTurnTools = 0;
-              curTurnModel = 0;
-            } else {
-              if (curTurnIdx === 0) curTurnIdx = 1;
-              if (m.role !== 'assistant') {
-                curTurnSteps++;
-              }
-              if (m.role === 'tool' || m.toolName) {
-                curTurnTools++;
-              } else {
-                curTurnModel++;
-              }
-            }
-          }
-          commitTurn();
-
-          // 步骤超限约定为单轮与模型交互超过 100 次；单轮步骤数超过 100 标记为需要关注的 case
-          const isStepExceeded = maxTurnModelInteractions > 100;
+          // 模型交互达到 100 次上限基本意味着被迫中断；单轮步骤数超过 100 标记为需优化关注
+          const isStepExceeded = maxTurnModelInteractions >= 100;
           const isHighTurnSteps = maxTurnSteps > 100;
           const isFrequentToolFail = failedToolMsgs.length >= 2;
 
@@ -2866,8 +2937,8 @@ window.__ModuleLoader__.load({
           const isSingleToolError = failedToolMsgs.length === 1;
 
           const defectTags = [];
-          if (isStepExceeded) defectTags.push('步骤超限');
-          if (isHighTurnSteps) defectTags.push('单轮高步数(需关注)');
+          if (isStepExceeded) defectTags.push(BADCASE_LABEL_MODEL_LIMIT);
+          if (isHighTurnSteps) defectTags.push(BADCASE_LABEL_HIGH_STEPS);
           if (isFrequentToolFail) defectTags.push(`工具高频失败(${failedToolMsgs.length}次)`);
           else if (isSingleToolError) defectTags.push('工具调用异常');
           if (isTaskInterrupted) defectTags.push('任务中断');
@@ -2897,7 +2968,9 @@ window.__ModuleLoader__.load({
                 suspectedCause: '业务规则未触发、流程中断或配置覆盖冲突',
                 recommendation: '检查工作流逻辑与提示词负向约束，纳入重点回归集',
                 evidence: title,
-                stepCount: maxTurnSteps,
+                stepCount: totalSteps,
+                totalStepCount: totalSteps,
+                maxTurnSteps,
                 modelInteractionsCount: maxTurnModelInteractions,
                 totalModelInteractionsCount: modelInteractions,
                 userPrompt: c.userPrompt,
@@ -2924,12 +2997,12 @@ window.__ModuleLoader__.load({
 
           if (isStepExceeded) {
             badcaseType = 'step_limit_exceeded';
-            badcaseTypeName = '步骤超限';
+            badcaseTypeName = BADCASE_LABEL_MODEL_LIMIT;
             severity = '严重';
-            phenomenon = `第 ${maxModelTurnIndex} 轮与模型交互达到 ${maxTurnModelInteractions} 次（单轮最大 ${maxTurnSteps} 步，全会话模型交互 ${modelInteractions} 次），超过 100 次阈值`;
-            suspectedCause = '智能体单轮与模型交互轮次未设置合理上限，或在工具调用/重试循环中未及时收敛';
-            recommendation = '增加单轮模型交互次数与步数 Hard Limit 熔断机制，防止死循环或过度推理消耗资源';
-            evidence = `单轮最高模型交互: ${maxTurnModelInteractions} 次 (第 ${maxModelTurnIndex} 轮) | 单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总消息: ${messages.length} 条`;
+            phenomenon = `第 ${maxModelTurnIndex} 轮与模型交互达到 ${maxTurnModelInteractions} 次（该轮 ${maxTurnSteps} 步，全会话模型交互 ${modelInteractions} 次），已触及 100 次上限，存在被迫中断风险`;
+            suspectedCause = '单轮任务在框架 100 次模型交互上限内未能收敛完成（常见于工具反复重试死循环、Skill 编排过细或循环检索未收敛），最终被迫中断或强制收尾';
+            recommendation = '排查对应 Skill 编排与循环终止条件，合并冗余步骤并增加工具失败快速回退/熔断策略';
+            evidence = `单轮最高模型交互: ${maxTurnModelInteractions} 次 (第 ${maxModelTurnIndex} 轮) | 单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总消息: ${visibleMsgCount} 条`;
           } else if (isFrequentToolFail) {
             const failedTools = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
             const failureSummary = failedToolMsgs.map(t => `${t.specificToolName || t.toolName}: ${t.toolErrorDetail || '执行异常'}`).slice(0, 3).join('；');
@@ -2994,12 +3067,12 @@ window.__ModuleLoader__.load({
             evidence = (tm.toolErrorDetail ? `【失败工具: ${specificName}】\n报错详情: ${tm.toolErrorDetail}\n\n原始返回:\n` : '') + text.slice(0, 300);
           } else {
             badcaseType = 'high_turn_steps';
-            badcaseTypeName = '单轮高步数(需关注)';
+            badcaseTypeName = BADCASE_LABEL_HIGH_STEPS;
             severity = '关注';
-            phenomenon = `第 ${maxTurnIndex} 轮单轮步骤数达到 ${maxTurnSteps} 步（该轮工具调用 ${maxTurnToolCalls} 次），超过 100 步，建议人工关注`;
-            suspectedCause = '单轮任务链路较长或连续工具调用较多，虽未超出模型交互上限，但单轮执行复杂度偏高';
-            recommendation = '复核该轮执行链路与提示词引导，评估是否可精简或合并工具调用步骤';
-            evidence = `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 与模型交互: ${modelInteractions} 次 | 会话总消息: ${messages.length} 条`;
+            phenomenon = `第 ${maxTurnIndex} 轮单轮步骤数达到 ${maxTurnSteps} 步（模型交互 ${maxTurnModelInteractions} 次，工具调用 ${maxTurnToolCalls} 次），超过 100 步阈值，建议排查 Skill 编排或工具失败重试`;
+            suspectedCause = 'Skill 提示词/流程拆解过细或工具调用失败引发反复试错，导致单轮推理与工具步骤数剧增';
+            recommendation = '优化 Skill 任务编排（合并批量操作、减少串行试探），并修复高频失败工具以降低无效重试步数';
+            evidence = `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 与模型交互: ${modelInteractions} 次 | 会话总消息: ${visibleMsgCount} 条`;
           }
 
           const failedToolsList = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
@@ -3019,7 +3092,9 @@ window.__ModuleLoader__.load({
             suspectedCause,
             recommendation,
             evidence,
-            stepCount: maxTurnSteps,
+            stepCount: totalSteps,
+            totalStepCount: totalSteps,
+            maxTurnSteps,
             modelInteractionsCount: maxTurnModelInteractions,
             totalModelInteractionsCount: modelInteractions,
             userPrompt: c.userPrompt,
@@ -3040,13 +3115,26 @@ window.__ModuleLoader__.load({
           };
         }
 
+        function shouldPromoteBadcaseRep(candidate, current) {
+          const cHighSteps = (candidate.maxTurnSteps || 0) > 100 ? 1 : 0;
+          const rHighSteps = (current.maxTurnSteps || 0) > 100 ? 1 : 0;
+          if (cHighSteps !== rHighSteps) return cHighSteps > rHighSteps;
+          if ((candidate.modelInteractionsCount || 0) !== (current.modelInteractionsCount || 0)) {
+            return (candidate.modelInteractionsCount || 0) > (current.modelInteractionsCount || 0);
+          }
+          if ((candidate.toolFailuresCount || 0) !== (current.toolFailuresCount || 0)) {
+            return (candidate.toolFailuresCount || 0) > (current.toolFailuresCount || 0);
+          }
+          return (candidate.maxTurnSteps || 0) > (current.maxTurnSteps || 0);
+        }
+
         function extractBadcasesFromCases(cases) {
           const rawBads = [];
           for (const c of cases) {
             const bad = detectBadcaseItem(c);
             if (bad) rawBads.push(bad);
           }
-          // Deduplicate similar prompts
+          // Deduplicate similar prompts while preserving highest-signal representative
           const clusters = [];
           for (const item of rawBads) {
             let added = false;
@@ -3057,6 +3145,9 @@ window.__ModuleLoader__.load({
                  (cluster.representative.userPrompt && item.userPrompt && cluster.representative.userPrompt.slice(0, 30) === item.userPrompt.slice(0, 30)))
               ) {
                 cluster.items.push(item);
+                if (shouldPromoteBadcaseRep(item, cluster.representative)) {
+                  cluster.representative = item;
+                }
                 added = true;
                 break;
               }
@@ -3073,6 +3164,97 @@ window.__ModuleLoader__.load({
           const sevRank = { '严重': 3, '高': 2, '关注': 1, '中': 1 };
           finalBads.sort((a, b) => (sevRank[b.severity] || 0) - (sevRank[a.severity] || 0));
           return finalBads;
+        }
+
+        function isModelLimitBadcase(b) {
+          if (!b) return false;
+          if (b.badcaseType === 'step_limit_exceeded' || b.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT) return true;
+          if ((b.defectTags || []).includes(BADCASE_LABEL_MODEL_LIMIT)) return true;
+          return getBadcaseCardMetrics(b).maxTurnModel >= 100;
+        }
+
+        function isHighTurnStepsBadcase(b) {
+          if (!b) return false;
+          if (b.badcaseType === 'high_turn_steps' || b.badcaseTypeName === BADCASE_LABEL_HIGH_STEPS) return true;
+          if ((b.defectTags || []).some(t => t.includes('单轮高步数'))) return true;
+          return getBadcaseCardMetrics(b).maxTurnSteps > 100;
+        }
+
+        function normalizeDatasetMetricsClientSide(json) {
+          if (!json || json.metricsVersion === CLIENT_METRICS_VERSION) return json;
+          if (Array.isArray(json.cases)) {
+            json.cases = json.cases.map(c => {
+              if (!Array.isArray(c.messages) || c.messages.length === 0) return c;
+              const m = computeConversationMetrics(c.messages);
+              return {
+                ...c,
+                maxTurnSteps: m.maxTurnSteps,
+                modelInteractionsCount: m.maxTurnModelInteractions,
+                totalModelInteractionsCount: m.modelInteractions,
+                needsAttention: m.maxTurnSteps > 100,
+                attentionTag: m.maxTurnSteps > 100 ? BADCASE_LABEL_HIGH_STEPS : ''
+              };
+            });
+          }
+
+          const rawList = Array.isArray(json.rawSessions) ? json.rawSessions : [];
+          const hasRawMsgs = rawList.some(s => !s.isNoise && Array.isArray(s.messages) && s.messages.length > 0);
+          if (hasRawMsgs) {
+            const pseudoCases = rawList
+              .filter(s => !s.isNoise && Array.isArray(s.messages) && s.messages.length > 0)
+              .map(s => {
+                const m = computeConversationMetrics(s.messages);
+                const toolNames = [...new Set(s.messages.filter(isToolCallMessage).map(t => getToolExecutionDetails(t).specificName).filter(Boolean))];
+                const assistantMsgs = s.messages.filter(x => x.role === 'assistant');
+                return {
+                  sessionId: s.sessionId,
+                  runId: s.runId || '',
+                  title: s.title,
+                  userPrompt: s.userPrompt || s.title || '',
+                  referenceAnswer: assistantMsgs[assistantMsgs.length - 1]?.content || '',
+                  turnsCount: m.turnsCount,
+                  toolCallsCount: m.toolCallsCount,
+                  toolNames,
+                  modelId: s.model || '',
+                  createdAt: s.createdAt || '',
+                  compId: s.compId ?? s.companyId ?? '',
+                  userId: s.userId ?? '',
+                  messages: s.messages
+                };
+              });
+            const recomputedBads = extractBadcasesFromCases(pseudoCases);
+            const badTypeBySid = new Map();
+            for (const c of pseudoCases) {
+              const b = detectBadcaseItem(c);
+              if (b) badTypeBySid.set(c.sessionId, b.badcaseTypeName);
+            }
+            json.rawSessions = rawList.map(s => {
+              if (!Array.isArray(s.messages) || s.messages.length === 0) return s;
+              const m = computeConversationMetrics(s.messages);
+              const visibleCount = s.messages.filter(x => !isFollowupMessage(x)).length;
+              return {
+                ...s,
+                messageCount: visibleCount,
+                turnCount: m.turnsCount,
+                execSteps: m.maxTurnSteps,
+                badcaseTypeName: badTypeBySid.get(s.sessionId) || ''
+              };
+            });
+            json.badcases = recomputedBads;
+            const bBreakdown = {};
+            for (const b of recomputedBads) {
+              bBreakdown[b.badcaseTypeName] = (bBreakdown[b.badcaseTypeName] || 0) + 1;
+            }
+            json.summary = {
+              ...(json.summary || {}),
+              badcasesCount: recomputedBads.length,
+              badcaseBreakdown: bBreakdown
+            };
+          } else if (Array.isArray(json.badcases) && json.badcases.length > 0) {
+            const recomputed = json.badcases.map(b => (Array.isArray(b.messages) && b.messages.length > 0 ? (detectBadcaseItem(b) || b) : b));
+            json.badcases = recomputed;
+          }
+          return json;
         }
 
         function App() {
@@ -3623,6 +3805,7 @@ window.__ModuleLoader__.load({
                   }
                 }
               }
+              normalizeDatasetMetricsClientSide(json);
               if ((!json.badcases || json.badcases.length === 0) && json.cases && json.cases.length > 0) {
                 const clientBads = extractBadcasesFromCases(json.cases);
                 json.badcases = clientBads;
@@ -3796,7 +3979,15 @@ window.__ModuleLoader__.load({
           // Filtering Badcases
           const filteredBadcases = React.useMemo(() => {
             return allBadcases.filter(b => {
-              if (selectedBadcaseType !== '全部' && b.badcaseTypeName !== selectedBadcaseType && b.badcaseType !== selectedBadcaseType) return false;
+              if (selectedBadcaseType !== '全部') {
+                if (selectedBadcaseType === BADCASE_LABEL_MODEL_LIMIT) {
+                  if (!isModelLimitBadcase(b)) return false;
+                } else if (selectedBadcaseType === BADCASE_LABEL_HIGH_STEPS) {
+                  if (!isHighTurnStepsBadcase(b)) return false;
+                } else if (b.badcaseTypeName !== selectedBadcaseType && b.badcaseType !== selectedBadcaseType) {
+                  return false;
+                }
+              }
               if (searchQuery.trim()) {
                 const q = searchQuery.trim().toLowerCase();
                 const matchTitle = (b.title || '').toLowerCase().includes(q);
@@ -3901,6 +4092,7 @@ window.__ModuleLoader__.load({
 
           const copyBadcaseReport = (b) => {
             if (!b) return;
+            const bm = getBadcaseCardMetrics(b);
             const report = `# ⚠️ KuaiBuddy Badcase 诊断与归因分析报告
 
 - **用例标题**: ${b.title}
@@ -3908,8 +4100,8 @@ window.__ModuleLoader__.load({
 - **缺陷严重度**: ${b.severity}
 - **主分类**: ${b.badcaseTypeName} (${b.badcaseType})
 - **综合缺陷标签**: ${(b.defectTags || [b.badcaseTypeName]).join(' / ')}
-- **交互步数**: ${b.stepCount || b.messages?.length || 0} 步
-- **工具调用统计**: ${b.toolCallsCount || 0} 次 (报错 ${b.toolFailuresCount || 0} 次)
+- **交互统计**: ${bm.turnsCount} 轮 · 总计 ${bm.totalSteps} 步 (单轮最高 ${bm.maxTurnSteps} 步 · 单轮最高模型交互 ${bm.maxTurnModel} 次)
+- **工具调用统计**: ${bm.toolCallsCount} 次 (报错 ${b.toolFailuresCount || 0} 次)
 - **关联会话 ID**: ${b.sessionId || 'N/A'}
 - **关联 Run ID**: ${b.runId || 'N/A'}
 - **模型版本**: ${b.modelId || 'MiniMax-M3.1-Flash'}
@@ -4024,7 +4216,15 @@ ${b.evidence}
           };
 
           const categories = ['全部', ...Object.keys(summary.categoryBreakdown || {})];
-          const badcaseCategories = ['全部', ...Object.keys(summary.badcaseBreakdown || {})];
+          const badcaseFilterCounts = React.useMemo(() => {
+            const counts = { ...(summary.badcaseBreakdown || {}) };
+            const modelLimitCnt = allBadcases.filter(isModelLimitBadcase).length;
+            const highStepsCnt = allBadcases.filter(isHighTurnStepsBadcase).length;
+            if (modelLimitCnt > 0) counts[BADCASE_LABEL_MODEL_LIMIT] = modelLimitCnt;
+            if (highStepsCnt > 0) counts[BADCASE_LABEL_HIGH_STEPS] = highStepsCnt;
+            return counts;
+          }, [summary.badcaseBreakdown, allBadcases]);
+          const badcaseCategories = ['全部', ...Object.keys(badcaseFilterCounts)];
           const officialCategories = ['全部', '正向基准', '缺陷回归', ...Object.keys(officialCategoryBreakdown)];
           const currentSelectedCount = viewMode === 'official'
             ? selectedOfficialIds.size
@@ -4253,7 +4453,7 @@ ${b.evidence}
                     else countLabel = ` (${officialCategoryBreakdown[cat] || 0})`;
                   } else {
                     if (cat === '全部') countLabel = ` (${viewMode === 'cases' ? allCases.length : allBadcases.length})`;
-                    else countLabel = ` (${(viewMode === 'cases' ? summary.categoryBreakdown : summary.badcaseBreakdown)[cat] || 0})`;
+                    else countLabel = ` (${(viewMode === 'cases' ? summary.categoryBreakdown : badcaseFilterCounts)[cat] || 0})`;
                   }
                   return h('button', {
                     key: cat,
@@ -4394,7 +4594,9 @@ ${b.evidence}
                       const isSelected = selectedCaseId === c.id;
                       const isChecked = selectedIds.has(c.id);
                       const inOfficial = isCaseInOfficial(c);
-                      const caseModelCnt = c.modelInteractionsCount ?? getMaxTurnModelInteractions(c.messages);
+                      const caseModelCnt = (Array.isArray(c.messages) && c.messages.length > 0)
+                        ? getMaxTurnModelInteractions(c.messages)
+                        : (c.modelInteractionsCount ?? 0);
                       const scoreClass = c.valueScore >= 95 ? 'ed-score-100' : (c.valueScore >= 80 ? 'ed-score-high' : 'ed-score-mid');
                       return h('div', {
                         key: c.id,
@@ -4422,10 +4624,10 @@ ${b.evidence}
                               },
                               title: `单轮步骤数达 ${c.maxTurnSteps || 0} 步 (>100)，需关注`
                             }, c.attentionTag || '单轮高步数(需关注)'),
-                            caseModelCnt > 100 && h('span', {
+                            caseModelCnt >= 100 && h('span', {
                               className: 'ed-badcase-type-tag ed-badcase-type-tag-danger',
-                              title: `单轮与模型交互峰值 ${caseModelCnt} 次 (>100)`
-                            }, h(Glyph, { kind: 'alertTriangle', size: 11 }), '步骤超限'),
+                              title: `单轮与模型交互峰值 ${caseModelCnt} 次 (达到 100 次上限)`
+                            }, h(Glyph, { kind: 'alertTriangle', size: 11 }), BADCASE_LABEL_MODEL_LIMIT),
                             c.sampleRepetitions > 1 && h('span', {
                               style: {
                                 fontSize: '10px',
@@ -4470,13 +4672,16 @@ ${b.evidence}
                       const inOfficial = isCaseInOfficial(b);
                       const sevClass = b.severity === '严重' ? 'critical' : (b.severity === '高' ? 'high' : 'medium');
                       const cleanPhenomenon = (b.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, '');
+                      const bm = getBadcaseCardMetrics(b);
+                      const showStepExceededChip = bm.maxTurnModel >= 100 && b.badcaseTypeName !== BADCASE_LABEL_MODEL_LIMIT;
+                      const hasSecondarySignals = (b.failedToolNames && b.failedToolNames.length > 0) || bm.maxTurnSteps > 100 || b.sampleRepetitions > 1;
                       return h('div', {
                         key: b.id,
                         className: `ed-case-card ${isSelected ? 'active' : ''}`,
                         onClick: () => setSelectedBadcaseId(b.id)
                       },
-                        h('div', { className: 'ed-card-head' },
-                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+                        h('div', { className: 'ed-card-head', style: { alignItems: 'flex-start' } },
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', flex: 1, minWidth: 0 } },
                             h('input', {
                               type: 'checkbox',
                               checked: isChecked,
@@ -4484,81 +4689,89 @@ ${b.evidence}
                             }),
                             h('span', { className: `ed-severity-badge ed-severity-${sevClass}` }, b.severity),
                             h('span', {
-                              className: `ed-badcase-type-tag ${b.badcaseTypeName === '步骤超限' ? 'ed-badcase-type-tag-danger' : ''}`
+                              className: `ed-badcase-type-tag ${b.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? 'ed-badcase-type-tag-danger' : ''}`
                             },
-                              b.badcaseTypeName === '步骤超限' ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
+                              b.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
                               b.badcaseTypeName
                             ),
                             b.toolFailuresCount > 0 && h('span', { className: 'ed-badcase-count-tag' }, `${b.toolFailuresCount}次报错`),
-                            (() => {
-                              const modelCnt = b.modelInteractionsCount ?? getMaxTurnModelInteractions(b.messages);
-                              return [
-                                modelCnt > 100 && b.badcaseTypeName !== '步骤超限' && h('span', {
-                                  key: 'step_limit_tag',
-                                  className: 'ed-badcase-type-tag ed-badcase-type-tag-danger',
-                                  title: `单轮与模型交互峰值 ${modelCnt} 次 (>100)`
-                                }, h(Glyph, { kind: 'alertTriangle', size: 11 }), '步骤超限'),
-                                (b.stepCount || 0) > 100 && h('span', {
-                                  key: 'high_turn_tag',
-                                  style: {
-                                    fontSize: '10px',
-                                    color: '#d97706',
-                                    background: 'rgba(217, 119, 6, 0.08)',
-                                    border: '1px solid rgba(217, 119, 6, 0.25)',
-                                    borderRadius: '4px',
-                                    padding: '1px 5px',
-                                    fontWeight: '600'
-                                  },
-                                  title: `单轮步骤数达 ${b.stepCount} 步 (>100)，需关注`
-                                }, `单轮${b.stepCount}步·需关注`)
-                              ];
-                            })(),
-                            b.sampleRepetitions > 1 && h('span', {
-                              style: {
-                                fontSize: '10px',
-                                color: 'var(--ed-text2)',
-                                background: 'var(--ed-bg-layer2)',
-                                border: '1px solid var(--ed-border1)',
-                                borderRadius: '4px',
-                                padding: '1px 5px'
-                              },
-                              title: `已聚合合并 ${b.sampleRepetitions} 条相近用例`
-                            }, `x${b.sampleRepetitions}`)
+                            showStepExceededChip && h('span', {
+                              className: 'ed-badcase-type-tag ed-badcase-type-tag-danger',
+                              title: `单轮与模型交互峰值 ${bm.maxTurnModel} 次 (达到 100 次上限)`
+                            }, h(Glyph, { kind: 'alertTriangle', size: 11 }), BADCASE_LABEL_MODEL_LIMIT)
                           ),
-                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-                            b.toolCallsCount > 0 && h('span', {
-                              style: { fontSize: '10.5px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums' }
-                            }, `${b.toolCallsCount}次工具`),
+                          h('div', { style: { flexShrink: 0 } },
                             h('button', {
                               type: 'button',
                               className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
+                              style: { whiteSpace: 'nowrap' },
                               onClick: e => handleToggleCaseOfficial(b, e),
                               title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该 Badcase 加入正式评测集'
                             }, inOfficial ? [h(Glyph, { key: 'i', kind: 'check', size: 11 }), '已在正式集'] : '+ 选入正式集')
                           )
                         ),
                         h('div', { className: 'ed-card-title' }, b.title),
-                        b.failedToolNames && b.failedToolNames.length > 0 && h('div', {
-                          style: { display: 'flex', gap: '4px', flexWrap: 'wrap', margin: '4px 0' }
-                        }, b.failedToolNames.map((ft, fidx) => h('span', {
-                          key: fidx,
-                          style: {
-                            fontSize: '11px',
-                            padding: '1px 5px',
-                            borderRadius: '3px',
-                            background: 'rgba(239, 68, 68, 0.08)',
-                            color: '#dc2626',
-                            border: '1px solid rgba(239, 68, 68, 0.25)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontWeight: '500'
-                          }
-                        }, h(Glyph, { kind: 'close', size: 10 }), ft))),
+                        hasSecondarySignals && h('div', {
+                          style: { display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }
+                        },
+                          ...(b.failedToolNames || []).map((ft, fidx) => h('span', {
+                            key: `ft_${fidx}`,
+                            style: {
+                              fontSize: '10.5px',
+                              padding: '1px 5px',
+                              borderRadius: '3px',
+                              background: 'rgba(239, 68, 68, 0.08)',
+                              color: '#dc2626',
+                              border: '1px solid rgba(239, 68, 68, 0.25)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              fontWeight: '500'
+                            }
+                          }, h(Glyph, { kind: 'close', size: 10 }), ft)),
+                          bm.maxTurnSteps > 100 && h('span', {
+                            key: 'high_turn_tag',
+                            style: {
+                              fontSize: '10.5px',
+                              color: '#d97706',
+                              background: 'rgba(217, 119, 6, 0.08)',
+                              border: '1px solid rgba(217, 119, 6, 0.25)',
+                              borderRadius: '4px',
+                              padding: '1px 5px',
+                              fontWeight: '600',
+                              whiteSpace: 'nowrap'
+                            },
+                            title: `单轮最高步骤数达 ${bm.maxTurnSteps} 步 (>100)，需关注`
+                          }, `单轮最高 ${bm.maxTurnSteps} 步·需关注`),
+                          b.sampleRepetitions > 1 && h('span', {
+                            key: 'rep_tag',
+                            style: {
+                              fontSize: '10.5px',
+                              color: 'var(--ed-text2)',
+                              background: 'var(--ed-bg-layer2)',
+                              border: '1px solid var(--ed-border1)',
+                              borderRadius: '4px',
+                              padding: '1px 5px',
+                              whiteSpace: 'nowrap'
+                            },
+                            title: `已将 ${b.sampleRepetitions} 条相似或同类异常会话聚合去重`
+                          }, `同类合并 ×${b.sampleRepetitions}`)
+                        ),
                         h('div', { className: 'ed-badcase-card-desc' }, cleanPhenomenon),
-                        h('div', { className: 'ed-card-meta', style: { marginTop: '2px' } },
-                          h('span', null, `${b.turnsCount} 轮 · ${b.stepCount || 0} 步 · ${b.modelId || 'M3.1'}`),
-                          h('span', null, (b.createdAt || '').slice(11, 16))
+                        h('div', {
+                          className: 'ed-card-meta',
+                          style: {
+                            marginTop: '2px',
+                            paddingTop: '6px',
+                            borderTop: '1px dashed var(--ed-border1)',
+                            gap: '8px'
+                          }
+                        },
+                          h('span', {
+                            style: { fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                            title: `全会话共 ${bm.turnsCount} 轮 · 总计 ${bm.totalSteps} 步 · ${bm.toolCallsCount} 次工具调用`
+                          }, `${bm.turnsCount} 轮 · 总 ${bm.totalSteps} 步${bm.toolCallsCount > 0 ? ` · ${bm.toolCallsCount} 工具` : ''}${b.modelId ? ` · ${b.modelId}` : ''}`),
+                          h('span', { style: { flexShrink: 0, fontVariantNumeric: 'tabular-nums' } }, (b.createdAt || '').slice(11, 16))
                         )
                       );
                     })
@@ -4740,7 +4953,7 @@ ${b.evidence}
                       h('button', {
                         className: `ed-tab-btn ${activeTab === 'timeline' ? 'active' : ''}`,
                         onClick: () => setActiveTab('timeline')
-                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${activeCase.messages.length})`)
+                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${(activeCase.messages || []).filter(m => !isFollowupMessage(m)).length})`)
                     ),
 
                     // Detail Body
@@ -4821,22 +5034,34 @@ ${b.evidence}
                         h('div', { className: 'ed-meta-chips-row' },
                           h('span', { className: `ed-severity-badge ed-severity-${activeBadcase.severity === '严重' ? 'critical' : (activeBadcase.severity === '高' ? 'high' : 'medium')}` }, activeBadcase.severity),
                           h('span', {
-                            className: `ed-badcase-type-tag ${activeBadcase.badcaseTypeName === '步骤超限' ? 'ed-badcase-type-tag-danger' : ''}`
+                            className: `ed-badcase-type-tag ${activeBadcase.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? 'ed-badcase-type-tag-danger' : ''}`
                           },
-                            activeBadcase.badcaseTypeName === '步骤超限' ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
+                            activeBadcase.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
                             activeBadcase.badcaseTypeName
                           ),
                           activeBadcase.toolFailuresCount > 0 && h('span', {
                             className: 'ed-meta-chip',
                             style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' }
                           }, h(Glyph, { kind: 'alertCircle', size: 12 }), `报错 ${activeBadcase.toolFailuresCount} 次`),
-                          h('span', { className: 'ed-meta-chip' }, `交互 ${activeBadcase.stepCount || 0} 步 / ${activeBadcase.turnsCount || 1} 轮`),
                           (() => {
-                            const modelCnt = activeBadcase.modelInteractionsCount ?? getMaxTurnModelInteractions(activeBadcase.messages);
-                            return h('span', {
-                              className: 'ed-meta-chip',
-                              style: modelCnt > 100 ? { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' } : undefined
-                            }, `单轮模型交互 ${modelCnt} 次`);
+                            const bm = getBadcaseCardMetrics(activeBadcase);
+                            return [
+                              h('span', {
+                                key: 'total_steps',
+                                className: 'ed-meta-chip',
+                                title: '对话总步骤数 / 对话总轮次'
+                              }, `总 ${bm.totalSteps} 步 / ${bm.turnsCount} 轮`),
+                              h('span', {
+                                key: 'max_model',
+                                className: 'ed-meta-chip',
+                                style: bm.maxTurnModel >= 100 ? { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' } : undefined
+                              }, `单轮模型交互 ${bm.maxTurnModel} 次`),
+                              bm.maxTurnSteps > 100 && h('span', {
+                                key: 'max_steps',
+                                className: 'ed-meta-chip',
+                                style: { color: '#d97706', borderColor: 'rgba(217,119,6,0.25)', background: 'rgba(217,119,6,0.06)' }
+                              }, `单轮最高 ${bm.maxTurnSteps} 步`)
+                            ];
                           })(),
                           h('span', { className: 'ed-meta-chip' }, `模型: ${activeBadcase.modelId || 'M3.1'}`),
                           activeBadcase.runId && h('span', {
@@ -4895,7 +5120,7 @@ ${b.evidence}
                       h('button', {
                         className: `ed-tab-btn ${badcaseTab === 'timeline' ? 'active' : ''}`,
                         onClick: () => setBadcaseTab('timeline')
-                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${activeBadcase.messages.length})`),
+                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${(activeBadcase.messages || []).filter(m => !isFollowupMessage(m)).length})`),
                       h('button', {
                         className: `ed-tab-btn ${badcaseTab === 'tools' ? 'active' : ''}`,
                         onClick: () => setBadcaseTab('tools')
@@ -5215,7 +5440,7 @@ ${b.evidence}
                         Array.isArray(activeOfficialCase.messages) && activeOfficialCase.messages.length > 0 && h('button', {
                           className: `ed-tab-btn ${officialTab === 'timeline' ? 'active' : ''}`,
                           onClick: () => setOfficialTab('timeline')
-                        }, h(Glyph, { kind: 'chat', size: 13 }), `原始完整对话回放 (${activeOfficialCase.messages.length})`)
+                        }, h(Glyph, { kind: 'chat', size: 13 }), `原始完整对话回放 (${(activeOfficialCase.messages || []).filter(m => !isFollowupMessage(m)).length})`)
                       ),
 
                       // Official Case Detail Body

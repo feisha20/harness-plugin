@@ -13,10 +13,13 @@ import {
   removeOfficialCases,
   updateOfficialCase
 } from './api.js';
-import { extractEvaluationDataset, exportFormat, isNoiseSession } from './evaluator.js';
+import { extractEvaluationDataset, exportFormat, isNoiseSession, isFollowupMessage, isStepMessage } from './evaluator.js';
 import { regressionManager } from './regression.js';
 
 export const inject = ['webServer', 'tools'];
+
+// Bump when step / model-interaction metrics semantics change so cached /tmp files recompute offline
+const METRICS_VERSION = 3;
 
 // In-memory cache for extracted evaluation datasets
 const datasetCache = new Map();
@@ -26,96 +29,73 @@ function getYesterdayStr() {
   return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
 }
 
-export async function getOrExtractDataset(dateStr, force = false, minScore = 60, targetEnv, overrideCreds) {
-  const date = dateStr || getYesterdayStr();
-  const creds = getCredentials(targetEnv, overrideCreds);
-  const currentEnv = creds.env;
-  const cacheKey = `${currentEnv}_${creds.key}_${date}_${minScore}`;
+function formatDurationLabel(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0s';
+  if (ms < 1000) return '<1s';
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+}
 
-  if (!force && datasetCache.has(cacheKey)) {
-    return datasetCache.get(cacheKey);
+function computeSingleTurnStats(msgs) {
+  if (!Array.isArray(msgs) || msgs.length === 0) {
+    return { turnCount: 0, execSteps: 0, durationMs: 0, durationLabel: '' };
   }
-
-  // Also check disk cache in /tmp
-  const diskCacheFile = path.join('/tmp', `kuaibuddy_eval_${currentEnv}_${date}.json`);
-  if (!force && fs.existsSync(diskCacheFile)) {
-    try {
-      const content = fs.readFileSync(diskCacheFile, 'utf8');
-      const parsed = JSON.parse(content);
-      datasetCache.set(cacheKey, parsed);
-      return parsed;
-    } catch {}
+  const turns = [];
+  let currentTurn = null;
+  for (const m of msgs) {
+    if (!m || isFollowupMessage(m)) continue;
+    if (m.role === 'user' || !currentTurn) {
+      currentTurn = { steps: 0, minTs: Infinity, maxTs: -Infinity };
+      turns.push(currentTurn);
+    }
+    if (isStepMessage(m)) {
+      currentTurn.steps += 1;
+    }
+    const ts = m.createdAt ? Date.parse(m.createdAt) : NaN;
+    if (Number.isFinite(ts)) {
+      if (ts < currentTurn.minTs) currentTurn.minTs = ts;
+      if (ts > currentTurn.maxTs) currentTurn.maxTs = ts;
+    }
   }
+  if (turns.length === 0) {
+    return { turnCount: 0, execSteps: 0, durationMs: 0, durationLabel: '' };
+  }
+  let bestTurn = turns[0];
+  for (const t of turns) {
+    const tDur = Number.isFinite(t.minTs) && Number.isFinite(t.maxTs) ? Math.max(0, t.maxTs - t.minTs) : 0;
+    const bDur = Number.isFinite(bestTurn.minTs) && Number.isFinite(bestTurn.maxTs) ? Math.max(0, bestTurn.maxTs - bestTurn.minTs) : 0;
+    if (t.steps > bestTurn.steps || (t.steps === bestTurn.steps && tDur > bDur)) {
+      bestTurn = t;
+    }
+  }
+  const durationMs = Number.isFinite(bestTurn.minTs) && Number.isFinite(bestTurn.maxTs)
+    ? Math.max(0, bestTurn.maxTs - bestTurn.minTs)
+    : 0;
+  return {
+    turnCount: turns.length,
+    execSteps: bestTurn.steps,
+    durationMs,
+    durationLabel: Number.isFinite(bestTurn.minTs) ? formatDurationLabel(durationMs) : ''
+  };
+}
 
-  // Fetch raw sessions
-  const sessions = await fetchSessionsForDate(date, currentEnv, overrideCreds);
-  const candidates = sessions.filter(s => !isNoiseSession(s));
-
-  // Extract messages for all sessions (including noise sessions so all are inspectable)
-  const sessionIds = sessions.map(s => s.sessionId);
-  const messagesMap = await fetchMessagesBatch(sessionIds, 8, currentEnv, overrideCreds);
-
+function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, minScore) {
   const dataset = extractEvaluationDataset(sessions, messagesMap, minScore);
   const caseBySession = new Map((dataset.cases || []).map(c => [c.sessionId, c]));
   const badcaseBySession = new Map((dataset.badcases || []).map(b => [b.sessionId, b]));
 
-  const formatDurationLabel = (ms) => {
-    if (!Number.isFinite(ms) || ms <= 0) return '0s';
-    if (ms < 1000) return '<1s';
-    const totalSec = Math.round(ms / 1000);
-    if (totalSec < 60) return `${totalSec}s`;
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
-    const hours = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
-  };
-
-  const computeSingleTurnStats = (msgs) => {
-    if (!Array.isArray(msgs) || msgs.length === 0) {
-      return { turnCount: 0, execSteps: 0, durationMs: 0, durationLabel: '' };
-    }
-    const turns = [];
-    let currentTurn = null;
-    for (const m of msgs) {
-      if (m.role === 'user' || !currentTurn) {
-        currentTurn = { steps: 0, minTs: Infinity, maxTs: -Infinity };
-        turns.push(currentTurn);
-      }
-      if (m.role !== 'user' && m.role !== 'assistant') {
-        currentTurn.steps += 1;
-      }
-      const ts = m.createdAt ? Date.parse(m.createdAt) : NaN;
-      if (Number.isFinite(ts)) {
-        if (ts < currentTurn.minTs) currentTurn.minTs = ts;
-        if (ts > currentTurn.maxTs) currentTurn.maxTs = ts;
-      }
-    }
-    let bestTurn = turns[0];
-    for (const t of turns) {
-      const tDur = Number.isFinite(t.minTs) && Number.isFinite(t.maxTs) ? Math.max(0, t.maxTs - t.minTs) : 0;
-      const bDur = Number.isFinite(bestTurn.minTs) && Number.isFinite(bestTurn.maxTs) ? Math.max(0, bestTurn.maxTs - bestTurn.minTs) : 0;
-      if (t.steps > bestTurn.steps || (t.steps === bestTurn.steps && tDur > bDur)) {
-        bestTurn = t;
-      }
-    }
-    const durationMs = Number.isFinite(bestTurn.minTs) && Number.isFinite(bestTurn.maxTs)
-      ? Math.max(0, bestTurn.maxTs - bestTurn.minTs)
-      : 0;
-    return {
-      turnCount: turns.length,
-      execSteps: bestTurn.steps,
-      durationMs,
-      durationLabel: Number.isFinite(bestTurn.minTs) ? formatDurationLabel(durationMs) : ''
-    };
-  };
-
   const rawSessions = sessions.map(s => {
     const msgs = messagesMap.get(s.sessionId) || [];
-    const firstUser = msgs.find(m => m.role === 'user');
+    const visibleMsgs = msgs.filter(m => !isFollowupMessage(m));
+    const firstUser = visibleMsgs.find(m => m.role === 'user');
     const prompt = firstUser?.content || s.title || '';
-    const runIds = [...new Set(msgs.map(m => m.runId).filter(Boolean))];
+    const runIds = [...new Set(visibleMsgs.map(m => m.runId).filter(Boolean))];
     const matchedCase = caseBySession.get(s.sessionId);
     const matchedBadcase = badcaseBySession.get(s.sessionId);
     const turnStats = computeSingleTurnStats(msgs);
@@ -134,7 +114,7 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
       isNoise: isNoiseSession(s),
       caseCategory: matchedCase ? matchedCase.category : '',
       badcaseTypeName: matchedBadcase ? matchedBadcase.badcaseTypeName : '',
-      messageCount: msgs.length,
+      messageCount: visibleMsgs.length,
       turnCount: turnStats.turnCount,
       execSteps: turnStats.execSteps,
       durationMs: turnStats.durationMs,
@@ -143,16 +123,74 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
     };
   });
 
-  const result = {
+  return {
+    metricsVersion: METRICS_VERSION,
     date,
     env: currentEnv,
-    envName: creds.envName,
+    envName,
     readAt: new Date().toISOString(),
     summary: dataset.summary,
     cases: dataset.cases,
     badcases: dataset.badcases || [],
     rawSessions
   };
+}
+
+export async function getOrExtractDataset(dateStr, force = false, minScore = 60, targetEnv, overrideCreds) {
+  const date = dateStr || getYesterdayStr();
+  const creds = getCredentials(targetEnv, overrideCreds);
+  const currentEnv = creds.env;
+  const cacheKey = `${currentEnv}_${creds.key}_${date}_${minScore}`;
+
+  if (!force && datasetCache.has(cacheKey)) {
+    return datasetCache.get(cacheKey);
+  }
+
+  // Also check disk cache in /tmp
+  const diskCacheFile = path.join('/tmp', `kuaibuddy_eval_${currentEnv}_${date}.json`);
+  if (!force && fs.existsSync(diskCacheFile)) {
+    try {
+      const content = fs.readFileSync(diskCacheFile, 'utf8');
+      const parsed = JSON.parse(content);
+      if (parsed.metricsVersion === METRICS_VERSION) {
+        datasetCache.set(cacheKey, parsed);
+        return parsed;
+      }
+      if (Array.isArray(parsed.rawSessions) && parsed.rawSessions.length > 0) {
+        const rebuiltMessagesMap = new Map();
+        const rebuiltSessions = parsed.rawSessions.map(rs => {
+          rebuiltMessagesMap.set(rs.sessionId, Array.isArray(rs.messages) ? rs.messages : []);
+          const preservedTitle = (rs.isNoise && !isNoiseSession(rs)) ? '' : rs.title;
+          return {
+            sessionId: rs.sessionId,
+            threadId: rs.threadId || '',
+            runId: rs.runId || '',
+            userId: rs.userId,
+            compId: rs.compId ?? rs.companyId ?? '',
+            companyId: rs.compId ?? rs.companyId ?? '',
+            createdAt: rs.createdAt || '',
+            modelId: rs.model || '',
+            title: preservedTitle
+          };
+        });
+        const upgraded = buildDatasetResult(rebuiltSessions, rebuiltMessagesMap, date, currentEnv, creds.envName, minScore);
+        datasetCache.set(cacheKey, upgraded);
+        try {
+          fs.writeFileSync(diskCacheFile, JSON.stringify(upgraded), 'utf8');
+        } catch {}
+        return upgraded;
+      }
+    } catch {}
+  }
+
+  // Fetch raw sessions
+  const sessions = await fetchSessionsForDate(date, currentEnv, overrideCreds);
+
+  // Extract messages for all sessions (including noise sessions so all are inspectable)
+  const sessionIds = sessions.map(s => s.sessionId);
+  const messagesMap = await fetchMessagesBatch(sessionIds, 8, currentEnv, overrideCreds);
+
+  const result = buildDatasetResult(sessions, messagesMap, date, currentEnv, creds.envName, minScore);
 
   datasetCache.set(cacheKey, result);
 

@@ -190,12 +190,37 @@ export function isSimilarPrompt(p1, p2) {
 }
 
 /**
+ * Message role / deduplication helpers shared across step and interaction metrics.
+ */
+export function isFollowupMessage(m) {
+  return Boolean(m) && m.role === 'followup';
+}
+
+export function isToolCallMessage(m) {
+  return Boolean(m) && (m.role === 'tool' || Boolean(m.toolName));
+}
+
+export function isStepMessage(m) {
+  return Boolean(m) && m.role !== 'user' && m.role !== 'assistant' && !isFollowupMessage(m);
+}
+
+export function isModelInteractionMessage(m) {
+  return Boolean(m) && m.role !== 'user' && !isFollowupMessage(m) && !isToolCallMessage(m);
+}
+
+export function getModelInteractionKey(m, idx) {
+  const id = m?.messageId ? String(m.messageId) : '';
+  return id ? id.replace(/-(text|thinking)$/, '') : `__msg_${idx}`;
+}
+
+/**
  * Compute per-turn execution step metrics and total model interaction count.
- * - maxTurnSteps: max intermediate steps (role !== 'user' && role !== 'assistant') in any single turn
- * - modelInteractions: total model outputs (role !== 'user' && role !== 'tool' && !toolName)
+ * - maxTurnSteps: max intermediate steps (reasoning + tool, excluding followup/assistant/user) in any single turn
+ * - modelInteractions: deduplicated LLM request count (base messageId stripping -text/-thinking, excluding followup/tool/user)
  */
 export function computeConversationStepMetrics(messages) {
   const msgs = Array.isArray(messages) ? messages : [];
+  let totalSteps = 0;
   let maxTurnSteps = 0;
   let maxTurnToolCalls = 0;
   let maxTurnIndex = 1;
@@ -203,9 +228,9 @@ export function computeConversationStepMetrics(messages) {
   let maxModelTurnIndex = 1;
   let curTurnSteps = 0;
   let curTurnTools = 0;
-  let curTurnModel = 0;
+  let curTurnModelKeys = new Set();
+  const allModelKeys = new Set();
   let curTurnIdx = 0;
-  let modelInteractions = 0;
 
   const commitTurn = () => {
     if (curTurnIdx <= 0) return;
@@ -214,43 +239,47 @@ export function computeConversationStepMetrics(messages) {
       maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
       maxTurnIndex = curTurnIdx;
     }
-    if (curTurnModel > maxTurnModelInteractions) {
-      maxTurnModelInteractions = curTurnModel;
+    if (curTurnModelKeys.size > maxTurnModelInteractions) {
+      maxTurnModelInteractions = curTurnModelKeys.size;
       maxModelTurnIndex = curTurnIdx;
     }
   };
 
-  for (const m of msgs) {
-    if (m.role !== 'user' && m.role !== 'tool' && !m.toolName) {
-      modelInteractions++;
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (!m || isFollowupMessage(m)) continue;
+    if (isModelInteractionMessage(m)) {
+      allModelKeys.add(getModelInteractionKey(m, i));
     }
     if (m.role === 'user') {
       commitTurn();
       curTurnIdx++;
       curTurnSteps = 0;
       curTurnTools = 0;
-      curTurnModel = 0;
+      curTurnModelKeys = new Set();
     } else {
       if (curTurnIdx === 0) curTurnIdx = 1;
-      if (m.role !== 'assistant') {
+      if (isStepMessage(m)) {
         curTurnSteps++;
+        totalSteps++;
       }
-      if (m.role === 'tool' || m.toolName) {
+      if (isToolCallMessage(m)) {
         curTurnTools++;
-      } else {
-        curTurnModel++;
+      } else if (isModelInteractionMessage(m)) {
+        curTurnModelKeys.add(getModelInteractionKey(m, i));
       }
     }
   }
   commitTurn();
 
   return {
+    totalSteps,
     maxTurnSteps,
     maxTurnToolCalls,
     maxTurnIndex,
     maxTurnModelInteractions,
     maxModelTurnIndex,
-    modelInteractions
+    modelInteractions: allModelKeys.size
   };
 }
 
@@ -271,6 +300,7 @@ export function detectBadcase(session, messages) {
   const userMsgs = messages.filter(m => m.role === 'user');
   const assistantMsgs = messages.filter(m => m.role === 'assistant');
   const toolMsgs = messages.filter(m => m.role === 'tool' || m.toolName);
+  const visibleMsgCount = messages.filter(m => !isFollowupMessage(m)).length;
 
   if (userMsgs.length === 0 && (!session.title || isNoiseSession(session))) {
     return null;
@@ -304,10 +334,10 @@ export function detectBadcase(session, messages) {
     modelInteractions
   } = computeConversationStepMetrics(messages);
 
-  // 1. 步骤超限：单轮与模型交互超过 100 次
-  const isStepExceeded = maxTurnModelInteractions > 100;
+  // 1. 模型交互达上限：单轮与模型交互达到或超过 100 次（框架单轮上限为 100 次，触顶基本意味被迫中断）
+  const isStepExceeded = maxTurnModelInteractions >= 100;
 
-  // 1b. 单轮步骤数超过 100：标记为需要关注的 case
+  // 1b. 单轮高步数：单轮步骤数超过 100 步（通常因 Skill 编排过细或工具失败重试导致步骤剧增）
   const isHighTurnSteps = maxTurnSteps > 100;
 
   // 2. 工具调用高频失败 (>= 2 次)
@@ -384,8 +414,8 @@ export function detectBadcase(session, messages) {
 
   // 汇总所有命中的缺陷标签
   const defectTags = [];
-  if (isStepExceeded) defectTags.push('步骤超限');
-  if (isHighTurnSteps) defectTags.push('单轮高步数(需关注)');
+  if (isStepExceeded) defectTags.push('模型交互达上限');
+  if (isHighTurnSteps) defectTags.push('单轮高步数(>100步)');
   if (isFrequentToolFail) defectTags.push(`工具高频失败(${failedToolMsgs.length}次)`);
   else if (isSingleToolError) defectTags.push('工具调用异常');
   if (isTaskInterrupted) defectTags.push('任务中断');
@@ -427,13 +457,13 @@ export function detectBadcase(session, messages) {
     return {
       isBadcase: true,
       badcaseType: 'step_limit_exceeded',
-      badcaseTypeName: '步骤超限',
+      badcaseTypeName: '模型交互达上限',
       severity: '严重',
       defectTags,
-      phenomenon: `第 ${maxModelTurnIndex} 轮与模型交互达到 ${maxTurnModelInteractions} 次（该轮最大 ${maxTurnSteps} 步，全会话模型交互 ${modelInteractions} 次），超过 100 次阈值`,
-      suspectedCause: '智能体单轮与模型交互轮次未设置合理上限，或在工具调用/重试循环中未及时收敛',
-      recommendation: '增加单轮模型交互次数与步数 Hard Limit 熔断机制，防止死循环或过度推理消耗资源',
-      evidence: `单轮最高模型交互: ${maxTurnModelInteractions} 次 (第 ${maxModelTurnIndex} 轮) | 单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总消息: ${messages.length} 条`,
+      phenomenon: `第 ${maxModelTurnIndex} 轮与模型交互达到 ${maxTurnModelInteractions} 次（该轮 ${maxTurnSteps} 步，全会话模型交互 ${modelInteractions} 次），已触及 100 次上限，存在被迫中断风险`,
+      suspectedCause: '单轮任务在框架 100 次模型交互上限内未能收敛完成（常见于工具反复重试死循环、Skill 编排过细或循环检索未收敛），最终被迫中断或强制收尾',
+      recommendation: '排查对应 Skill 编排与循环终止条件，合并冗余步骤并增加工具失败快速回退/熔断策略',
+      evidence: `单轮最高模型交互: ${maxTurnModelInteractions} 次 (第 ${maxModelTurnIndex} 轮) | 单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总消息: ${visibleMsgCount} 条`,
       evidenceRole: 'system',
       stepCount: maxTurnSteps,
       modelInteractionsCount: maxTurnModelInteractions,
@@ -582,7 +612,8 @@ export function detectBadcase(session, messages) {
       evidence: (tm.toolErrorDetail ? `【失败工具: ${specificName}】\n报错详情: ${tm.toolErrorDetail}\n\n原始返回:\n` : '') + text.slice(0, 300),
       evidenceRole: 'tool',
       stepCount: maxTurnSteps,
-      modelInteractionsCount: modelInteractions,
+      modelInteractionsCount: maxTurnModelInteractions,
+      totalModelInteractionsCount: modelInteractions,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: 1
     };
@@ -592,13 +623,13 @@ export function detectBadcase(session, messages) {
     return {
       isBadcase: true,
       badcaseType: 'high_turn_steps',
-      badcaseTypeName: '单轮高步数(需关注)',
+      badcaseTypeName: '单轮高步数(>100步)',
       severity: '关注',
       defectTags,
-      phenomenon: `第 ${maxTurnIndex} 轮单轮步骤数达到 ${maxTurnSteps} 步（该轮工具调用 ${maxTurnToolCalls} 次），超过 100 步，建议人工关注`,
-      suspectedCause: '单轮任务链路较长或连续工具调用较多，虽未超出模型交互上限，但单轮执行复杂度偏高',
-      recommendation: '复核该轮执行链路与提示词引导，评估是否可精简或合并工具调用步骤',
-      evidence: `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 与模型交互: ${modelInteractions} 次 | 会话总消息: ${messages.length} 条`,
+      phenomenon: `第 ${maxTurnIndex} 轮单轮步骤数达到 ${maxTurnSteps} 步（模型交互 ${maxTurnModelInteractions} 次，工具调用 ${maxTurnToolCalls} 次），超过 100 步阈值，建议排查 Skill 编排或工具失败重试`,
+      suspectedCause: 'Skill 提示词/流程拆解过细或工具调用失败引发反复试错，导致单轮推理与工具步骤数剧增',
+      recommendation: '优化 Skill 任务编排（合并批量操作、减少串行试探），并修复高频失败工具以降低无效重试步数',
+      evidence: `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 与模型交互: ${modelInteractions} 次 | 会话总消息: ${visibleMsgCount} 条`,
       evidenceRole: 'system',
       stepCount: maxTurnSteps,
       modelInteractionsCount: maxTurnModelInteractions,
@@ -732,7 +763,7 @@ export function scoreAndCategorizeSession(session, messages) {
     modelInteractionsCount: stepMetrics.maxTurnModelInteractions,
     totalModelInteractionsCount: stepMetrics.modelInteractions,
     needsAttention: stepMetrics.maxTurnSteps > 100,
-    attentionTag: stepMetrics.maxTurnSteps > 100 ? '单轮高步数(需关注)' : '',
+    attentionTag: stepMetrics.maxTurnSteps > 100 ? '单轮高步数(>100步)' : '',
     toolNames,
     hasReasoning: reasoningMsgs.length > 0,
     modelId: session.modelId || 'MiniMax-M3.1-Flash',
@@ -765,6 +796,7 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
 
       const badRunIds = [...new Set(msgs.map(m => m.runId).filter(Boolean))];
       const badRunId = badRunIds[0] || '';
+      const stepMetrics = computeConversationStepMetrics(msgs);
 
       rawBadcases.push({
         id: `bad_${session.sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(-24)}`,
@@ -783,9 +815,11 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
         recommendation: bad.recommendation,
         evidence: bad.evidence,
         evidenceRole: bad.evidenceRole,
-        stepCount: bad.stepCount || msgs.length,
-        modelInteractionsCount: bad.modelInteractionsCount ?? computeConversationStepMetrics(msgs).maxTurnModelInteractions,
-        totalModelInteractionsCount: bad.totalModelInteractionsCount ?? computeConversationStepMetrics(msgs).modelInteractions,
+        stepCount: stepMetrics.totalSteps,
+        totalStepCount: stepMetrics.totalSteps,
+        maxTurnSteps: stepMetrics.maxTurnSteps,
+        modelInteractionsCount: bad.modelInteractionsCount ?? stepMetrics.maxTurnModelInteractions,
+        totalModelInteractionsCount: bad.totalModelInteractionsCount ?? stepMetrics.modelInteractions,
         userPrompt: prompt,
         referenceAnswer: assistantMsgs[assistantMsgs.length - 1]?.content || '',
         turnsCount: Math.max(1, userMsgs.length),
@@ -846,7 +880,20 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
   // Sort Gold Cases by score descending
   finalCases.sort((a, b) => b.valueScore - a.valueScore);
 
-  // Cluster similar Badcases
+  // Cluster similar Badcases (keep the highest-signal representative so >100-step / higher-failure cases are never hidden)
+  const shouldPromoteBadcaseRep = (candidate, current) => {
+    const cHighSteps = (candidate.maxTurnSteps || 0) > 100 ? 1 : 0;
+    const rHighSteps = (current.maxTurnSteps || 0) > 100 ? 1 : 0;
+    if (cHighSteps !== rHighSteps) return cHighSteps > rHighSteps;
+    if ((candidate.modelInteractionsCount || 0) !== (current.modelInteractionsCount || 0)) {
+      return (candidate.modelInteractionsCount || 0) > (current.modelInteractionsCount || 0);
+    }
+    if ((candidate.toolFailuresCount || 0) !== (current.toolFailuresCount || 0)) {
+      return (candidate.toolFailuresCount || 0) > (current.toolFailuresCount || 0);
+    }
+    return (candidate.maxTurnSteps || 0) > (current.maxTurnSteps || 0);
+  };
+
   const badcaseClusters = [];
   for (const item of rawBadcases) {
     let added = false;
@@ -856,6 +903,9 @@ export function extractEvaluationDataset(sessions, messagesMap, minScore = 60) {
         isSimilarPrompt(cluster.representative.userPrompt, item.userPrompt)
       ) {
         cluster.items.push(item);
+        if (shouldPromoteBadcaseRep(item, cluster.representative)) {
+          cluster.representative = item;
+        }
         added = true;
         break;
       }
