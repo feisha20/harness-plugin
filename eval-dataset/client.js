@@ -2082,6 +2082,257 @@ window.__ModuleLoader__.load({
           );
         }
 
+        function extractRawToolNames(tm, details) {
+          const rawSet = new Set();
+          const baseName = details?.baseName || tm.toolName || '';
+          const display = details?.specificName || tm.toolName || 'Tool';
+          const candidates = [
+            tm.rawToolName,
+            tm.originalToolName,
+            tm.toolCode,
+            tm.functionName
+          ];
+          if (baseName && !display.startsWith(`${baseName} (`)) {
+            candidates.push(baseName);
+          }
+          try {
+            const text = tm.content || tm.toolResult || '';
+            const res = typeof text === 'string' && text.trim().startsWith('{') ? JSON.parse(text) : (typeof text === 'object' ? text : null);
+            if (res) {
+              candidates.push(res?.source?.tool, res?.source?.toolName, res?.tool, res?.toolName);
+            }
+          } catch (e) {}
+          try {
+            const args = typeof tm.toolArgs === 'string' && tm.toolArgs.trim().startsWith('{') ? JSON.parse(tm.toolArgs) : (typeof tm.toolArgs === 'object' ? tm.toolArgs : null);
+            if (args) {
+              candidates.push(args?.tool, args?.toolName, args?.method);
+            }
+          } catch (e) {}
+          for (const c of candidates) {
+            if (typeof c === 'string' && c.trim() && c.trim() !== display) {
+              rawSet.add(c.trim());
+            }
+          }
+          return Array.from(rawSet);
+        }
+
+        function getToolDisplayLabel(tm, details) {
+          const baseName = details?.baseName || tm.toolName || 'Tool';
+          const specificName = details?.specificName || baseName;
+          if (specificName.startsWith(`${baseName} (`)) {
+            return specificName;
+          }
+          if (specificName !== baseName) {
+            return `${baseName} (${specificName})`;
+          }
+          const rawNames = extractRawToolNames(tm, details);
+          if (rawNames.length > 0) {
+            return `${specificName} (${rawNames.join(', ')})`;
+          }
+          return specificName;
+        }
+
+        function ToolCallStatsPanel({ messages }) {
+          const stats = React.useMemo(() => {
+            const msgs = Array.isArray(messages) ? messages : [];
+            const map = new Map();
+            let totalCalls = 0;
+            let totalFailed = 0;
+            for (const m of msgs) {
+              if (m.role !== 'tool' && !m.toolName) continue;
+              const details = getToolExecutionDetails(m);
+              const name = getToolDisplayLabel(m, details);
+              totalCalls += 1;
+              if (details.isFailed) totalFailed += 1;
+              const entry = map.get(name) || { name, count: 0, failCount: 0, successCount: 0 };
+              entry.count += 1;
+              if (details.isFailed) entry.failCount += 1;
+              else entry.successCount += 1;
+              map.set(name, entry);
+            }
+            const items = Array.from(map.values())
+              .sort((a, b) => b.count - a.count || b.failCount - a.failCount || a.name.localeCompare(b.name));
+            return { items, totalCalls, totalFailed, totalSuccess: totalCalls - totalFailed };
+          }, [messages]);
+
+          if (stats.totalCalls === 0) {
+            return h('div', { className: 'ed-empty-state' }, '该对话过程中未检测到工具调用');
+          }
+
+          return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+            h('div', {
+              style: {
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gap: '8px'
+              }
+            },
+              [
+                { label: '总调用次数', value: `${stats.totalCalls} 次`, color: 'var(--ed-text1)', bg: 'var(--ed-bg-layer1)', border: 'var(--ed-border1)' },
+                { label: '涉及工具数', value: `${stats.items.length} 个`, color: '#2563eb', bg: 'rgba(37, 99, 235, 0.03)', border: 'rgba(37, 99, 235, 0.14)' },
+                { label: '执行成功', value: `${stats.totalSuccess} 次`, color: '#059669', bg: 'rgba(16, 185, 129, 0.04)', border: 'rgba(16, 185, 129, 0.16)' },
+                {
+                  label: '异常/失败',
+                  value: `${stats.totalFailed} 次`,
+                  color: stats.totalFailed > 0 ? '#dc2626' : 'var(--ed-text2)',
+                  bg: stats.totalFailed > 0 ? 'rgba(239, 68, 68, 0.04)' : 'var(--ed-bg-layer1)',
+                  border: stats.totalFailed > 0 ? 'rgba(239, 68, 68, 0.18)' : 'var(--ed-border1)'
+                }
+              ].map((card, idx) => h('div', {
+                key: idx,
+                style: {
+                  background: card.bg,
+                  border: `1px solid ${card.border}`,
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  justifyContent: 'space-between',
+                  gap: '6px'
+                }
+              },
+                h('span', { style: { fontSize: '11.5px', color: 'var(--ed-text2)' } }, card.label),
+                h('span', { style: { fontSize: '15px', fontWeight: 600, color: card.color, fontVariantNumeric: 'tabular-nums' } }, card.value)
+              ))
+            ),
+            h('div', {
+              style: {
+                background: 'var(--ed-bg-layer1)',
+                border: '1px solid var(--ed-border1)',
+                borderRadius: '8px',
+                overflow: 'hidden'
+              }
+            },
+              h('div', {
+                style: {
+                  display: 'grid',
+                  gridTemplateColumns: '36px minmax(160px, 1fr) 72px 130px 92px',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '7px 12px',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  color: 'var(--ed-text2)',
+                  background: 'var(--ed-bg-layer2)',
+                  borderBottom: '1px solid var(--ed-border1)'
+                }
+              },
+                h('span', { style: { textAlign: 'center' } }, '#'),
+                h('span', null, '工具名称'),
+                h('span', { style: { textAlign: 'right' } }, '调用次数'),
+                h('span', { style: { paddingLeft: '4px' } }, '调用占比'),
+                h('span', { style: { textAlign: 'right' } }, '成功 / 失败')
+              ),
+              stats.items.map((item, idx) => {
+                const pct = Math.round((item.count / stats.totalCalls) * 100);
+                const isTop3 = idx < 3;
+                return h('div', {
+                  key: item.name,
+                  style: {
+                    display: 'grid',
+                    gridTemplateColumns: '36px minmax(160px, 1fr) 72px 130px 92px',
+                    gap: '8px',
+                    alignItems: 'center',
+                    padding: '7px 12px',
+                    fontSize: '12px',
+                    background: item.failCount > 0 ? 'rgba(239, 68, 68, 0.02)' : (idx % 2 === 1 ? 'rgba(0, 0, 0, 0.012)' : 'transparent'),
+                    borderBottom: idx < stats.items.length - 1 ? '1px solid var(--ed-border1)' : 'none'
+                  }
+                },
+                  h('div', { style: { display: 'flex', justifyContent: 'center' } },
+                    h('span', {
+                      style: {
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: '20px',
+                        height: '18px',
+                        padding: '0 5px',
+                        borderRadius: '4px',
+                        fontFamily: 'ui-monospace, monospace',
+                        fontSize: '11px',
+                        fontWeight: isTop3 ? 600 : 400,
+                        background: isTop3 ? 'rgba(59, 130, 246, 0.08)' : 'var(--ed-bg-layer2)',
+                        color: isTop3 ? '#2563eb' : 'var(--ed-text2)'
+                      }
+                    }, `${idx + 1}`)
+                  ),
+                  h('span', {
+                    title: item.name,
+                    style: {
+                      fontFamily: 'ui-monospace, monospace',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: item.failCount > 0 ? '#dc2626' : 'var(--ed-text1)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }
+                  }, item.name),
+                  h('div', { style: { textAlign: 'right' } },
+                    h('span', {
+                      style: {
+                        fontWeight: 500,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: 'var(--ed-text1)'
+                      }
+                    }, `${item.count} 次`)
+                  ),
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '4px' } },
+                    h('div', {
+                      style: {
+                        flex: 1,
+                        height: '5px',
+                        borderRadius: '999px',
+                        background: 'var(--ed-bg-layer2)',
+                        overflow: 'hidden'
+                      }
+                    },
+                      h('div', {
+                        style: {
+                          width: `${Math.max(pct, 4)}%`,
+                          height: '100%',
+                          borderRadius: '999px',
+                          background: item.failCount > 0 ? '#ef4444' : '#3b82f6'
+                        }
+                      })
+                    ),
+                    h('span', {
+                      style: {
+                        fontSize: '11px',
+                        fontVariantNumeric: 'tabular-nums',
+                        color: 'var(--ed-text2)',
+                        width: '32px',
+                        textAlign: 'right'
+                      }
+                    }, `${pct}%`)
+                  ),
+                  h('div', { style: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', fontSize: '11px', fontVariantNumeric: 'tabular-nums' } },
+                    h('span', {
+                      style: {
+                        padding: '1px 6px',
+                        borderRadius: '999px',
+                        background: 'rgba(16, 185, 129, 0.1)',
+                        color: '#059669',
+                        fontWeight: 500
+                      }
+                    }, `${item.successCount}`),
+                    h('span', {
+                      style: {
+                        padding: '1px 6px',
+                        borderRadius: '999px',
+                        background: item.failCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'var(--ed-bg-layer2)',
+                        color: item.failCount > 0 ? '#dc2626' : 'var(--ed-text2)',
+                        fontWeight: item.failCount > 0 ? 600 : 400
+                      }
+                    }, `${item.failCount}`)
+                  )
+                );
+              })
+            )
+          );
+        }
+
         function detectBadcaseItem(c) {
           const messages = c.messages || [];
           const userMsgs = messages.filter(m => m.role === 'user');
@@ -2417,7 +2668,7 @@ window.__ModuleLoader__.load({
           const [selectedCategory, setSelectedCategory] = React.useState('全部');
           const [minScore, setMinScore] = React.useState(60);
           const [searchQuery, setSearchQuery] = React.useState('');
-          const [viewMode, setViewMode] = React.useState('cases'); // 'cases' | 'badcases' | 'official' | 'sessions'
+          const [viewMode, setViewMode] = React.useState('sessions'); // 'cases' | 'badcases' | 'official' | 'sessions'
           const [selectedCaseId, setSelectedCaseId] = React.useState(null);
           const [selectedBadcaseId, setSelectedBadcaseId] = React.useState(null);
           const [selectedSessionId, setSelectedSessionId] = React.useState(null);
@@ -4180,7 +4431,11 @@ ${b.evidence}
                       h('button', {
                         className: `ed-tab-btn ${badcaseTab === 'timeline' ? 'active' : ''}`,
                         onClick: () => setBadcaseTab('timeline')
-                      }, `💬 完整对话回放 (${activeBadcase.messages.length})`)
+                      }, `💬 完整对话回放 (${activeBadcase.messages.length})`),
+                      h('button', {
+                        className: `ed-tab-btn ${badcaseTab === 'tools' ? 'active' : ''}`,
+                        onClick: () => setBadcaseTab('tools')
+                      }, `🔧 工具调用统计 (${(activeBadcase.messages || []).filter(m => m.role === 'tool' || m.toolName).length})`)
                     ),
 
                     // Badcase Body
@@ -4347,9 +4602,12 @@ ${b.evidence}
                               : h('span', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '（无回复或会话异常中断）')
                           )
                         )
-                      ] : [
+                      ] : badcaseTab === 'timeline' ? [
                         // Badcase Timeline Replay
                         h(ConversationTimeline, { key: 'b_timeline', messages: activeBadcase.messages, scopeId: activeBadcase.id })
+                      ] : [
+                        // Badcase Tool Call Stats
+                        h(ToolCallStatsPanel, { key: 'b_tools', messages: activeBadcase.messages })
                       ]
                     )
                   ]

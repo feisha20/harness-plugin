@@ -413,6 +413,7 @@ export async function fetchMessagesForSession(sessionId, pageSize = 200, targetE
     role: m.role,
     content: parseMessageContent(m.content),
     toolName: m.toolName,
+    rawToolName: m.rawToolName || m.originalToolName || m.toolCode || m.functionName || (m.name && m.name !== m.toolName ? m.name : undefined),
     toolArgs: m.toolArgs,
     toolResult: m.toolResult,
     createdAt: m.createdAt
