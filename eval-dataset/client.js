@@ -667,6 +667,83 @@ window.__ModuleLoader__.load({
   flex-direction: column;
   gap: 12px;
 }
+.ed-error-jump-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--ed-bg-layer1);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  flex-wrap: wrap;
+}
+.ed-error-jump-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+}
+.ed-error-jump-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.ed-error-jump-chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.06);
+  color: #dc2626;
+  cursor: pointer;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.ed-error-jump-chip:hover {
+  background: rgba(239, 68, 68, 0.14);
+}
+.ed-error-jump-chip.active {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+.ed-error-jump-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ed-error-jump-btn {
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid var(--ed-border1);
+  background: var(--ed-bg-layer2);
+  color: var(--ed-text1);
+  cursor: pointer;
+}
+.ed-error-jump-btn:hover {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+.ed-bubble-jump-highlight {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35);
+  transition: box-shadow 0.3s ease;
+}
 .ed-bubble {
   border: 1px solid var(--ed-border1);
   border-radius: 8px;
@@ -1876,6 +1953,133 @@ window.__ModuleLoader__.load({
           }
 
           return { baseName, specificName, isFailed, errorDetail };
+        }
+
+        function ConversationTimeline({ messages, scopeId }) {
+          const [activeErrorIdx, setActiveErrorIdx] = React.useState(0);
+          const [highlightMsgIdx, setHighlightMsgIdx] = React.useState(null);
+          const itemRefs = React.useRef({});
+
+          React.useEffect(() => {
+            setActiveErrorIdx(0);
+            setHighlightMsgIdx(null);
+          }, [scopeId]);
+
+          const safeMessages = Array.isArray(messages) ? messages : [];
+          const errorItems = [];
+          safeMessages.forEach((m, idx) => {
+            if (conversationRoles.has(m.role) && m.role === 'tool') {
+              const td = getToolExecutionDetails(m);
+              if (td && td.isFailed) {
+                errorItems.push({ msgIdx: idx, label: td.specificName || m.toolName || 'Tool' });
+              }
+            }
+          });
+
+          const jumpToError = (errPos) => {
+            if (errorItems.length === 0) return;
+            const normalized = ((errPos % errorItems.length) + errorItems.length) % errorItems.length;
+            setActiveErrorIdx(normalized);
+            const targetMsgIdx = errorItems[normalized].msgIdx;
+            setHighlightMsgIdx(targetMsgIdx);
+            const el = itemRefs.current[targetMsgIdx];
+            if (el && typeof el.scrollIntoView === 'function') {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          };
+
+          return h('div', { className: 'ed-msg-timeline' },
+            errorItems.length > 0 && h('div', { className: 'ed-error-jump-bar' },
+              h('div', { className: 'ed-error-jump-info' },
+                h('span', null, `⚠️ 发现 ${errorItems.length} 处错误 (${activeErrorIdx + 1}/${errorItems.length})`)
+              ),
+              h('div', { className: 'ed-error-jump-chips' },
+                errorItems.map((item, eIdx) => h('button', {
+                  key: item.msgIdx,
+                  type: 'button',
+                  className: `ed-error-jump-chip ${eIdx === activeErrorIdx ? 'active' : ''}`,
+                  title: `跳转到第 ${item.msgIdx + 1} 条: ${item.label}`,
+                  onClick: () => jumpToError(eIdx)
+                }, `#${eIdx + 1} ${item.label}`))
+              ),
+              h('div', { className: 'ed-error-jump-nav' },
+                h('button', {
+                  type: 'button',
+                  className: 'ed-error-jump-btn',
+                  onClick: () => jumpToError(activeErrorIdx - 1)
+                }, '↑ 上一个'),
+                h('button', {
+                  type: 'button',
+                  className: 'ed-error-jump-btn',
+                  onClick: () => jumpToError(activeErrorIdx + 1)
+                }, '↓ 下一个')
+              )
+            ),
+            safeMessages.map((m, idx) => {
+              if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${scopeId}:${idx}`);
+              const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
+              const isToolFail = toolDetails ? toolDetails.isFailed : false;
+              const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
+              const isHighlighted = highlightMsgIdx === idx;
+              return h('div', {
+                key: idx,
+                ref: (el) => {
+                  if (el) itemRefs.current[idx] = el;
+                  else delete itemRefs.current[idx];
+                },
+                className: `ed-bubble ${roleClass}${isHighlighted ? ' ed-bubble-jump-highlight' : ''}`,
+                style: isToolFail ? {
+                  border: '1.5px solid #ef4444',
+                  background: 'rgba(239, 68, 68, 0.03)'
+                } : {}
+              },
+                h('div', { className: 'ed-bubble-head' },
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+                    h('span', null, m.role === 'user'
+                      ? '👤 客户 / 访客提问'
+                      : (m.role === 'assistant'
+                        ? '🤖 客服助理回复'
+                        : `🔧 工具: ${toolDetails.specificName}`)),
+                    isToolFail && h('span', {
+                      style: {
+                        fontSize: '10.5px',
+                        fontWeight: '600',
+                        color: '#dc2626',
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        padding: '1px 6px',
+                        borderRadius: '4px'
+                      }
+                    }, '✕ 执行失败')
+                  ),
+                  h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
+                ),
+                h('div', { className: 'ed-bubble-body' },
+                  m.role === 'tool' ? [
+                    isToolFail && toolDetails.errorDetail && h('div', {
+                      key: 'err_banner',
+                      style: {
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        borderRadius: '4px',
+                        padding: '5px 8px',
+                        marginBottom: '6px',
+                        fontSize: '11.5px',
+                        color: '#b91c1c'
+                      }
+                    }, h('strong', null, '⚠️ 报错原因: '), toolDetails.errorDetail),
+                    m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
+                      h('strong', null, '入参: '),
+                      h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
+                    ),
+                    m.toolResult && h('div', { key: 'res' },
+                      h('strong', null, '结果: '),
+                      h('pre', { style: { margin: '4px 0 0', maxHeight: '150px', overflowY: 'auto' } }, m.toolResult)
+                    )
+                  ] : (m.role === 'assistant' ? h(MarkdownView, { content: m.content }) : m.content)
+                )
+              );
+            })
+          );
         }
 
         function detectBadcaseItem(c) {
@@ -3805,67 +4009,7 @@ ${b.evidence}
                         )
                       ] : [
                         // Timeline Transcript with Markdown support for assistant
-                        h('div', { key: 'timeline', className: 'ed-msg-timeline' },
-                          activeCase.messages.map((m, idx) => {
-                            if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${activeCase.id}:${idx}`);
-                            const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
-                            const isToolFail = toolDetails ? toolDetails.isFailed : false;
-                            const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
-                            return h('div', {
-                              key: idx,
-                              className: `ed-bubble ${roleClass}`,
-                              style: isToolFail ? {
-                                border: '1.5px solid #ef4444',
-                                background: 'rgba(239, 68, 68, 0.03)'
-                              } : {}
-                            },
-                              h('div', { className: 'ed-bubble-head' },
-                                h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-                                  h('span', null, m.role === 'user'
-                                    ? '👤 客户 / 访客提问'
-                                    : (m.role === 'assistant'
-                                      ? '🤖 客服助理回复'
-                                      : `🔧 工具: ${toolDetails.specificName}`)),
-                                  isToolFail && h('span', {
-                                    style: {
-                                      fontSize: '11px',
-                                      color: '#dc2626',
-                                      background: 'rgba(239, 68, 68, 0.1)',
-                                      padding: '1px 5px',
-                                      borderRadius: '3px',
-                                      fontWeight: '600'
-                                    }
-                                  }, '✕ 执行失败')
-                                ),
-                                h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
-                              ),
-                              h('div', { className: 'ed-bubble-body' },
-                                m.role === 'tool' ? [
-                                  isToolFail && toolDetails.errorDetail && h('div', {
-                                    key: 'err_banner',
-                                    style: {
-                                      background: 'rgba(239, 68, 68, 0.08)',
-                                      color: '#dc2626',
-                                      padding: '4px 8px',
-                                      borderRadius: '4px',
-                                      marginBottom: '6px',
-                                      fontSize: '11.5px',
-                                      fontWeight: '500'
-                                    }
-                                  }, `⚠️ 报错原因: ${toolDetails.errorDetail}`),
-                                  m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
-                                    h('strong', null, '入参: '),
-                                    h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
-                                  ),
-                                  m.toolResult && h('div', { key: 'res' },
-                                    h('strong', null, '结果: '),
-                                    h('pre', { style: { margin: '4px 0 0', maxHeight: '150px', overflowY: 'auto' } }, m.toolResult)
-                                  )
-                                ] : (m.role === 'assistant' ? h(MarkdownView, { content: m.content }) : m.content)
-                              )
-                            );
-                          })
-                        )
+                        h(ConversationTimeline, { key: 'timeline', messages: activeCase.messages, scopeId: activeCase.id })
                       ]
                     )
                   ]
@@ -4109,67 +4253,7 @@ ${b.evidence}
                         )
                       ] : [
                         // Badcase Timeline Replay
-                        h('div', { key: 'b_timeline', className: 'ed-msg-timeline' },
-                          activeBadcase.messages.map((m, idx) => {
-                            if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${activeBadcase.id}:${idx}`);
-                            const toolDetails = m.role === 'tool' ? getToolExecutionDetails(m) : null;
-                            const isToolFail = toolDetails ? toolDetails.isFailed : false;
-                            const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
-                            return h('div', {
-                              key: idx,
-                              className: `ed-bubble ${roleClass}`,
-                              style: isToolFail ? {
-                                border: '1.5px solid #ef4444',
-                                background: 'rgba(239, 68, 68, 0.03)'
-                              } : {}
-                            },
-                              h('div', { className: 'ed-bubble-head' },
-                                h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-                                  h('span', null, m.role === 'user'
-                                    ? '👤 客户 / 访客提问'
-                                    : (m.role === 'assistant'
-                                      ? '🤖 客服助理回复'
-                                      : `🔧 工具: ${toolDetails.specificName}`)),
-                                  isToolFail && h('span', {
-                                    style: {
-                                      fontSize: '11px',
-                                      color: '#dc2626',
-                                      background: 'rgba(239, 68, 68, 0.1)',
-                                      padding: '1px 5px',
-                                      borderRadius: '3px',
-                                      fontWeight: '600'
-                                    }
-                                  }, '✕ 执行失败')
-                                ),
-                                h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
-                              ),
-                              h('div', { className: 'ed-bubble-body' },
-                                m.role === 'tool' ? [
-                                  isToolFail && toolDetails.errorDetail && h('div', {
-                                    key: 'err_banner',
-                                    style: {
-                                      background: 'rgba(239, 68, 68, 0.08)',
-                                      color: '#dc2626',
-                                      padding: '4px 8px',
-                                      borderRadius: '4px',
-                                      marginBottom: '6px',
-                                      fontSize: '11.5px',
-                                      fontWeight: '500'
-                                    }
-                                  }, `⚠️ 报错原因: ${toolDetails.errorDetail}`),
-                                  m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
-                                    h('strong', null, '入参: '),
-                                    h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
-                                  ),
-                                  m.toolResult && h('div', { key: 'res' },
-                                    h('strong', null, '结果: '),
-                                    h('pre', { style: { margin: '4px 0 0', maxHeight: '150px', overflowY: 'auto' } }, m.toolResult)
-                                  )
-                                ] : (m.role === 'assistant' ? h(MarkdownView, { content: m.content }) : m.content)
-                              )
-                            );
-                          })
-                        )
+                        h(ConversationTimeline, { key: 'b_timeline', messages: activeBadcase.messages, scopeId: activeBadcase.id })
                       ]
                     )
                   ]
@@ -4574,30 +4658,7 @@ ${b.evidence}
                           )
                         ] : [
                           // Timeline Replay for Official Case
-                          h('div', { key: 'o_timeline', className: 'ed-msg-timeline' },
-                            (activeOfficialCase.messages || []).map((m, idx) => {
-                              if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${activeOfficialCase.id}:${idx}`);
-                              const roleClass = m.role === 'user' ? 'ed-bubble-user' : (m.role === 'assistant' ? 'ed-bubble-assistant' : 'ed-bubble-tool');
-                              return h('div', { key: idx, className: `ed-bubble ${roleClass}` },
-                                h('div', { className: 'ed-bubble-head' },
-                                  h('span', null, m.role === 'user' ? '👤 客户 / 访客提问' : (m.role === 'assistant' ? '🤖 客服助理回复' : `🔧 工具执行: ${m.toolName || '未命名'}`)),
-                                  h('span', { style: { fontWeight: 'normal', color: 'var(--ed-text2)' } }, (m.createdAt || '').slice(11, 19))
-                                ),
-                                h('div', { className: 'ed-bubble-body' },
-                                  m.role === 'tool' ? [
-                                    m.toolArgs && h('div', { key: 'args', style: { marginBottom: '6px' } },
-                                      h('strong', null, '入参: '),
-                                      h('code', { style: { background: 'var(--ed-bg-layer2)', padding: '2px 4px', borderRadius: '3px' } }, m.toolArgs)
-                                    ),
-                                    m.toolResult && h('div', { key: 'res' },
-                                      h('strong', null, '结果: '),
-                                      h('pre', { style: { margin: '4px 0 0', maxHeight: '150px', overflowY: 'auto' } }, m.toolResult)
-                                    )
-                                  ] : (m.role === 'assistant' ? h(MarkdownView, { content: m.content }) : m.content)
-                                )
-                              );
-                            })
-                          )
+                          h(ConversationTimeline, { key: 'o_timeline', messages: activeOfficialCase.messages, scopeId: activeOfficialCase.id })
                         ]
                       )
                     ];
