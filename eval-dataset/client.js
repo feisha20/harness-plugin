@@ -2104,7 +2104,38 @@ window.__ModuleLoader__.load({
             }
           }
 
-          const isStepExceeded = messages.length >= 100 || toolMsgs.length >= 100;
+          // 按单轮对话计算最大步数（每个 user 消息开启一轮）
+          let maxTurnSteps = 0;
+          let maxTurnToolCalls = 0;
+          let maxTurnIndex = 1;
+          let curTurnSteps = 0;
+          let curTurnTools = 0;
+          let curTurnIdx = 0;
+          for (const m of messages) {
+            if (m.role === 'user') {
+              if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
+                maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
+                maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
+                maxTurnIndex = curTurnIdx || 1;
+              }
+              curTurnIdx++;
+              curTurnSteps = 0;
+              curTurnTools = 0;
+            } else {
+              if (curTurnIdx === 0) curTurnIdx = 1;
+              if (m.role !== 'assistant') {
+                curTurnSteps++;
+              }
+              if (m.role === 'tool') curTurnTools++;
+            }
+          }
+          if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
+            maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
+            maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
+            maxTurnIndex = curTurnIdx || 1;
+          }
+
+          const isStepExceeded = maxTurnSteps >= 100 || maxTurnToolCalls >= 100;
           const isFrequentToolFail = failedToolMsgs.length >= 2;
 
           let isTaskInterrupted = false;
@@ -2201,7 +2232,7 @@ window.__ModuleLoader__.load({
                 suspectedCause: '业务规则未触发、流程中断或配置覆盖冲突',
                 recommendation: '检查工作流逻辑与提示词负向约束，纳入重点回归集',
                 evidence: title,
-                stepCount: messages.length,
+                stepCount: maxTurnSteps,
                 userPrompt: c.userPrompt,
                 referenceAnswer: c.referenceAnswer,
                 turnsCount: c.turnsCount || 1,
@@ -2228,10 +2259,10 @@ window.__ModuleLoader__.load({
             badcaseType = 'step_limit_exceeded';
             badcaseTypeName = '步骤超限/死循环';
             severity = '严重';
-            phenomenon = `会话交互步数达到 ${messages.length} 步 (工具调用 ${toolMsgs.length} 次)，超过 100 步阈值，疑似死循环或推理未收敛`;
-            suspectedCause = '智能体未设置步数熔断上限，或在连续重试动作中缺少退出/跳出收敛条件';
-            recommendation = '增加任务单会话最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户';
-            evidence = `总交互步数: ${messages.length} 步 | 工具调用: ${toolMsgs.length} 次`;
+            phenomenon = `第 ${maxTurnIndex} 轮单轮交互步数达到 ${maxTurnSteps} 步 (该轮工具调用 ${maxTurnToolCalls} 次)，超过 100 步阈值，疑似死循环或推理未收敛`;
+            suspectedCause = '智能体未设置单轮步数熔断上限，或在连续重试动作中缺少退出/跳出收敛条件';
+            recommendation = '增加任务单轮最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户';
+            evidence = `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总步数: ${messages.length} 步`;
           } else if (isFrequentToolFail) {
             const failedTools = [...new Set(failedToolMsgs.map(t => t.specificToolName || t.toolName || 'Tool'))];
             const failureSummary = failedToolMsgs.map(t => `${t.specificToolName || t.toolName}: ${t.toolErrorDetail || '执行异常'}`).slice(0, 3).join('；');
@@ -2313,7 +2344,7 @@ window.__ModuleLoader__.load({
             suspectedCause,
             recommendation,
             evidence,
-            stepCount: messages.length,
+            stepCount: maxTurnSteps,
             userPrompt: c.userPrompt,
             referenceAnswer: c.referenceAnswer,
             turnsCount: c.turnsCount || 1,
@@ -2386,9 +2417,11 @@ window.__ModuleLoader__.load({
           const [selectedCategory, setSelectedCategory] = React.useState('全部');
           const [minScore, setMinScore] = React.useState(60);
           const [searchQuery, setSearchQuery] = React.useState('');
-          const [viewMode, setViewMode] = React.useState('cases'); // 'cases' | 'badcases'
+          const [viewMode, setViewMode] = React.useState('cases'); // 'cases' | 'badcases' | 'official' | 'sessions'
           const [selectedCaseId, setSelectedCaseId] = React.useState(null);
           const [selectedBadcaseId, setSelectedBadcaseId] = React.useState(null);
+          const [selectedSessionId, setSelectedSessionId] = React.useState(null);
+          const [selectedSessionFilter, setSelectedSessionFilter] = React.useState('全部');
           const [selectedBadcaseType, setSelectedBadcaseType] = React.useState('全部');
           const [selectedIds, setSelectedIds] = React.useState(new Set());
           const [selectedBadcaseIds, setSelectedBadcaseIds] = React.useState(new Set());
@@ -3042,17 +3075,42 @@ window.__ModuleLoader__.load({
 
           const allCases = data?.cases || [];
           const allBadcases = data?.badcases || [];
+          const allRawSessions = data?.rawSessions || [];
+
+          const filteredRawSessions = React.useMemo(() => {
+            return allRawSessions.filter(s => {
+              if (selectedSessionFilter === '高价值用例' && !s.caseCategory) return false;
+              if (selectedSessionFilter === 'Badcase 异常' && !s.badcaseTypeName) return false;
+              if (selectedSessionFilter === '普通会话' && (s.isNoise || s.caseCategory || s.badcaseTypeName)) return false;
+              if (selectedSessionFilter === '噪音/脚本探测' && !s.isNoise) return false;
+              if (searchQuery.trim()) {
+                const q = searchQuery.trim().toLowerCase();
+                const matchTitle = (s.title || '').toLowerCase().includes(q);
+                const matchPrompt = (s.userPrompt || '').toLowerCase().includes(q);
+                const matchRunId = (s.runId || '').toLowerCase().includes(q);
+                const matchSessionId = (s.sessionId || '').toLowerCase().includes(q);
+                const matchThreadId = (s.threadId || '').toLowerCase().includes(q);
+                if (!matchTitle && !matchPrompt && !matchRunId && !matchSessionId && !matchThreadId) return false;
+              }
+              return true;
+            });
+          }, [allRawSessions, selectedSessionFilter, searchQuery]);
+
+          const activeRawSession = React.useMemo(() => {
+            return allRawSessions.find(s => s.id === selectedSessionId) || filteredRawSessions[0] || null;
+          }, [allRawSessions, selectedSessionId, filteredRawSessions]);
 
           // Filtering Cases
           const filteredCases = React.useMemo(() => {
             return allCases.filter(c => {
               if (selectedCategory !== '全部' && c.category !== selectedCategory) return false;
               if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
+                const q = searchQuery.trim().toLowerCase();
                 const matchTitle = (c.title || '').toLowerCase().includes(q);
                 const matchPrompt = (c.userPrompt || '').toLowerCase().includes(q);
                 const matchTools = (c.toolNames || []).some(t => t.toLowerCase().includes(q));
-                if (!matchTitle && !matchPrompt && !matchTools) return false;
+                const matchRunId = (c.runId || '').toLowerCase().includes(q);
+                if (!matchTitle && !matchPrompt && !matchTools && !matchRunId) return false;
               }
               return true;
             });
@@ -3063,13 +3121,14 @@ window.__ModuleLoader__.load({
             return allBadcases.filter(b => {
               if (selectedBadcaseType !== '全部' && b.badcaseTypeName !== selectedBadcaseType && b.badcaseType !== selectedBadcaseType) return false;
               if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
+                const q = searchQuery.trim().toLowerCase();
                 const matchTitle = (b.title || '').toLowerCase().includes(q);
                 const matchPrompt = (b.userPrompt || '').toLowerCase().includes(q);
                 const matchPhen = (b.phenomenon || '').toLowerCase().includes(q);
                 const matchCause = (b.suspectedCause || '').toLowerCase().includes(q);
                 const matchEvid = (b.evidence || '').toLowerCase().includes(q);
-                if (!matchTitle && !matchPrompt && !matchPhen && !matchCause && !matchEvid) return false;
+                const matchRunId = (b.runId || '').toLowerCase().includes(q);
+                if (!matchTitle && !matchPrompt && !matchPhen && !matchCause && !matchEvid && !matchRunId) return false;
               }
               return true;
             });
@@ -3113,13 +3172,14 @@ window.__ModuleLoader__.load({
                 return false;
               }
               if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase();
+                const q = searchQuery.trim().toLowerCase();
                 const matchTitle = (c.title || '').toLowerCase().includes(q);
                 const matchPrompt = (c.userPrompt || '').toLowerCase().includes(q);
                 const matchCriteria = (c.evalCriteria || '').toLowerCase().includes(q);
                 const matchAnswer = (c.referenceAnswer || '').toLowerCase().includes(q);
                 const matchDate = (c.sourceDate || '').toLowerCase().includes(q);
-                if (!matchTitle && !matchPrompt && !matchCriteria && !matchAnswer && !matchDate) return false;
+                const matchRunId = (c.runId || '').toLowerCase().includes(q);
+                if (!matchTitle && !matchPrompt && !matchCriteria && !matchAnswer && !matchDate && !matchRunId) return false;
               }
               return true;
             });
@@ -3449,10 +3509,14 @@ ${b.evidence}
 
               // 2. Metrics Bar
               h('div', { className: 'ed-metrics' },
-                h('div', { className: 'ed-metric-card' },
+                h('div', {
+                  className: 'ed-metric-card',
+                  style: { cursor: 'pointer', borderColor: viewMode === 'sessions' ? 'var(--ed-accent)' : undefined },
+                  onClick: () => setViewMode('sessions')
+                },
                   h('span', { className: 'ed-metric-label' }, `会话总量 (${data?.envName || (currentEnv === 'prod' ? '生产' : '测试')})`),
                   h('span', { className: 'ed-metric-val' }, summary.totalRawSessions),
-                  h('span', { className: 'ed-metric-sub' }, `清洗排除脚本探测 ${summary.noiseFilteredOut} 条`)
+                  h('span', { className: 'ed-metric-sub' }, `清洗排除脚本探测 ${summary.noiseFilteredOut} 条 · 点击查看全部`)
                 ),
                 h('div', {
                   className: 'ed-metric-card',
@@ -3489,52 +3553,23 @@ ${b.evidence}
               )
             ),
 
-            // Mode Switcher Bar
-            h('div', { className: 'ed-mode-bar' },
-              h('div', { className: 'ed-mode-group' },
-                h('button', {
-                  className: `ed-mode-btn ${viewMode === 'cases' ? 'active' : ''}`,
-                  onClick: () => setViewMode('cases')
-                },
-                  h(Glyph, { kind: 'target', size: 14 }),
-                  '🎯 高价值评测集',
-                  h('span', { className: 'ed-mode-badge ed-mode-badge-cases' }, allCases.length)
-                ),
-                h('button', {
-                  className: `ed-mode-btn ${viewMode === 'badcases' ? 'active' : ''}`,
-                  onClick: () => setViewMode('badcases')
-                },
-                  h(Glyph, { kind: 'alertCircle', size: 14 }),
-                  '⚠️ Badcase 诊断与回归集',
-                  h('span', { className: 'ed-mode-badge ed-mode-badge-badcase' }, allBadcases.length)
-                ),
-                h('button', {
-                  className: `ed-mode-btn ${viewMode === 'official' ? 'active' : ''}`,
-                  onClick: () => setViewMode('official')
-                },
-                  h(Glyph, { kind: 'bookmark', size: 14 }),
-                  '📌 正式评测集管理',
-                  h('span', { className: 'ed-mode-badge ed-mode-badge-official' }, officialCases.length)
-                )
-              ),
-              h('div', { style: { fontSize: '12px', color: 'var(--ed-text2)' } },
-                viewMode === 'official'
-                  ? '🛡️ 沉淀最终精选的正式评测集用例 · 作为日常回归与评价 Agent 能力的核心基准底座'
-                  : (viewMode === 'cases'
-                    ? '💡 每日提取高价值对话 · 可单条或勾选批量选入「📌 正式评测集管理」'
-                    : '🚨 历史报错、规则失效与负反馈诊断 · 可选入「📌 正式评测集管理」用于长期回归防复现')
-              )
-            ),
-
             // 3. Toolbar & Filters
             h('div', { className: 'ed-toolbar' },
               h('div', { className: 'ed-tags-group' },
-                (viewMode === 'official' ? officialCategories : (viewMode === 'cases' ? categories : badcaseCategories)).map(cat => {
-                  const isActive = viewMode === 'official'
-                    ? selectedOfficialFilter === cat
-                    : ((viewMode === 'cases' ? selectedCategory : selectedBadcaseType) === cat);
+                (viewMode === 'sessions' ? ['全部', '高价值用例', 'Badcase 异常', '普通会话', '噪音/脚本探测'] : (viewMode === 'official' ? officialCategories : (viewMode === 'cases' ? categories : badcaseCategories))).map(cat => {
+                  const isActive = viewMode === 'sessions'
+                    ? selectedSessionFilter === cat
+                    : (viewMode === 'official'
+                      ? selectedOfficialFilter === cat
+                      : ((viewMode === 'cases' ? selectedCategory : selectedBadcaseType) === cat));
                   let countLabel = '';
-                  if (viewMode === 'official') {
+                  if (viewMode === 'sessions') {
+                    if (cat === '全部') countLabel = ` (${allRawSessions.length})`;
+                    else if (cat === '高价值用例') countLabel = ` (${allRawSessions.filter(s => s.caseCategory).length})`;
+                    else if (cat === 'Badcase 异常') countLabel = ` (${allRawSessions.filter(s => s.badcaseTypeName).length})`;
+                    else if (cat === '普通会话') countLabel = ` (${allRawSessions.filter(s => !s.isNoise && !s.caseCategory && !s.badcaseTypeName).length})`;
+                    else countLabel = ` (${allRawSessions.filter(s => s.isNoise).length})`;
+                  } else if (viewMode === 'official') {
                     if (cat === '全部') countLabel = ` (${officialCases.length})`;
                     else if (cat === '🎯 正向基准') countLabel = ` (${officialPosCount})`;
                     else if (cat === '⚠️ 缺陷回归') countLabel = ` (${officialBadCount})`;
@@ -3547,7 +3582,8 @@ ${b.evidence}
                     key: cat,
                     className: `ed-tag-pill ${isActive ? 'active' : ''}`,
                     onClick: () => {
-                      if (viewMode === 'official') setSelectedOfficialFilter(cat);
+                      if (viewMode === 'sessions') setSelectedSessionFilter(cat);
+                      else if (viewMode === 'official') setSelectedOfficialFilter(cat);
                       else if (viewMode === 'cases') setSelectedCategory(cat);
                       else setSelectedBadcaseType(cat);
                     }
@@ -3563,9 +3599,11 @@ ${b.evidence}
                 h('div', { className: 'ed-search-box' },
                   h(Glyph, { kind: 'filter', size: 12 }),
                   h('input', {
-                    placeholder: viewMode === 'official'
-                      ? '搜索正式用例标题、提问、评测标准或来源日期...'
-                      : (viewMode === 'cases' ? '搜索评测标题、用户提问或工具...' : '搜索 Badcase 标题、现象、根因或关键证据...'),
+                    placeholder: viewMode === 'sessions'
+                      ? '搜索会话标题、提问、run_id、sessionId 或 threadId...'
+                      : (viewMode === 'official'
+                        ? '搜索正式用例标题、提问、评测标准或来源日期...'
+                        : (viewMode === 'cases' ? '搜索评测标题、用户提问、工具或 run_id...' : '搜索 Badcase 标题、现象、根因、证据或 run_id...')),
                     value: searchQuery,
                     onChange: e => setSearchQuery(e.target.value)
                   })
@@ -3600,11 +3638,13 @@ ${b.evidence}
               h('div', { className: 'ed-list-pane' },
                 h('div', { className: 'ed-list-header' },
                   h('span', null,
-                    viewMode === 'official'
-                      ? `正式评测集 (${filteredOfficialCases.length})`
-                      : (viewMode === 'cases' ? `用例列表 (${filteredCases.length})` : `Badcase 列表 (${filteredBadcases.length})`)
+                    viewMode === 'sessions'
+                      ? `全部会话 (${filteredRawSessions.length})`
+                      : (viewMode === 'official'
+                        ? `正式评测集 (${filteredOfficialCases.length})`
+                        : (viewMode === 'cases' ? `用例列表 (${filteredCases.length})` : `Badcase 列表 (${filteredBadcases.length})`))
                   ),
-                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+                  viewMode !== 'sessions' && h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
                     viewMode !== 'official' && currentSelectedCount > 0 && h('button', {
                       className: 'ed-copy-btn',
                       style: { color: '#059669', fontWeight: 600 },
@@ -3625,7 +3665,38 @@ ${b.evidence}
                   )
                 ),
                 h('div', { className: 'ed-case-cards' },
-                  viewMode === 'cases' ? [
+                  viewMode === 'sessions' ? [
+                    filteredRawSessions.length === 0 && !loading && h('div', { key: 'empty', className: 'ed-empty-state' }, '无匹配会话记录'),
+                    ...filteredRawSessions.map(s => {
+                      const isSelected = (activeRawSession && activeRawSession.id === s.id);
+                      return h('div', {
+                        key: s.id,
+                        className: `ed-case-card ${isSelected ? 'active' : ''}`,
+                        onClick: () => setSelectedSessionId(s.id)
+                      },
+                        h('div', { className: 'ed-card-head' },
+                          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+                            s.isNoise
+                              ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(107, 114, 128, 0.12)', color: '#6b7280' } }, '噪音/脚本探测')
+                              : (s.badcaseTypeName
+                                ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' } }, `⚠️ ${s.badcaseTypeName}`)
+                                : (s.caseCategory
+                                  ? h('span', { className: 'ed-tag-badge', style: { background: 'rgba(16, 185, 129, 0.1)', color: '#059669' } }, `🎯 ${s.caseCategory}`)
+                                  : h('span', { className: 'ed-tag-badge', style: { background: 'var(--ed-bg-layer2)', color: 'var(--ed-text2)' } }, '普通会话'))),
+                            (s.execSteps !== undefined || s.messageCount > 0) && h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } },
+                              `${s.execSteps !== undefined ? s.execSteps : 0} 步${s.durationLabel ? ` · 耗时 ${s.durationLabel}` : ''}`
+                            )
+                          ),
+                          h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, (s.createdAt || '').slice(11, 16))
+                        ),
+                        h('div', { className: 'ed-card-title' }, s.title || s.sessionId),
+                        h('div', { className: 'ed-card-meta' },
+                          s.model ? h('span', null, s.model) : null,
+                          s.runId && h('span', { className: 'ed-runid-tag' }, `run: ${s.runId.slice(0, 14)}...`)
+                        )
+                      );
+                    })
+                  ] : viewMode === 'cases' ? [
                     filteredCases.length === 0 && !loading && h('div', { key: 'empty', className: 'ed-empty-state' }, '无匹配评测用例'),
                     ...filteredCases.map(c => {
                       const isSelected = selectedCaseId === c.id;
@@ -3879,7 +3950,32 @@ ${b.evidence}
 
               // Right Column: Detail Inspector
               h('div', { className: 'ed-detail-pane' },
-                viewMode === 'cases' ? (
+                viewMode === 'sessions' ? (
+                  !activeRawSession ? h('div', { className: 'ed-empty-state' }, '请在左侧选择一个会话记录') : [
+                    h('div', { key: 's_head', className: 'ed-detail-header' },
+                      h('div', { className: 'ed-detail-title' },
+                        h('h2', null, activeRawSession.title || activeRawSession.sessionId),
+                        h('div', { className: 'ed-detail-sub' },
+                          activeRawSession.runId && h('span', { className: 'ed-meta-chip' }, `run_id: ${activeRawSession.runId}`),
+                          activeRawSession.threadId && h('span', { className: 'ed-meta-chip' }, `会话: ${activeRawSession.threadId}`),
+                          ...((renderIdentityChips({
+                            compId: activeRawSession.compId ?? activeRawSession.companyId,
+                            userId: activeRawSession.userId
+                          })) || []),
+                          activeRawSession.execSteps !== undefined && h('span', { className: 'ed-meta-chip' }, `执行步骤: ${activeRawSession.execSteps} 步`),
+                          activeRawSession.durationLabel && h('span', { className: 'ed-meta-chip' }, `执行耗时: ${activeRawSession.durationLabel}`),
+                          activeRawSession.turnCount > 1 && h('span', { className: 'ed-meta-chip' }, `共 ${activeRawSession.turnCount} 轮`),
+                          activeRawSession.createdAt && h('span', { className: 'ed-meta-chip' }, `创建时间: ${activeRawSession.createdAt}`)
+                        )
+                      )
+                    ),
+                    h('div', { key: 's_body', className: 'ed-detail-body' },
+                      activeRawSession.messages && activeRawSession.messages.length > 0
+                        ? h(ConversationTimeline, { key: 's_timeline', messages: activeRawSession.messages, scopeId: activeRawSession.id })
+                        : h('div', { className: 'ed-empty-state' }, activeRawSession.isNoise ? '该会话被识别为噪音/脚本探测，未拉取消息明细' : '暂无消息记录')
+                    )
+                  ]
+                ) : viewMode === 'cases' ? (
                   !activeCase ? h('div', { className: 'ed-empty-state' }, '请在左侧选择一个评测用例') : [
                     // Detail Header
                     h('div', { key: 'head', className: 'ed-detail-header' },

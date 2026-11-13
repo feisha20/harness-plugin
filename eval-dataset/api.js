@@ -319,7 +319,7 @@ export async function fetchSessionsForDate(dateStr, targetEnv, overrideCreds) {
   const pageSize = 200;
   let totalPage = 1;
 
-  while (curPage <= totalPage && curPage <= 5) {
+  while (curPage <= totalPage) {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: {

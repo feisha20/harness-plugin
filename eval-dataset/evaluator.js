@@ -230,7 +230,38 @@ export function detectBadcase(session, messages) {
   }
 
   // 1. 步骤超过 100 步 (步数超限 / 死循环)
-  const isStepExceeded = messages.length >= 100 || toolMsgs.length >= 100;
+  // 按单轮对话计算最大步数（每个 user 消息开启一轮）
+  let maxTurnSteps = 0;
+  let maxTurnToolCalls = 0;
+  let maxTurnIndex = 1;
+  let curTurnSteps = 0;
+  let curTurnTools = 0;
+  let curTurnIdx = 0;
+  for (const m of messages) {
+    if (m.role === 'user') {
+      if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
+        maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
+        maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
+        maxTurnIndex = curTurnIdx || 1;
+      }
+      curTurnIdx++;
+      curTurnSteps = 0;
+      curTurnTools = 0;
+    } else {
+      if (curTurnIdx === 0) curTurnIdx = 1;
+      if (m.role !== 'assistant') {
+        curTurnSteps++;
+      }
+      if (m.role === 'tool') curTurnTools++;
+    }
+  }
+  if (curTurnSteps > maxTurnSteps || curTurnTools > maxTurnToolCalls) {
+    maxTurnSteps = Math.max(maxTurnSteps, curTurnSteps);
+    maxTurnToolCalls = Math.max(maxTurnToolCalls, curTurnTools);
+    maxTurnIndex = curTurnIdx || 1;
+  }
+
+  const isStepExceeded = maxTurnSteps >= 100 || maxTurnToolCalls >= 100;
 
   // 2. 工具调用高频失败 (>= 2 次)
   const isFrequentToolFail = failedToolMsgs.length >= 2;
@@ -333,7 +364,7 @@ export function detectBadcase(session, messages) {
         recommendation: '检查工作流逻辑与提示词负向约束，纳入重点回归集',
         evidence: cleanTitle,
         evidenceRole: 'session',
-        stepCount: messages.length,
+        stepCount: maxTurnSteps,
         toolCallsCount: toolMsgs.length,
         toolFailuresCount: 0
       };
@@ -349,12 +380,12 @@ export function detectBadcase(session, messages) {
       badcaseTypeName: '步骤超限/死循环',
       severity: '严重',
       defectTags,
-      phenomenon: `会话交互步数达到 ${messages.length} 步 (工具调用 ${toolMsgs.length} 次)，超过 100 步阈值，疑似死循环或推理未收敛`,
-      suspectedCause: '智能体未设置步数熔断上限，或在连续重试动作中缺少退出/跳出收敛条件',
-      recommendation: '增加任务单会话最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户',
-      evidence: `总交互步数: ${messages.length} 步 | 工具调用: ${toolMsgs.length} 次`,
+      phenomenon: `第 ${maxTurnIndex} 轮单轮交互步数达到 ${maxTurnSteps} 步 (该轮工具调用 ${maxTurnToolCalls} 次)，超过 100 步阈值，疑似死循环或推理未收敛`,
+      suspectedCause: '智能体未设置单轮步数熔断上限，或在连续重试动作中缺少退出/跳出收敛条件',
+      recommendation: '增加任务单轮最大步数 Hard Limit 熔断截断机制（建议上限 50~80 步），防止死循环消耗资源并主动求助用户',
+      evidence: `单轮最大步数: ${maxTurnSteps} 步 (第 ${maxTurnIndex} 轮，工具调用 ${maxTurnToolCalls} 次) | 会话总步数: ${messages.length} 步`,
       evidenceRole: 'system',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -381,7 +412,7 @@ export function detectBadcase(session, messages) {
       recommendation: '引入工具调用断路器 (Circuit Breaker) 与连续失败回退机制；补齐工具入参的静态 Schema 校验与 Few-shot 样例',
       evidence: (failedToolMsgs[0].toolErrorDetail ? `【失败工具: ${failedToolMsgs[0].specificToolName}】\n报错详情: ${failedToolMsgs[0].toolErrorDetail}\n\n原始返回:\n` : '') + firstFailText.slice(0, 300),
       evidenceRole: 'tool',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -399,7 +430,7 @@ export function detectBadcase(session, messages) {
       recommendation: '为长时生成与多步骤任务增加 Checkpoint 进度持久化与断点续跑机制；增大 max_tokens 预算与网络保活心跳',
       evidence: interruptEvidence.slice(0, 300),
       evidenceRole: 'user',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -417,7 +448,7 @@ export function detectBadcase(session, messages) {
       recommendation: '在系统提示词增加强约束要求（如输出前进行条件复核清单）；在模糊需求场景下触发主动反问（Ask User Clarification）',
       evidence: unmetEvidence.slice(0, 300),
       evidenceRole: 'user',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -435,7 +466,7 @@ export function detectBadcase(session, messages) {
       recommendation: '在系统提示词增加负向约束「严禁重复追问访客上文已提及或已问过的信息」，并优化槽位记忆',
       evidence: complaintEvidence.slice(0, 300),
       evidenceRole: 'user',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -453,7 +484,7 @@ export function detectBadcase(session, messages) {
       recommendation: '检查规则触发词泛化边界与路由优先级，排查客服接待在线状态与排班判定',
       evidence: mismatchEvidence.slice(0, 300),
       evidenceRole: 'user',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -471,7 +502,7 @@ export function detectBadcase(session, messages) {
       recommendation: '缩减上下文轮数，增加模型输出流式断线重连与优雅兜底提示',
       evidence: anomalyEvidence.slice(0, 300),
       evidenceRole: 'assistant',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: failedToolMsgs.length
     };
@@ -498,7 +529,7 @@ export function detectBadcase(session, messages) {
       recommendation: '在系统提示词增加参数格式示例校验，增加工具超时重试机制与降级策略',
       evidence: (tm.toolErrorDetail ? `【失败工具: ${specificName}】\n报错详情: ${tm.toolErrorDetail}\n\n原始返回:\n` : '') + text.slice(0, 300),
       evidenceRole: 'tool',
-      stepCount: messages.length,
+      stepCount: maxTurnSteps,
       toolCallsCount: toolMsgs.length,
       toolFailuresCount: 1
     };

@@ -51,12 +51,98 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
   const sessions = await fetchSessionsForDate(date, currentEnv, overrideCreds);
   const candidates = sessions.filter(s => !isNoiseSession(s));
 
-  // Extract messages for candidate sessions (fetch up to 100 candidate sessions)
-  const targetSessions = candidates.slice(0, 100);
-  const sessionIds = targetSessions.map(s => s.sessionId);
+  // Extract messages for all sessions (including noise sessions so all are inspectable)
+  const sessionIds = sessions.map(s => s.sessionId);
   const messagesMap = await fetchMessagesBatch(sessionIds, 8, currentEnv, overrideCreds);
 
   const dataset = extractEvaluationDataset(sessions, messagesMap, minScore);
+  const caseBySession = new Map((dataset.cases || []).map(c => [c.sessionId, c]));
+  const badcaseBySession = new Map((dataset.badcases || []).map(b => [b.sessionId, b]));
+
+  const formatDurationLabel = (ms) => {
+    if (!Number.isFinite(ms) || ms <= 0) return '0s';
+    if (ms < 1000) return '<1s';
+    const totalSec = Math.round(ms / 1000);
+    if (totalSec < 60) return `${totalSec}s`;
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+  };
+
+  const computeSingleTurnStats = (msgs) => {
+    if (!Array.isArray(msgs) || msgs.length === 0) {
+      return { turnCount: 0, execSteps: 0, durationMs: 0, durationLabel: '' };
+    }
+    const turns = [];
+    let currentTurn = null;
+    for (const m of msgs) {
+      if (m.role === 'user' || !currentTurn) {
+        currentTurn = { steps: 0, minTs: Infinity, maxTs: -Infinity };
+        turns.push(currentTurn);
+      }
+      if (m.role !== 'user' && m.role !== 'assistant') {
+        currentTurn.steps += 1;
+      }
+      const ts = m.createdAt ? Date.parse(m.createdAt) : NaN;
+      if (Number.isFinite(ts)) {
+        if (ts < currentTurn.minTs) currentTurn.minTs = ts;
+        if (ts > currentTurn.maxTs) currentTurn.maxTs = ts;
+      }
+    }
+    let bestTurn = turns[0];
+    for (const t of turns) {
+      const tDur = Number.isFinite(t.minTs) && Number.isFinite(t.maxTs) ? Math.max(0, t.maxTs - t.minTs) : 0;
+      const bDur = Number.isFinite(bestTurn.minTs) && Number.isFinite(bestTurn.maxTs) ? Math.max(0, bestTurn.maxTs - bestTurn.minTs) : 0;
+      if (t.steps > bestTurn.steps || (t.steps === bestTurn.steps && tDur > bDur)) {
+        bestTurn = t;
+      }
+    }
+    const durationMs = Number.isFinite(bestTurn.minTs) && Number.isFinite(bestTurn.maxTs)
+      ? Math.max(0, bestTurn.maxTs - bestTurn.minTs)
+      : 0;
+    return {
+      turnCount: turns.length,
+      execSteps: bestTurn.steps,
+      durationMs,
+      durationLabel: Number.isFinite(bestTurn.minTs) ? formatDurationLabel(durationMs) : ''
+    };
+  };
+
+  const rawSessions = sessions.map(s => {
+    const msgs = messagesMap.get(s.sessionId) || [];
+    const firstUser = msgs.find(m => m.role === 'user');
+    const prompt = firstUser?.content || s.title || '';
+    const runIds = [...new Set(msgs.map(m => m.runId).filter(Boolean))];
+    const matchedCase = caseBySession.get(s.sessionId);
+    const matchedBadcase = badcaseBySession.get(s.sessionId);
+    const turnStats = computeSingleTurnStats(msgs);
+    return {
+      id: s.sessionId,
+      sessionId: s.sessionId,
+      threadId: s.threadId || '',
+      runId: runIds[0] || s.runId || '',
+      userId: s.userId,
+      compId: s.compId ?? s.companyId ?? '',
+      companyId: s.compId ?? s.companyId ?? '',
+      createdAt: s.createdAt || '',
+      model: s.modelId || s.model || '',
+      title: s.title || prompt.slice(0, 60) || s.sessionId,
+      userPrompt: prompt,
+      isNoise: isNoiseSession(s),
+      caseCategory: matchedCase ? matchedCase.category : '',
+      badcaseTypeName: matchedBadcase ? matchedBadcase.badcaseTypeName : '',
+      messageCount: msgs.length,
+      turnCount: turnStats.turnCount,
+      execSteps: turnStats.execSteps,
+      durationMs: turnStats.durationMs,
+      durationLabel: turnStats.durationLabel,
+      messages: msgs
+    };
+  });
+
   const result = {
     date,
     env: currentEnv,
@@ -64,7 +150,8 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
     readAt: new Date().toISOString(),
     summary: dataset.summary,
     cases: dataset.cases,
-    badcases: dataset.badcases || []
+    badcases: dataset.badcases || [],
+    rawSessions
   };
 
   datasetCache.set(cacheKey, result);
