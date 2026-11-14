@@ -31,3 +31,14 @@ test('长会话限制输入，但中间消息变化也使缓存失效',async()=>
  await summarizeSessions([task],transcripts,first.tasks,model)
  assert.equal(calls,2)
 })
+test('分析排查类会话允许 101 至 140 字带出具体原因的概要，超长仍拒绝',async()=>{
+ const analytical='排查生产环境多起慢对话与高频工具调用问题，查明由于查询接口未限制单次返回字符数且翻页步长过碎，导致大模型反复触发超过三十次工具调用并引发响应超时，整理了接口返回长度上限控制与翻页参数合并的改造建议方案。'
+ assert.ok(analytical.length>100 && analytical.length<=140, `len=${analytical.length}`)
+ const transcripts=new Map([[task.id,'user: 分析生产慢对话\nassistant: 查询接口未限制字符数导致重复翻页']])
+ const ok=await summarizeSessions([task],transcripts,[],async()=>JSON.stringify({'0':analytical}))
+ assert.equal(ok.failures,0);assert.equal(ok.tasks[0].title,analytical)
+ const tooLong=analytical+'额外补充超长内容'.repeat(10)
+ assert.ok(tooLong.length>140)
+ const rejected=await summarizeSessions([task],transcripts,[],async()=>JSON.stringify({'0':tooLong}))
+ assert.equal(rejected.failures,1);assert.equal(rejected.tasks.length,0)
+})

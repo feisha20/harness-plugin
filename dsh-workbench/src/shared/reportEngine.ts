@@ -64,8 +64,9 @@ const topics: WorkTopic[] = [
   { title:'工作记录与报告整理', matches:/日报|周报|月报|工作记录|工作事项/ },
   { title:'多工具工作信息归集', matches:/采集|游标|快照|会话历史|日志格式|多渠道|多通道/ },
   { title:'工作台集成与使用体验', matches:/harness|sidebar|panellist|插槽|插件|工作台|界面|导航|布局/i },
-  { title:'测试与业务系统协作', matches:/禅道|zentao|测试|用例|凭据|接口|API/i },
-  { title:'问题排查与系统维护', matches:/修复|排查|报错|异常|缺陷|bug|故障/i },
+  { title:'测试与业务系统协作', matches:/禅道|zentao|测试|用例|凭据|接口|API|评测|回归|自测/i },
+  { title:'问题排查与系统维护', matches:/修复|排查|报错|异常|缺陷|bug|故障|诊断|慢对话|长耗时|超时|漏洞/i },
+  { title:'方案评审与项目推进', matches:/评审|选型|进度|排期|联调|复盘|巡检/ },
   { title:'性能与结构优化', matches:/性能|重构|缓存|索引|优化/ },
 ]
 export function readableWork(text: string): string {
@@ -88,7 +89,12 @@ export function summarizeWork(tasks: Task[]): PeriodicSection[] {
     if (!groups.has(title)) groups.set(title, new Set())
     groups.get(title)!.add(readableWork(task.title))
   }
-  return [...groups].map(([title,group]) => ({title, items:[...group]}))
+  const entries = [...groups].map(([title, group]) => ({ title, items: [...group] }))
+  if (entries.length <= 1) return entries
+  return [
+    ...entries.filter(entry => entry.title !== '其他工作事项'),
+    ...entries.filter(entry => entry.title === '其他工作事项'),
+  ]
 }
 
 type ReportCadence = 'daily' | 'weekly' | 'monthly'
@@ -103,6 +109,12 @@ export const weeklySectionTitles = {
   measure: '四、针对不足，你将采取的措施是什么？',
   redo: '五、重做一遍应该怎么做？会带来哪些变化？产生哪些商业价值？',
   teamIssue: '六、本周下来团队存在最大的问题是什么？（至少写一项）',
+} as const
+
+export const monthlySectionTitles = {
+  work: '一、本月重点工作与阶段进展',
+  issue: '二、问题与需协调事项',
+  plan: '三、下月工作安排',
 } as const
 
 // 日报包含商业价值与明日计划必填章节；周报包含完成工作、商业价值、下周计划、针对不足措施、重做思考、团队问题6个维度。
@@ -228,102 +240,147 @@ export function normalizeDailyReport(markdown: string): string {
   })).join('\n')
 }
 
-/**
- * 为旧版或 AI 整理后的周报规范 6 个标准三级章节，
- * 按标准顺序提取或补齐各章节内容，并严格按一至六编号。
- */
-export function normalizeWeeklyReport(markdown: string): string {
+function normalizePeriodicMarkdown(
+  markdown: string,
+  titlePattern: RegExp,
+  classifyHeading: (rawTitle: string) => string,
+  specs: ReadonlyArray<{ key: string; title: string; placeholder: string }>,
+): string {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
-  const titleLine = lines.find(l => /^(?:#{1,2}\s+)?(?:[📅📊📈🎯⏳📁\s]*)?工作周报/.test(l.trim()))
+  const titleLine = lines.find(l => titlePattern.test(l.trim()))
 
-  const sections: { key: string; title: string; lines: string[] }[] = []
+  const sections: { key: string; lines: string[] }[] = []
   let currentKey: string | null = null
   let currentLines: string[] = []
 
   for (const line of lines) {
     const trimmed = line.trim()
     const match = line.match(/^(?:#{2,3})\s+(.+)$/)
-    if (match && !/^(?:#{1,2}\s+)?(?:[📅📊📈🎯⏳📁\s]*)?工作周报/.test(trimmed)) {
+    if (match && !titlePattern.test(trimmed)) {
       if (currentKey) {
-        sections.push({ key: currentKey, title: match[1], lines: currentLines })
+        sections.push({ key: currentKey, lines: currentLines })
       }
       const rawTitle = match[1]
         .replace(/[\*_`]/g, '')
         .trim()
         .replace(/^[一二三四五六七八九十\d]+[、.．]\s*/, '')
         .trim()
-      if (/本周完成的工作|本周重点工作|核心工作产出与交付|重点攻坚与推进中事项|工作总结|本周工作|完成的工作/.test(rawTitle)) {
-        currentKey = 'work'
-      } else if (/(?:商业价值|业务价值|价值|产出.*价值|业绩|提效|合理降本|降本增效)/.test(rawTitle) && !/重做一遍/.test(rawTitle)) {
-        currentKey = 'value'
-      } else if (/下周工作计划|下周工作安排|下周计划|下周规划|规划与风险预警/.test(rawTitle)) {
-        currentKey = 'plan'
-      } else if (/针对不足|采取的措施|不足与改进|改进措施|不足反思|应对措施/.test(rawTitle)) {
-        currentKey = 'measure'
-      } else if (/重做一遍|重新来过|复盘重做/.test(rawTitle)) {
-        currentKey = 'redo'
-      } else if (/团队.*问题|团队存在最大的问题|团队最大问题|问题与需协调事项|风险与预警|需协调事项|存在的问题/.test(rawTitle)) {
-        currentKey = 'teamIssue'
-      } else {
-        currentKey = 'other'
-      }
+      currentKey = classifyHeading(rawTitle)
       currentLines = []
     } else if (currentKey) {
       currentLines.push(line)
     }
   }
   if (currentKey) {
-    sections.push({ key: currentKey, title: '', lines: currentLines })
+    sections.push({ key: currentKey, lines: currentLines })
+  }
+
+  const trimLines = (items: string[]) => {
+    const copy = [...items]
+    while (copy.length && copy[0].trim() === '') copy.shift()
+    while (copy.length && copy[copy.length - 1].trim() === '') copy.pop()
+    return copy
   }
 
   const getBody = (key: string, defaultPlaceholder: string): string[] => {
     const found = sections.filter(s => s.key === key)
     if (!found.length) return [defaultPlaceholder]
-    const content = found.flatMap(s => s.lines)
-    while (content.length && content[0].trim() === '') content.shift()
-    while (content.length && content[content.length - 1].trim() === '') content.pop()
+    const content = trimLines(found.flatMap(s => s.lines))
     return content.length ? content : [defaultPlaceholder]
   }
 
-  const otherLines = sections.filter(s => s.key === 'other').flatMap(s => s.lines)
-  while (otherLines.length && otherLines[0].trim() === '') otherLines.shift()
-  while (otherLines.length && otherLines[otherLines.length - 1].trim() === '') otherLines.pop()
-
-  let workBody = getBody('work', '暂无工作记录')
-  if (otherLines.length) {
-    if (workBody.length === 1 && workBody[0] === '暂无工作记录') {
-      workBody = otherLines
-    } else {
-      workBody = [...workBody, '', ...otherLines]
-    }
-  }
-  const valueBody = getBody('value', '待补充：请补充本周产出的商业价值（如带来的业绩、提效、合理降本等）。')
-  const planBody = getBody('plan', '待补充：请补充下周工作计划及预期产出。')
-  const measureBody = getBody('measure', '待补充：请针对本周工作的不足，填写你将采取的改进措施。')
-  const redoBody = getBody('redo', '待补充：请填写如果重做一遍应该怎么做、会带来哪些变化以及产生哪些商业价值。')
-  const teamIssueBody = getBody('teamIssue', '待补充：请至少填写一项本周下来团队存在的最大问题。')
+  const otherLines = trimLines(sections.filter(s => s.key === 'other').flatMap(s => s.lines))
 
   const result: string[] = []
   if (titleLine) {
     result.push(titleLine.trim(), '')
   }
 
-  const standardSections = [
-    { title: weeklySectionTitles.work, body: workBody },
-    { title: weeklySectionTitles.value, body: valueBody },
-    { title: weeklySectionTitles.plan, body: planBody },
-    { title: weeklySectionTitles.measure, body: measureBody },
-    { title: weeklySectionTitles.redo, body: redoBody },
-    { title: weeklySectionTitles.teamIssue, body: teamIssueBody },
-  ]
-
-  for (const s of standardSections) {
-    result.push(`### ${s.title}`)
-    result.push(...s.body)
-    result.push('')
+  for (const spec of specs) {
+    let body = getBody(spec.key, spec.placeholder)
+    if (spec.key === 'work' && otherLines.length) {
+      body = body.length === 1 && body[0] === spec.placeholder
+        ? otherLines
+        : [...body, '', ...otherLines]
+    }
+    result.push(`### ${spec.title}`, ...body, '')
   }
 
   return result.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/**
+ * 为旧版或 AI 整理后的周报规范 6 个标准三级章节，
+ * 按标准顺序提取或补齐各章节内容，并严格按一至六编号。
+ */
+export function normalizeWeeklyReport(markdown: string): string {
+  return normalizePeriodicMarkdown(
+    markdown,
+    /^(?:#{1,2}\s+)?(?:[📅📊📈🎯⏳📁\s]*)?工作周报/,
+    rawTitle => {
+      if (/本周完成的工作|本周重点工作|核心工作产出与交付|重点攻坚与推进中事项|工作总结|本周工作|完成的工作/.test(rawTitle)) {
+        return 'work'
+      }
+      if (/(?:商业价值|业务价值|价值|产出.*价值|业绩|提效|合理降本|降本增效)/.test(rawTitle) && !/重做一遍/.test(rawTitle)) {
+        return 'value'
+      }
+      if (/下周工作计划|下周工作安排|下周计划|下周规划|规划与风险预警/.test(rawTitle)) {
+        return 'plan'
+      }
+      if (/针对不足|采取的措施|不足与改进|改进措施|不足反思|应对措施/.test(rawTitle)) {
+        return 'measure'
+      }
+      if (/重做一遍|重新来过|复盘重做/.test(rawTitle)) {
+        return 'redo'
+      }
+      if (/团队.*问题|团队存在最大的问题|团队最大问题|问题与需协调事项|风险与预警|需协调事项|存在的问题/.test(rawTitle)) {
+        return 'teamIssue'
+      }
+      return 'other'
+    },
+    [
+      { key: 'work', title: weeklySectionTitles.work, placeholder: '暂无工作记录' },
+      { key: 'value', title: weeklySectionTitles.value, placeholder: '待补充：请补充本周产出的商业价值（如带来的业绩、提效、合理降本等）。' },
+      { key: 'plan', title: weeklySectionTitles.plan, placeholder: '待补充：请补充下周工作计划及预期产出。' },
+      { key: 'measure', title: weeklySectionTitles.measure, placeholder: '待补充：请针对本周工作的不足，填写你将采取的改进措施。' },
+      { key: 'redo', title: weeklySectionTitles.redo, placeholder: '待补充：请填写如果重做一遍应该怎么做、会带来哪些变化以及产生哪些商业价值。' },
+      { key: 'teamIssue', title: weeklySectionTitles.teamIssue, placeholder: '待补充：请至少填写一项本周下来团队存在的最大问题。' },
+    ],
+  )
+}
+
+/**
+ * 为旧版或 AI 整理后的月报规范 3 个标准三级章节，
+ * 按标准顺序提取或补齐各章节内容，并严格按一至三编号。
+ */
+export function normalizeMonthlyReport(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
+  const titlePattern = /^(?:#{1,2}\s+)?(?:[📅📊📈🎯⏳📁\s]*)?工作月报/
+  const hasSectionHeading = lines.some(l => /^(?:#{2,3})\s+(.+)$/.test(l) && !titlePattern.test(l.trim()))
+  if (!hasSectionHeading && markdown.includes('暂无工作记录')) {
+    return markdown.trim()
+  }
+  return normalizePeriodicMarkdown(
+    markdown,
+    titlePattern,
+    rawTitle => {
+      if (/重点工作|阶段进展|本月工作|完成的工作/.test(rawTitle)) {
+        return 'work'
+      }
+      if (/问题与需协调|存在的问题|风险|阻塞|需协调/.test(rawTitle)) {
+        return 'issue'
+      }
+      if (/下月工作安排|下月计划|下月工作计划|后续安排/.test(rawTitle)) {
+        return 'plan'
+      }
+      return 'other'
+    },
+    [
+      { key: 'work', title: monthlySectionTitles.work, placeholder: '暂无工作记录' },
+      { key: 'issue', title: monthlySectionTitles.issue, placeholder: '待确认：当前记录未提供问题或需协调事项，请在提交前确认。' },
+      { key: 'plan', title: monthlySectionTitles.plan, placeholder: '待补充：请补充下月的工作重点和预期产出。' },
+    ],
+  )
 }
 
 function reportSectionRange(lines: string[], test: (title: string) => boolean): { start: number; end: number } | null {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ReportEngine, readableWork, summarizeWork, normalizeDailyReport, normalizeWeeklyReport, applyDailyInsight, needsDailyInsight } from '../lib/shared/reportEngine.js'
+import { ReportEngine, readableWork, summarizeWork, normalizeDailyReport, normalizeWeeklyReport, normalizeMonthlyReport, applyDailyInsight, needsDailyInsight } from '../lib/shared/reportEngine.js'
 const task = (id,title,extra={}) => ({id,title,source:'manual',createdAt:'2026-11-07T02:00:00Z',...extra})
 test('汇报按工作内容归类，不将项目路径当作标题', () => {
   const report=ReportEngine.generateWeeklyReport('2026-W45',[
@@ -221,4 +221,29 @@ test('支持 ## 二级标题或带编号格式的周报规整', () => {
   assert.match(normalized,/### 四、针对不足，你将采取的措施是什么？/)
   assert.match(normalized,/### 五、重做一遍应该怎么做？/)
   assert.match(normalized,/### 六、本周下来团队存在最大的问题是什么？/)
+})
+
+test('其他工作事项在存在具体分组时排到最后，仅有未知事项时保持展示', () => {
+  const mixed=summarizeWork([task('a','核对供应商报价'),task('b','排查生产慢对话超时原因')])
+  assert.equal(mixed.length,2)
+  assert.equal(mixed[0].title,'问题排查与系统维护')
+  assert.equal(mixed[1].title,'其他工作事项')
+  const single=summarizeWork([task('a','核对供应商报价')])
+  assert.deepEqual(single,[{title:'其他工作事项',items:['核对供应商报价']}])
+})
+
+test('月报规整规范3个标准章节并保留空记录月报', () => {
+  const empty=ReportEngine.generateMonthlyReport('2026-10',[],{})
+  assert.equal(normalizeMonthlyReport(empty.markdown),empty.markdown.trim())
+  const old=`工作月报（2026-11-01 ~ 2026-11-30）
+
+## 1. 本月工作
+• 完成慢对话原因排查并给出限长方案`
+  const normalized=normalizeMonthlyReport(old)
+  assert.match(normalized,/### 一、本月重点工作与阶段进展/)
+  assert.match(normalized,/完成慢对话原因排查/)
+  assert.match(normalized,/### 二、问题与需协调事项/)
+  assert.match(normalized,/待确认：当前记录未提供问题或需协调事项/)
+  assert.match(normalized,/### 三、下月工作安排/)
+  assert.match(normalized,/待补充：请补充下月的工作重点和预期产出/)
 })

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import type { DailyReport, PeriodicReport, Task } from '../shared/types.ts'
 import { copyReport } from '../shared/reportClipboard.ts'
-import { ReportEngine, normalizeWeeklyReport } from '../shared/reportEngine.ts'
+import { ReportEngine, normalizeMonthlyReport, normalizeWeeklyReport } from '../shared/reportEngine.ts'
 import { MarkdownRenderer } from './MarkdownRenderer.tsx'
 import { ReportOrganizingReveal, useReportOrganizingMotion } from './ReportOrganizingMotion.tsx'
 import { ReportIntake } from './ReportIntake.tsx'
@@ -121,8 +121,8 @@ export function PeriodicReportView({
   const cachedReport = reportType === 'weekly' ? weeklyReports[activeKey] : monthlyReports[activeKey]
   const currentReport = report?.type === reportType && report.periodKey === activeKey ? report : cachedReport
   const rawMarkdown = (currentReport?.isEdited || currentReport?.aiOrganized) ? (currentReport.markdown || '') : synthesizedReport.markdown
-  const currentMarkdown = (reportType === 'weekly' && !currentReport?.isEdited)
-    ? normalizeWeeklyReport(rawMarkdown)
+  const currentMarkdown = !currentReport?.isEdited
+    ? (reportType === 'weekly' ? normalizeWeeklyReport(rawMarkdown) : normalizeMonthlyReport(rawMarkdown))
     : rawMarkdown
 
   const handleRegenerate = async () => {
@@ -136,7 +136,7 @@ export function PeriodicReportView({
             : await onFetchMonthlyReport(selectedMonth, true)
         const finalReport = reportType === 'weekly'
           ? { ...res, markdown: normalizeWeeklyReport(res.markdown) }
-          : res
+          : { ...res, markdown: normalizeMonthlyReport(res.markdown) }
         setReport(finalReport)
         setEditedMarkdown(finalReport.markdown)
         setIsEditing(false)

@@ -9,11 +9,22 @@ import { recordDay } from '../shared/reportEngine.ts'
 const transcripts = new WeakMap<Task, string>()
 export function codexTranscript(task: Task): string { return transcripts.get(task) || '' }
 
+function stripLeadingIfRemainder(text: string, pattern: RegExp): string {
+  const stripped = text.replace(pattern, '').trim()
+  return stripped || text
+}
+
 function visibleText(text: string): string {
-  return text
+  const cleaned = text
     .replace(/<(system-reminder|environment_context|permissions instructions|collaboration_mode)\b[^>]*>[\s\S]*?<\/\1>/g, '')
     .replace(/^# AGENTS\.md instructions[\s\S]*?<\/INSTRUCTIONS>/i, '')
     .trim()
+  if (!cleaned) return ''
+  const withoutProjection = stripLeadingIfRemainder(
+    cleaned,
+    /^Complete current DSH model context projection\.[\s\S]*?Elapsed since the preceding model-visible message:[^\r\n]*\s*/,
+  )
+  return stripLeadingIfRemainder(withoutProjection, /^# Files mentioned by the user:\s*(?:## [^\r\n]+\s*)+/)
 }
 
 /** 只读扫描桌面端和 CLI 共用的 rollout；流式逐行读取，兼容正在追加的日志。 */

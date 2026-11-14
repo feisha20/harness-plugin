@@ -72,3 +72,23 @@ test('兼容旧事件日志，缺路径明确报错，概要缓存复用且模�
     assert.match((await scanCodex(join(root,'missing'))).error,/未找到/)
   } finally {rmSync(root,{recursive:true,force:true})}
 })
+test('清理前置剪贴板文件列表和上下文投影头，仅贴图时保留会话不丢弃',async()=>{
+  const {root,put}=fixture()
+  try {
+    put('sessions/with-text.jsonl',[
+      meta('s1'),
+      message('user','# Files mentioned by the user:\n\n## codex-clipboard-1.png: /var/folders/tmp/1.png\n\n排查这个页面切换模型失败的原因'),
+    ])
+    put('sessions/only-image.jsonl',[
+      meta('s2'),
+      message('user','# Files mentioned by the user:\n\n## codex-clipboard-2.png: /var/folders/tmp/2.png'),
+    ])
+    const result=await scanCodex(root)
+    assert.equal(result.sessionCount,2)
+    const t1=result.extractedTasks.find(t=>t.evidence[0].sessionId==='s1')
+    const t2=result.extractedTasks.find(t=>t.evidence[0].sessionId==='s2')
+    assert.equal(t1.title,'排查这个页面切换模型失败的原因')
+    assert.doesNotMatch(t1.evidence[0].quote,/Files mentioned by the user/)
+    assert.match(t2.title,/Files mentioned by the user/)
+  } finally {rmSync(root,{recursive:true,force:true})}
+})

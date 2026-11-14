@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { WorkbenchStore } from './store.ts'
-import { ReportEngine, recordDay, normalizeWeeklyReport } from './reportEngine.ts'
+import { ReportEngine, recordDay, normalizeWeeklyReport, normalizeMonthlyReport } from './reportEngine.ts'
 import { reorganizeReport, inferDailyInsight } from './reportSummary.ts'
 import { SessionCollector } from './collector.ts'
 import { safeAiError } from './aiFailure.ts'
@@ -149,6 +149,8 @@ export function createWorkbenchHttpHandler(
         }
         if (!snapshot.monthlyReports[monthKey] || (!snapshot.monthlyReports[monthKey].isEdited && !snapshot.monthlyReports[monthKey].aiOrganized)) {
           snapshot.monthlyReports[monthKey] = ReportEngine.generateMonthlyReport(monthKey, snapshot.tasks, snapshot.dailyReports)
+        } else if (snapshot.monthlyReports[monthKey] && !snapshot.monthlyReports[monthKey].isEdited) {
+          snapshot.monthlyReports[monthKey].markdown = normalizeMonthlyReport(snapshot.monthlyReports[monthKey].markdown)
         }
         store.save()
         sendJson(res, 200, snapshot)
@@ -378,7 +380,7 @@ export function createWorkbenchHttpHandler(
           let report = snapshot.weeklyReports[weekKey]
           if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateWeeklyReport(weekKey, snapshot.tasks, snapshot.dailyReports)
-            if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
+            if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport, { dailyReports: snapshot.dailyReports })
             report.markdown = normalizeWeeklyReport(report.markdown)
             store.savePeriodicReport(report)
           } else if (report && !report.isEdited) {
@@ -413,8 +415,20 @@ export function createWorkbenchHttpHandler(
           let report = snapshot.monthlyReports[monthKey]
           if (!report || (!report.isEdited && !report.aiOrganized) || query.get('regenerate') === 'true') {
             report = ReportEngine.generateMonthlyReport(monthKey, snapshot.tasks, snapshot.dailyReports)
-            if (query.get('regenerate') === 'true') report = await reorganizeReport(report, snapshot.tasks, generateReport)
+            if (query.get('regenerate') === 'true') {
+              report = await reorganizeReport(report, snapshot.tasks, generateReport, {
+                dailyReports: snapshot.dailyReports,
+                weeklyReports: snapshot.weeklyReports,
+              })
+            }
+            report.markdown = normalizeMonthlyReport(report.markdown)
             store.savePeriodicReport(report)
+          } else if (report && !report.isEdited) {
+            const normalized = normalizeMonthlyReport(report.markdown)
+            if (normalized !== report.markdown) {
+              report = { ...report, markdown: normalized }
+              store.savePeriodicReport(report)
+            }
           }
           sendJson(res, 200, report)
           return
