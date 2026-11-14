@@ -2521,24 +2521,26 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             h('div', {
               style: {
                 display: 'grid',
-                gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
                 gap: '8px'
               }
             },
               [
                 {
                   label: '与模型交互',
-                  value: `${stat.modelInteractions} 次`,
+                  num: stat.modelInteractions,
+                  unit: '次',
                   color: stat.modelInteractions >= 100 ? '#dc2626' : '#7c3aed',
                   bg: stat.modelInteractions >= 100 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(124, 58, 237, 0.04)',
                   border: stat.modelInteractions >= 100 ? 'rgba(239, 68, 68, 0.22)' : 'rgba(124, 58, 237, 0.16)'
                 },
-                { label: '总调用次数', value: `${stat.totalCalls} 次`, color: 'var(--ed-text1)', bg: 'var(--ed-bg-layer1)', border: 'var(--ed-border1)' },
-                { label: '涉及工具数', value: `${stat.items.length} 个`, color: '#2563eb', bg: 'rgba(37, 99, 235, 0.03)', border: 'rgba(37, 99, 235, 0.14)' },
-                { label: '执行成功', value: `${stat.totalSuccess} 次`, color: '#059669', bg: 'rgba(16, 185, 129, 0.04)', border: 'rgba(16, 185, 129, 0.16)' },
+                { label: '总调用次数', num: stat.totalCalls, unit: '次', color: 'var(--ed-text1)', bg: 'var(--ed-bg-layer1)', border: 'var(--ed-border1)' },
+                { label: '涉及工具数', num: stat.items.length, unit: '个', color: '#2563eb', bg: 'rgba(37, 99, 235, 0.03)', border: 'rgba(37, 99, 235, 0.14)' },
+                { label: '执行成功', num: stat.totalSuccess, unit: '次', color: '#059669', bg: 'rgba(16, 185, 129, 0.04)', border: 'rgba(16, 185, 129, 0.16)' },
                 {
                   label: '异常/失败',
-                  value: `${stat.totalFailed} 次`,
+                  num: stat.totalFailed,
+                  unit: '次',
                   color: stat.totalFailed > 0 ? '#dc2626' : 'var(--ed-text2)',
                   bg: stat.totalFailed > 0 ? 'rgba(239, 68, 68, 0.04)' : 'var(--ed-bg-layer1)',
                   border: stat.totalFailed > 0 ? 'rgba(239, 68, 68, 0.18)' : 'var(--ed-border1)'
@@ -2550,14 +2552,18 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                   border: `1px solid ${card.border}`,
                   borderRadius: '8px',
                   padding: '8px 12px',
+                  minWidth: 0,
                   display: 'flex',
-                  alignItems: 'baseline',
-                  justifyContent: 'space-between',
-                  gap: '6px'
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  gap: '3px'
                 }
               },
-                h('span', { style: { fontSize: '11.5px', color: 'var(--ed-text2)' } }, card.label),
-                h('span', { style: { fontSize: '15px', fontWeight: 600, color: card.color, fontVariantNumeric: 'tabular-nums' } }, card.value)
+                h('span', { style: { fontSize: '11.5px', lineHeight: 1.25, color: 'var(--ed-text2)', whiteSpace: 'nowrap' } }, card.label),
+                h('div', { style: { display: 'flex', alignItems: 'baseline', gap: '3px', whiteSpace: 'nowrap', lineHeight: 1.2 } },
+                  h('span', { style: { fontSize: '17px', fontWeight: 650, color: card.color, fontVariantNumeric: 'tabular-nums' } }, `${card.num}`),
+                  h('span', { style: { fontSize: '11.5px', fontWeight: 500, color: card.color, opacity: 0.85 } }, card.unit)
+                )
               ))
             ),
             stat.items.length === 0 ? h('div', {
@@ -2589,7 +2595,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                   fontWeight: 500,
                   color: 'var(--ed-text2)',
                   background: 'var(--ed-bg-layer2)',
-                  borderBottom: '1px solid var(--ed-border1)'
+                  borderBottom: '1px solid var(--ed-border1)',
+                  whiteSpace: 'nowrap'
                 }
               },
                 h('span', { style: { textAlign: 'center' } }, '#'),
@@ -2649,7 +2656,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                       style: {
                         fontWeight: 500,
                         fontVariantNumeric: 'tabular-nums',
-                        color: 'var(--ed-text1)'
+                        color: 'var(--ed-text1)',
+                        whiteSpace: 'nowrap'
                       }
                     }, `${item.count} 次`)
                   ),
@@ -2804,7 +2812,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             border: '1px solid var(--ed-border1)',
                             borderRadius: '5px',
                             padding: '1px 7px',
-                            flexShrink: 0
+                            flexShrink: 0,
+                            whiteSpace: 'nowrap'
                           }
                         }, `第 ${t.turnIndex} 轮`),
                         t.userPrompt && h('span', {
@@ -2827,7 +2836,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             background: 'rgba(220, 38, 38, 0.08)',
                             border: '1px solid rgba(220, 38, 38, 0.25)',
                             borderRadius: '4px',
-                            padding: '1px 6px'
+                            padding: '1px 6px',
+                            whiteSpace: 'nowrap'
                           }
                         }, BADCASE_LABEL_MODEL_LIMIT),
                         t.execSteps > 100 && h('span', {
@@ -2838,7 +2848,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             background: 'rgba(217, 119, 6, 0.08)',
                             border: '1px solid rgba(217, 119, 6, 0.25)',
                             borderRadius: '4px',
-                            padding: '1px 6px'
+                            padding: '1px 6px',
+                            whiteSpace: 'nowrap'
                           }
                         }, `单轮${t.execSteps}步·需关注`),
                         h('span', {
@@ -2848,7 +2859,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             borderRadius: '999px',
                             background: t.modelInteractions >= 100 ? 'rgba(220, 38, 38, 0.08)' : 'rgba(124, 58, 237, 0.08)',
                             color: t.modelInteractions >= 100 ? '#dc2626' : '#7c3aed',
-                            fontVariantNumeric: 'tabular-nums'
+                            fontVariantNumeric: 'tabular-nums',
+                            whiteSpace: 'nowrap'
                           }
                         }, `模型 ${t.modelInteractions} 次`),
                         h('span', {
@@ -2858,7 +2870,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             borderRadius: '999px',
                             background: t.totalCalls > 0 ? 'rgba(37, 99, 235, 0.08)' : 'var(--ed-bg-layer2)',
                             color: t.totalCalls > 0 ? '#2563eb' : 'var(--ed-text2)',
-                            fontVariantNumeric: 'tabular-nums'
+                            fontVariantNumeric: 'tabular-nums',
+                            whiteSpace: 'nowrap'
                           }
                         }, `工具 ${t.totalCalls} 次`),
                         t.totalFailed > 0 && h('span', {
@@ -2869,11 +2882,12 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             background: 'rgba(239, 68, 68, 0.1)',
                             color: '#dc2626',
                             fontWeight: 500,
-                            fontVariantNumeric: 'tabular-nums'
+                            fontVariantNumeric: 'tabular-nums',
+                            whiteSpace: 'nowrap'
                           }
                         }, `失败 ${t.totalFailed} 次`),
                         t.createdAt && h('span', {
-                          style: { fontSize: '11px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums', marginLeft: '2px' }
+                          style: { fontSize: '11px', color: 'var(--ed-text2)', fontVariantNumeric: 'tabular-nums', marginLeft: '2px', whiteSpace: 'nowrap' }
                         }, t.createdAt.slice(11, 19))
                       )
                     ),
