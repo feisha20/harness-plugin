@@ -1138,6 +1138,38 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
   color: var(--ed-text1);
   white-space: pre-wrap;
 }
+.ed-eval-criteria-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ed-eval-criteria-title {
+  font-size: 12px;
+  font-weight: 650;
+  color: #059669;
+}
+.ed-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ed-tool-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--ed-bg-layer2);
+  border: 1px solid var(--ed-border1);
+  color: var(--ed-text1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ed-tag-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+}
 .ed-toast {
   position: fixed;
   bottom: 24px;
@@ -3345,7 +3377,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             title: '',
             category: '综合问答',
             priority: 'P1',
-            sourceType: 'case',
+            sourceType: 'manual',
             userPrompt: '',
             evalCriteria: '',
             referenceAnswer: ''
@@ -3365,8 +3397,26 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
               item.badcaseType ||
               (typeof item.id === 'string' && item.id.startsWith('bad_'))
             );
-            const sourceType = item.sourceType || (isBadcase ? 'badcase' : 'case');
+            let sourceType = item.sourceType;
+            if (sourceType === 'positive') sourceType = 'case';
+            if (sourceType !== 'manual' && sourceType !== 'badcase' && sourceType !== 'case') {
+              sourceType = item.isManual ? 'manual' : (isBadcase ? 'badcase' : 'case');
+            }
             const now = new Date().toISOString();
+
+            const resolvedCategory =
+              (item.categoryName && item.categoryName !== '通用业务咨询' ? item.categoryName : '') ||
+              item.category ||
+              item.categoryName ||
+              item.badcaseTypeName ||
+              '综合问答';
+
+            const resolvedToolNames = Array.isArray(item.toolNames) && item.toolNames.length > 0
+              ? item.toolNames
+              : (Array.isArray(item.toolsUsed) ? item.toolsUsed : []);
+
+            const resolvedPrompt = item.userPrompt || item.prompt || '';
+            const resolvedTitle = (item.title || '').trim() || resolvedPrompt.trim().replace(/\s+/g, ' ').slice(0, 45) || '未命名评测用例';
 
             let defaultPriority = 'P1';
             if (item.priority) {
@@ -3387,27 +3437,34 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 const reasons = Array.isArray(item.valueReasons) && item.valueReasons.length > 0
                   ? item.valueReasons.map(r => `- ${r}`).join('\n')
                   : '- 准确理解访客/客服提问意图并给出结构化准确回复';
-                defaultCriteria = `【核心能力基准】验证「${item.category || '综合问答'}」场景下的意图识别、工具链执行与回答质量：\n${reasons}`;
+                defaultCriteria = `【核心能力基准】验证「${resolvedCategory}」场景下的意图识别、工具链执行与回答质量：\n${reasons}`;
               }
             }
 
-            return {
+            const cleaned = {
               ...item,
               id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              title: resolvedTitle,
               sessionId: item.sessionId || '',
               runId: item.runId || '',
               runIds: item.runIds || (item.runId ? [item.runId] : []),
               sourceType,
+              isManual: sourceType === 'manual' ? true : Boolean(item.isManual && sourceType !== 'case' && sourceType !== 'badcase'),
               sourceDate: item.sourceDate || srcDate || (item.createdAt ? item.createdAt.slice(0, 10) : ''),
               sourceEnv: item.sourceEnv || srcEnv || 'prod',
               priority: defaultPriority,
-              category: item.category || item.badcaseTypeName || '综合问答',
-              userPrompt: item.userPrompt || item.prompt || '',
+              category: resolvedCategory,
+              toolNames: resolvedToolNames,
+              toolCallsCount: typeof item.toolCallsCount === 'number' ? item.toolCallsCount : resolvedToolNames.length,
+              userPrompt: resolvedPrompt,
               referenceAnswer: item.referenceAnswer || '',
               evalCriteria: defaultCriteria,
               addedAt: item.addedAt || now,
-              updatedAt: now
+              updatedAt: item.updatedAt || now
             };
+            delete cleaned.categoryName;
+            delete cleaned.toolsUsed;
+            return cleaned;
           }, []);
 
           const persistOfficialDataset = React.useCallback(async (nextItems) => {
@@ -3445,11 +3502,11 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
               if (raw) {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
-                  localItems = parsed;
-                  setOfficialCases(parsed);
-                  if (parsed.length > 0) {
-                    setSelectedOfficialCaseId(prev => prev || parsed[0].id);
-                    setSelectedOfficialIds(new Set(parsed.map(x => x.id)));
+                  localItems = parsed.filter(Boolean).map(x => normalizeOfficialItemClient(x));
+                  setOfficialCases(localItems);
+                  if (localItems.length > 0) {
+                    setSelectedOfficialCaseId(prev => prev || localItems[0].id);
+                    setSelectedOfficialIds(new Set(localItems.map(x => x.id)));
                   }
                 }
               }
@@ -3459,7 +3516,9 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
               const res = await fetch('/api/eval-dataset?action=get_official_dataset');
               if (res.ok) {
                 const json = await res.json();
-                const serverItems = Array.isArray(json.items) ? json.items : [];
+                const serverItems = Array.isArray(json.items)
+                  ? json.items.filter(Boolean).map(x => normalizeOfficialItemClient(x))
+                  : [];
                 if (serverItems.length > 0) {
                   setOfficialCases(serverItems);
                   setSelectedOfficialCaseId(prev => (prev && serverItems.some(x => x.id === prev)) ? prev : serverItems[0].id);
@@ -3475,14 +3534,15 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 if (cfgRes.ok) {
                   const cfg = await cfgRes.json();
                   if (Array.isArray(cfg.officialDataset) && cfg.officialDataset.length > 0 && (!localItems || localItems.length === 0)) {
-                    setOfficialCases(cfg.officialDataset);
-                    setSelectedOfficialCaseId(cfg.officialDataset[0].id);
-                    setSelectedOfficialIds(new Set(cfg.officialDataset.map(x => x.id)));
+                    const normalizedCfgItems = cfg.officialDataset.filter(Boolean).map(x => normalizeOfficialItemClient(x));
+                    setOfficialCases(normalizedCfgItems);
+                    setSelectedOfficialCaseId(normalizedCfgItems[0].id);
+                    setSelectedOfficialIds(new Set(normalizedCfgItems.map(x => x.id)));
                   }
                 }
               }
             } catch (e) {}
-          }, [persistOfficialDataset]);
+          }, [persistOfficialDataset, normalizeOfficialItemClient]);
 
           React.useEffect(() => {
             loadOfficialDataset();
@@ -3570,39 +3630,45 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
 
           const handleSaveOfficialEdit = React.useCallback(async () => {
             if (!editingOfficialCase) return;
-            const updated = {
-              ...editingOfficialCase,
-              updatedAt: new Date().toISOString()
-            };
-            const nextList = officialCases.map(oc => oc.id === updated.id ? updated : oc);
+            const now = new Date().toISOString();
+            const nextList = officialCases.map(oc => {
+              if (oc.id !== editingOfficialCase.id) return oc;
+              return normalizeOfficialItemClient({
+                ...oc,
+                ...editingOfficialCase,
+                updatedAt: now
+              }, oc.sourceDate, oc.sourceEnv);
+            });
             await persistOfficialDataset(nextList);
             setEditingOfficialCase(null);
             showToast('已保存正式评测集用例配置');
-          }, [editingOfficialCase, officialCases, persistOfficialDataset, showToast]);
+          }, [editingOfficialCase, officialCases, normalizeOfficialItemClient, persistOfficialDataset, showToast]);
 
           const handleCreateManualOfficialCase = React.useCallback(async () => {
-            if (!newOfficialDraft.title.trim() || !newOfficialDraft.userPrompt.trim()) {
-              alert('请填写用例标题和回归测试提问 (Prompt)');
+            if (!newOfficialDraft.userPrompt.trim()) {
+              alert('请填写回归测试提问 (Prompt)');
               return;
             }
             const now = new Date().toISOString();
+            const cleanPrompt = newOfficialDraft.userPrompt.trim();
+            const finalTitle = newOfficialDraft.title.trim() || cleanPrompt.replace(/\s+/g, ' ').slice(0, 45);
             const created = normalizeOfficialItemClient({
               id: `official_manual_${Date.now().toString(36)}`,
-              title: newOfficialDraft.title.trim(),
+              title: finalTitle,
               category: newOfficialDraft.category.trim() || '综合问答',
               priority: newOfficialDraft.priority || 'P1',
-              sourceType: newOfficialDraft.sourceType || 'case',
-               isManual: true,
+              sourceType: newOfficialDraft.sourceType || 'manual',
+              isManual: true,
               sourceDate: date,
               sourceEnv: currentEnv,
-              userPrompt: newOfficialDraft.userPrompt.trim(),
+              userPrompt: cleanPrompt,
               evalCriteria: newOfficialDraft.evalCriteria.trim(),
               referenceAnswer: newOfficialDraft.referenceAnswer.trim(),
               turnsCount: 1,
               toolCallsCount: 0,
               toolNames: [],
               messages: [
-                { role: 'user', content: newOfficialDraft.userPrompt.trim(), createdAt: now },
+                { role: 'user', content: cleanPrompt, createdAt: now },
                 ...(newOfficialDraft.referenceAnswer.trim()
                   ? [{ role: 'assistant', content: newOfficialDraft.referenceAnswer.trim(), createdAt: now }]
                   : [])
@@ -3618,7 +3684,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
               title: '',
               category: '综合问答',
               priority: 'P1',
-              sourceType: 'case',
+              sourceType: 'manual',
               userPrompt: '',
               evalCriteria: '',
               referenceAnswer: ''
@@ -3764,24 +3830,40 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 localConfig = JSON.parse(localStorage.getItem('kuaibuddy_eval_config'));
               } catch (e) {}
 
-              let merged = localConfig;
+              let merged = localConfig || { activeEnv: 'prod', environments: {} };
               try {
                 const res = await fetch('/api/eval-dataset?action=get_config');
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const serverConfig = await res.json();
+                const mergedEnvs = {};
+                const envKeys = new Set([
+                  ...Object.keys(serverConfig.environments || {}),
+                  ...Object.keys(localConfig?.environments || {})
+                ]);
+                let needsServerSync = false;
+                for (const k of envKeys) {
+                  const sEnv = serverConfig.environments?.[k] || {};
+                  const lEnv = localConfig?.environments?.[k] || {};
+                  const nextEnv = { ...lEnv, ...sEnv };
+                  for (const field of ['key', 'password', 'companyId', 'username', 'url']) {
+                    if ((!sEnv[field] || String(sEnv[field]).trim() === '') && lEnv[field] && String(lEnv[field]).trim() !== '') {
+                      nextEnv[field] = lEnv[field];
+                      if (field === 'key' || field === 'password') needsServerSync = true;
+                    }
+                  }
+                  mergedEnvs[k] = nextEnv;
+                }
                 merged = {
                   ...serverConfig,
                   activeEnv: localConfig?.activeEnv || serverConfig.activeEnv || 'prod',
-                  environments: {
-                    ...serverConfig.environments,
-                    ...localConfig?.environments
-                  }
+                  environments: mergedEnvs
                 };
-                if (serverConfig.environments?.preprod) {
-                  merged.environments.preprod = {
-                    ...serverConfig.environments.preprod,
-                    ...localConfig?.environments?.preprod
-                  };
+                if (needsServerSync) {
+                  await fetch('/api/eval-dataset?action=save_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ activeEnv: merged.activeEnv, environments: merged.environments })
+                  }).catch(() => {});
                 }
               } catch (e) {
                 console.warn('获取配置失败:', e);
@@ -3797,14 +3879,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             setLoading(true);
             setError('');
             try {
-              const envData = config?.environments?.[currentEnv];
-              let effectiveKey = envData?.key;
-              if (!effectiveKey && currentEnv === 'preprod') {
-                effectiveKey = config?.environments?.prod?.key;
-              }
-              const keyParam = effectiveKey ? `&staffKey=${encodeURIComponent(effectiveKey)}` : '';
-              const urlParam = envData?.url ? `&apiUrl=${encodeURIComponent(envData.url)}` : '';
-              const res = await fetch(`/api/eval-dataset?action=${force ? 'extract' : 'get_data'}&date=${date}&minScore=${minScore}&env=${currentEnv}${keyParam}${urlParam}`);
+              const res = await fetch(`/api/eval-dataset?action=${force ? 'extract' : 'get_data'}&date=${encodeURIComponent(date)}&minScore=${encodeURIComponent(minScore)}&env=${encodeURIComponent(currentEnv)}`);
               if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.error || `HTTP ${res.status}`);
@@ -4039,8 +4114,12 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             return filteredBadcases.find(b => b.id === selectedBadcaseId) || filteredBadcases[0] || null;
           }, [selectedBadcaseId, filteredBadcases]);
 
+          const officialManualCount = React.useMemo(
+            () => officialCases.filter(c => c.sourceType === 'manual').length,
+            [officialCases]
+          );
           const officialPosCount = React.useMemo(
-            () => officialCases.filter(c => c.sourceType !== 'badcase').length,
+            () => officialCases.filter(c => c.sourceType !== 'badcase' && c.sourceType !== 'manual').length,
             [officialCases]
           );
           const officialBadCount = React.useMemo(
@@ -4050,7 +4129,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
           const officialCategoryBreakdown = React.useMemo(() => {
             const map = {};
             for (const c of officialCases) {
-              const cat = c.category || c.badcaseTypeName || '综合问答';
+              const cat = c.category || c.categoryName || c.badcaseTypeName || '综合问答';
               map[cat] = (map[cat] || 0) + 1;
             }
             return map;
@@ -4058,13 +4137,15 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
 
           const filteredOfficialCases = React.useMemo(() => {
             return officialCases.filter(c => {
-              if (selectedOfficialFilter === '正向基准' && c.sourceType === 'badcase') return false;
+              if (selectedOfficialFilter === '正向基准' && (c.sourceType === 'badcase' || c.sourceType === 'manual')) return false;
               if (selectedOfficialFilter === '缺陷回归' && c.sourceType !== 'badcase') return false;
+              if (selectedOfficialFilter === '手动构建' && c.sourceType !== 'manual') return false;
               if (
                 selectedOfficialFilter !== '全部' &&
                 selectedOfficialFilter !== '正向基准' &&
                 selectedOfficialFilter !== '缺陷回归' &&
-                (c.category || c.badcaseTypeName || '综合问答') !== selectedOfficialFilter
+                selectedOfficialFilter !== '手动构建' &&
+                (c.category || c.categoryName || c.badcaseTypeName || '综合问答') !== selectedOfficialFilter
               ) {
                 return false;
               }
@@ -4216,7 +4297,13 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             return counts;
           }, [summary.badcaseBreakdown, allBadcases]);
           const badcaseCategories = ['全部', ...Object.keys(badcaseFilterCounts)];
-          const officialCategories = ['全部', '正向基准', '缺陷回归', ...Object.keys(officialCategoryBreakdown)];
+          const officialCategories = [
+            '全部',
+            '正向基准',
+            '缺陷回归',
+            ...((officialManualCount > 0 || selectedOfficialFilter === '手动构建') ? ['手动构建'] : []),
+            ...Object.keys(officialCategoryBreakdown)
+          ];
 
           return h('div', { className: 'ed-app' },
             h('style', null, css),
@@ -4382,7 +4469,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 },
                   h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'pin', size: 13 }), '正式评测集管理'),
                   h('span', { className: 'ed-metric-val', style: { color: '#059669' } }, officialCases.length),
-                  h('span', { className: 'ed-metric-sub' }, `正向 ${officialPosCount} · 缺陷 ${officialBadCount} · 点击管理`)
+                  h('span', { className: 'ed-metric-sub' }, `正向 ${officialPosCount} · 缺陷 ${officialBadCount}${officialManualCount > 0 ? ` · 手动 ${officialManualCount}` : ''} · 点击管理`)
                 ),
                 h('div', { className: 'ed-metric-card' },
                   h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'tool', size: 13 }), '工具调用场景'),
@@ -4412,6 +4499,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                     if (cat === '全部') countLabel = ` (${officialCases.length})`;
                     else if (cat === '正向基准') countLabel = ` (${officialPosCount})`;
                     else if (cat === '缺陷回归') countLabel = ` (${officialBadCount})`;
+                    else if (cat === '手动构建') countLabel = ` (${officialManualCount})`;
                     else countLabel = ` (${officialCategoryBreakdown[cat] || 0})`;
                   } else {
                     if (cat === '全部') countLabel = ` (${viewMode === 'cases' ? allCases.length : allBadcases.length})`;
@@ -4430,6 +4518,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                   },
                     viewMode === 'official' && cat === '正向基准' ? h(Glyph, { kind: 'target', size: 12 }) : null,
                     viewMode === 'official' && cat === '缺陷回归' ? h(Glyph, { kind: 'alertTriangle', size: 12 }) : null,
+                    viewMode === 'official' && cat === '手动构建' ? h(Glyph, { kind: 'edit', size: 12 }) : null,
                     `${cat}${countLabel}`
                   );
                 })
@@ -4748,6 +4837,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                       const isSelected = (activeOfficialCase && activeOfficialCase.id === oc.id);
                       const isChecked = selectedOfficialIds.has(oc.id);
                       const isBad = oc.sourceType === 'badcase';
+                      const isManual = oc.sourceType === 'manual' || Boolean(oc.isManual && oc.sourceType !== 'badcase' && oc.sourceType !== 'case');
                       const prio = oc.priority || 'P1';
                       const matchedTasks = regressionTasks.filter(t => t.caseId === oc.id || (t.title === oc.title && t.prompt === oc.userPrompt));
                       const latestTask = matchedTasks[0] || null;
@@ -4768,12 +4858,12 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             }),
                             h('span', { className: `ed-prio-badge ed-prio-${prio}` }, prio),
                             h('span', {
-                              className: `ed-source-badge ${oc.isManual ? 'ed-source-manual' : (isBad ? 'ed-source-badcase' : 'ed-source-case')}`
+                              className: `ed-source-badge ${isManual ? 'ed-source-manual' : (isBad ? 'ed-source-badcase' : 'ed-source-case')}`
                             },
-                              h(Glyph, { kind: oc.isManual ? 'edit' : (isBad ? 'alertTriangle' : 'target'), size: 11 }),
-                              oc.isManual ? '手动构建' : (isBad ? '缺陷回归' : '正向基准')
+                              h(Glyph, { kind: isManual ? 'edit' : (isBad ? 'alertTriangle' : 'target'), size: 11 }),
+                              isManual ? '手动构建' : (isBad ? '缺陷回归' : '正向基准')
                             ),
-                            h('span', { className: 'ed-category-tag' }, oc.category || oc.badcaseTypeName || '综合问答')
+                            h('span', { className: 'ed-category-tag' }, oc.category || oc.categoryName || oc.badcaseTypeName || '综合问答')
                           ),
                           h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
                             latestTask && h('span', {
@@ -4836,7 +4926,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                     h('div', { key: 's_body', className: 'ed-detail-body' },
                       activeRawSession.messages && activeRawSession.messages.length > 0
                         ? h(ConversationTimeline, { key: 's_timeline', messages: activeRawSession.messages, scopeId: activeRawSession.id })
-                        : h('div', { className: 'ed-empty-state' }, activeRawSession.isNoise ? '该会话被识别为噪音/脚本探测，未拉取消息明细' : '暂无消息记录')
+                        : h('div', { className: 'ed-empty-state' }, '该会话暂无消息记录')
                     )
                   ]
                 ) : viewMode === 'cases' ? (
@@ -5259,8 +5349,15 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                     )
                   ) : (() => {
                     const isBadSource = activeOfficialCase.sourceType === 'badcase';
-                    const isManualSource = activeOfficialCase.sourceType === 'manual';
+                    const isManualSource = activeOfficialCase.sourceType === 'manual' || Boolean(activeOfficialCase.isManual && activeOfficialCase.sourceType !== 'badcase' && activeOfficialCase.sourceType !== 'case');
                     const prio = activeOfficialCase.priority || 'P1';
+                    const resolvedDetailCategory = activeOfficialCase.category || activeOfficialCase.categoryName || activeOfficialCase.badcaseTypeName || '综合问答';
+                    const resolvedDetailSourceType = activeOfficialCase.sourceType === 'positive'
+                      ? 'case'
+                      : (activeOfficialCase.sourceType || (activeOfficialCase.isManual ? 'manual' : 'case'));
+                    const officialToolList = Array.isArray(activeOfficialCase.toolNames) && activeOfficialCase.toolNames.length > 0
+                      ? activeOfficialCase.toolNames
+                      : (Array.isArray(activeOfficialCase.toolsUsed) ? activeOfficialCase.toolsUsed : []);
                     const matchedRegTasks = regressionTasks.filter(t =>
                       t.caseId === activeOfficialCase.id ||
                       t.title === activeOfficialCase.title ||
@@ -5276,12 +5373,12 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                           h('div', { className: 'ed-meta-chips-row' },
                             h('span', { className: `ed-prio-badge ed-prio-${prio}` }, `${prio} 级基准`),
                             h('span', {
-                              className: `ed-source-badge ${isBadSource ? 'ed-source-bad' : (isManualSource ? 'ed-source-manual' : 'ed-source-pos')}`
+                              className: `ed-source-badge ${isBadSource ? 'ed-source-badcase' : (isManualSource ? 'ed-source-manual' : 'ed-source-case')}`
                             },
                               h(Glyph, { kind: isBadSource ? 'alertTriangle' : (isManualSource ? 'edit' : 'target'), size: 11 }),
                               isBadSource ? '缺陷回归基准' : (isManualSource ? '手动构建基准' : '正向能力基准')
                             ),
-                            h('span', { className: 'ed-cat-tag' }, activeOfficialCase.categoryName || '通用业务咨询'),
+                            h('span', { className: 'ed-category-tag' }, resolvedDetailCategory),
                             activeOfficialCase.sourceDate && h('span', { className: 'ed-meta-chip' }, `提取日期: ${activeOfficialCase.sourceDate}`),
                             activeOfficialCase.runId && h('span', {
                               className: 'ed-meta-chip',
@@ -5330,8 +5427,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                                   id: activeOfficialCase.id,
                                   title: activeOfficialCase.title || '',
                                   priority: activeOfficialCase.priority || 'P1',
-                                  categoryName: activeOfficialCase.categoryName || '通用业务咨询',
-                                  sourceType: activeOfficialCase.sourceType || 'positive',
+                                  category: resolvedDetailCategory,
+                                  sourceType: resolvedDetailSourceType,
                                   userPrompt: activeOfficialCase.userPrompt || '',
                                   evalCriteria: activeOfficialCase.evalCriteria || '',
                                   referenceAnswer: activeOfficialCase.referenceAnswer || '',
@@ -5416,7 +5513,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                                     value: editingOfficialCase.sourceType,
                                     onChange: e => setEditingOfficialCase(p => ({ ...p, sourceType: e.target.value }))
                                   },
-                                    h('option', { value: 'positive' }, '正向能力基准'),
+                                    h('option', { value: 'case' }, '正向能力基准'),
                                     h('option', { value: 'badcase' }, '缺陷回归基准'),
                                     h('option', { value: 'manual' }, '手动构建基准')
                                   )
@@ -5425,8 +5522,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                                   h('label', { className: 'ed-form-label-sub' }, '业务分类'),
                                   h('input', {
                                     className: 'ed-form-input',
-                                    value: editingOfficialCase.categoryName,
-                                    onChange: e => setEditingOfficialCase(p => ({ ...p, categoryName: e.target.value }))
+                                    value: editingOfficialCase.category,
+                                    onChange: e => setEditingOfficialCase(p => ({ ...p, category: e.target.value }))
                                   })
                                 )
                               ),
@@ -5476,8 +5573,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                                     id: activeOfficialCase.id,
                                     title: activeOfficialCase.title || '',
                                     priority: activeOfficialCase.priority || 'P1',
-                                    categoryName: activeOfficialCase.categoryName || '通用业务咨询',
-                                    sourceType: activeOfficialCase.sourceType || 'positive',
+                                    category: resolvedDetailCategory,
+                                    sourceType: resolvedDetailSourceType,
                                     userPrompt: activeOfficialCase.userPrompt || '',
                                     evalCriteria: activeOfficialCase.evalCriteria || '',
                                     referenceAnswer: activeOfficialCase.referenceAnswer || '',
@@ -5503,12 +5600,12 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             ),
 
                             // 3. Tools Chain if present
-                            Array.isArray(activeOfficialCase.toolsUsed) && activeOfficialCase.toolsUsed.length > 0 && h('div', { key: 'o_tools', className: 'ed-section' },
+                            officialToolList.length > 0 && h('div', { key: 'o_tools', className: 'ed-section' },
                               h('div', { className: 'ed-section-head' },
-                                h('h3', null, `期望 / 关联工具调用链 (${activeOfficialCase.toolsUsed.length})`)
+                                h('h3', null, `期望 / 关联工具调用链 (${officialToolList.length})`)
                               ),
                               h('div', { className: 'ed-card-tags' },
-                                activeOfficialCase.toolsUsed.map(t => h('span', { key: t, className: 'ed-tool-tag' }, h(Glyph, { kind: 'tool', size: 11 }), t))
+                                officialToolList.map(t => h('span', { key: t, className: 'ed-tool-tag' }, h(Glyph, { kind: 'tool', size: 11 }), t))
                               )
                             ),
 
@@ -6180,7 +6277,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                         value: newOfficialDraft.sourceType,
                         onChange: e => setNewOfficialDraft(p => ({ ...p, sourceType: e.target.value }))
                       },
-                        h('option', { value: 'positive' }, '正向能力基准'),
+                        h('option', { value: 'case' }, '正向能力基准'),
                         h('option', { value: 'badcase' }, '缺陷回归基准'),
                         h('option', { value: 'manual' }, '手动构建基准')
                       )
@@ -6191,8 +6288,8 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                     h('input', {
                       className: 'ed-form-input',
                       placeholder: '例如：获联规则配置 / 线索与对话排查 / 通用业务咨询',
-                      value: newOfficialDraft.categoryName,
-                      onChange: e => setNewOfficialDraft(p => ({ ...p, categoryName: e.target.value }))
+                      value: newOfficialDraft.category,
+                      onChange: e => setNewOfficialDraft(p => ({ ...p, category: e.target.value }))
                     })
                   ),
                   h('div', { className: 'ed-form-item' },

@@ -1,8 +1,32 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const CONFIG_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), 'config.json');
-const OFFICIAL_DATASET_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), 'official-dataset.json');
+const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
+const LEGACY_CONFIG_PATH = path.join(PLUGIN_DIR, 'config.json');
+const LEGACY_OFFICIAL_DATASET_PATH = path.join(PLUGIN_DIR, 'official-dataset.json');
+
+export function getStorageDir() {
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  return path.join(dshHome, 'storages', 'eval-dataset');
+}
+
+export function writeJsonAtomic(targetPath, payload) {
+  const dir = path.dirname(targetPath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tmpPath, targetPath);
+}
+
+function getConfigPath() {
+  return path.join(getStorageDir(), 'config.json');
+}
+
+function getOfficialDatasetPath() {
+  return path.join(getStorageDir(), 'official-dataset.json');
+}
 
 const DEFAULT_CONFIG = {
   activeEnv: 'prod',
@@ -56,21 +80,66 @@ export function normalizeApiUrl(url) {
   }
 }
 
+function mergeEnvironments(baseEnvs, overrideEnvs) {
+  const merged = {};
+  const allKeys = new Set([
+    ...Object.keys(baseEnvs || {}),
+    ...Object.keys(overrideEnvs || {})
+  ]);
+  for (const key of allKeys) {
+    merged[key] = {
+      ...(baseEnvs?.[key] || {}),
+      ...(overrideEnvs?.[key] || {})
+    };
+  }
+  return merged;
+}
+
+function hasCustomCredentials(data) {
+  const envs = data?.environments;
+  if (!envs || typeof envs !== 'object') return false;
+  return Boolean(
+    envs.prod?.key ||
+    envs.prod?.password ||
+    envs.preprod?.key ||
+    envs.preprod?.password ||
+    envs.dev?.key ||
+    envs.dev?.password ||
+    (envs.test?.key && envs.test.key !== DEFAULT_CONFIG.environments.test.key) ||
+    envs.test?.password
+  );
+}
+
 export function getConfig() {
+  const configPath = getConfigPath();
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       return {
         ...DEFAULT_CONFIG,
         ...data,
-        environments: {
-          ...DEFAULT_CONFIG.environments,
-          ...(data.environments || {})
-        }
+        environments: mergeEnvironments(DEFAULT_CONFIG.environments, data.environments)
       };
     }
+    if (fs.existsSync(LEGACY_CONFIG_PATH)) {
+      const legacyData = JSON.parse(fs.readFileSync(LEGACY_CONFIG_PATH, 'utf8'));
+      const merged = {
+        ...DEFAULT_CONFIG,
+        ...legacyData,
+        environments: mergeEnvironments(DEFAULT_CONFIG.environments, legacyData.environments)
+      };
+      if (hasCustomCredentials(legacyData)) {
+        try {
+          writeJsonAtomic(configPath, merged);
+        } catch {}
+      }
+      return merged;
+    }
   } catch {}
-  return DEFAULT_CONFIG;
+  return {
+    ...DEFAULT_CONFIG,
+    environments: mergeEnvironments(DEFAULT_CONFIG.environments, {})
+  };
 }
 
 export function saveConfig(updates) {
@@ -78,22 +147,28 @@ export function saveConfig(updates) {
   const next = {
     ...current,
     ...updates,
-    environments: {
-      ...current.environments,
-      ...(updates.environments || {})
-    }
+    environments: mergeEnvironments(current.environments, updates?.environments)
   };
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
+  writeJsonAtomic(getConfigPath(), next);
   return next;
 }
 
 export function normalizeOfficialCaseItem(item, sourceDate, sourceEnv) {
+  const rawSourceType = typeof item.sourceType === 'string' ? item.sourceType.trim() : '';
   const isBadcase = Boolean(
-    item.sourceType === 'badcase' ||
-    item.badcaseType ||
-    (typeof item.id === 'string' && item.id.startsWith('bad_'))
+    rawSourceType === 'badcase' ||
+    (!rawSourceType && (item.badcaseType || (typeof item.id === 'string' && item.id.startsWith('bad_'))))
   );
-  const sourceType = item.sourceType || (isBadcase ? 'badcase' : 'case');
+  let sourceType = 'case';
+  if (rawSourceType === 'manual') {
+    sourceType = 'manual';
+  } else if (isBadcase) {
+    sourceType = 'badcase';
+  } else if (rawSourceType === 'case' || rawSourceType === 'positive') {
+    sourceType = 'case';
+  } else if (item.isManual) {
+    sourceType = 'manual';
+  }
   const now = new Date().toISOString();
 
   let defaultPriority = 'P1';
@@ -105,6 +180,19 @@ export function normalizeOfficialCaseItem(item, sourceDate, sourceEnv) {
     defaultPriority = 'P2';
   }
 
+  const legacyCategoryName = typeof item.categoryName === 'string' ? item.categoryName.trim() : '';
+  const resolvedCategory =
+    (legacyCategoryName && legacyCategoryName !== '通用业务咨询' ? legacyCategoryName : '') ||
+    (typeof item.category === 'string' ? item.category.trim() : '') ||
+    legacyCategoryName ||
+    item.badcaseTypeName ||
+    '综合问答';
+
+  const resolvedPrompt = (item.userPrompt || item.prompt || '').trim();
+  const resolvedTitle = (typeof item.title === 'string' && item.title.trim())
+    ? item.title.trim()
+    : resolvedPrompt.replace(/\s+/g, ' ').slice(0, 45);
+
   let defaultCriteria = item.evalCriteria || '';
   if (!defaultCriteria) {
     if (sourceType === 'badcase') {
@@ -115,39 +203,65 @@ export function normalizeOfficialCaseItem(item, sourceDate, sourceEnv) {
       const reasons = Array.isArray(item.valueReasons) && item.valueReasons.length > 0
         ? item.valueReasons.map(r => `- ${r}`).join('\n')
         : '- 准确理解访客/客服提问意图并给出结构化准确回复';
-      defaultCriteria = `【核心能力基准】验证「${item.category || '综合问答'}」场景下的意图识别、工具链执行与回答质量：\n${reasons}`;
+      defaultCriteria = `【核心能力基准】验证「${resolvedCategory}」场景下的意图识别、工具链执行与回答质量：\n${reasons}`;
     }
   }
 
+  const toolNames = Array.isArray(item.toolNames) && item.toolNames.length > 0
+    ? item.toolNames
+    : (Array.isArray(item.toolsUsed) ? item.toolsUsed : []);
+
+  const rest = { ...item };
+  delete rest.categoryName;
+  delete rest.toolsUsed;
+
   return {
-    ...item,
+    ...rest,
     id: item.id || `official_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    title: resolvedTitle,
     sessionId: item.sessionId || '',
     compId: item.compId ?? '',
     userId: item.userId ?? '',
     runId: item.runId || '',
     runIds: item.runIds || (item.runId ? [item.runId] : []),
     sourceType,
+    isManual: sourceType === 'manual' || Boolean(item.isManual && rawSourceType !== 'case' && rawSourceType !== 'positive' && rawSourceType !== 'badcase'),
     sourceDate: item.sourceDate || sourceDate || (item.createdAt ? item.createdAt.slice(0, 10) : ''),
     sourceEnv: item.sourceEnv || sourceEnv || 'prod',
     priority: defaultPriority,
-    category: item.category || item.badcaseTypeName || '综合问答',
-    userPrompt: item.userPrompt || item.prompt || '',
+    category: resolvedCategory,
+    toolNames,
+    userPrompt: resolvedPrompt,
     referenceAnswer: item.referenceAnswer || '',
     evalCriteria: defaultCriteria,
     addedAt: item.addedAt || now,
-    updatedAt: now
+    updatedAt: item.updatedAt || now
   };
 }
 
 export function getOfficialDataset() {
+  const officialPath = getOfficialDatasetPath();
   try {
-    if (fs.existsSync(OFFICIAL_DATASET_PATH)) {
-      const parsed = JSON.parse(fs.readFileSync(OFFICIAL_DATASET_PATH, 'utf8'));
-      const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : []);
+    if (fs.existsSync(officialPath)) {
+      const parsed = JSON.parse(fs.readFileSync(officialPath, 'utf8'));
+      const rawItems = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : []);
       return {
         updatedAt: parsed.updatedAt || new Date().toISOString(),
-        items
+        items: rawItems.filter(Boolean).map(it => normalizeOfficialCaseItem(it, it.sourceDate, it.sourceEnv))
+      };
+    }
+    if (fs.existsSync(LEGACY_OFFICIAL_DATASET_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(LEGACY_OFFICIAL_DATASET_PATH, 'utf8'));
+      const rawItems = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.items) ? parsed.items : []);
+      const normalizedItems = rawItems.filter(Boolean).map(it => normalizeOfficialCaseItem(it, it.sourceDate, it.sourceEnv));
+      if (normalizedItems.length > 0) {
+        try {
+          writeJsonAtomic(officialPath, { updatedAt: parsed.updatedAt || new Date().toISOString(), items: normalizedItems });
+        } catch {}
+      }
+      return {
+        updatedAt: parsed.updatedAt || new Date().toISOString(),
+        items: normalizedItems
       };
     }
     // Also check if config.json has a fallback officialDataset array
@@ -155,7 +269,7 @@ export function getOfficialDataset() {
     if (Array.isArray(cfg.officialDataset)) {
       return {
         updatedAt: new Date().toISOString(),
-        items: cfg.officialDataset
+        items: cfg.officialDataset.filter(Boolean).map(it => normalizeOfficialCaseItem(it, it.sourceDate, it.sourceEnv))
       };
     }
   } catch {}
@@ -163,11 +277,14 @@ export function getOfficialDataset() {
 }
 
 export function saveOfficialDataset(items) {
+  const normalizedItems = (Array.isArray(items) ? items : [])
+    .filter(Boolean)
+    .map(it => normalizeOfficialCaseItem(it, it.sourceDate, it.sourceEnv));
   const payload = {
     updatedAt: new Date().toISOString(),
-    items: Array.isArray(items) ? items : []
+    items: normalizedItems
   };
-  fs.writeFileSync(OFFICIAL_DATASET_PATH, JSON.stringify(payload, null, 2), 'utf8');
+  writeJsonAtomic(getOfficialDatasetPath(), payload);
   return payload;
 }
 
@@ -220,11 +337,15 @@ export function updateOfficialCase(itemUpdate) {
 
   let updatedItem;
   if (idx >= 0) {
-    updatedItem = {
-      ...list[idx],
-      ...itemUpdate,
-      updatedAt: now
-    };
+    updatedItem = normalizeOfficialCaseItem(
+      {
+        ...list[idx],
+        ...itemUpdate,
+        updatedAt: now
+      },
+      itemUpdate.sourceDate || list[idx].sourceDate,
+      itemUpdate.sourceEnv || list[idx].sourceEnv
+    );
     list[idx] = updatedItem;
   } else {
     updatedItem = normalizeOfficialCaseItem(itemUpdate, itemUpdate.sourceDate, itemUpdate.sourceEnv);
@@ -420,25 +541,43 @@ export async function fetchMessagesForSession(sessionId, pageSize = 200, targetE
   }));
 }
 
-// Concurrent message fetcher with concurrency pool
-export async function fetchMessagesBatch(sessionIds, concurrency = 6, targetEnv, overrideCreds) {
+// Concurrent message fetcher with concurrency pool and transient retry
+export async function fetchMessagesBatch(sessionIds, concurrency = 6, targetEnv, overrideCreds, maxRetries = 2) {
   const results = new Map();
+  const failedSessionIds = [];
   const queue = [...sessionIds];
+
+  const fetchWithRetry = async (id) => {
+    let lastErr;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fetchMessagesForSession(id, 200, targetEnv, overrideCreds);
+      } catch (err) {
+        lastErr = err;
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)));
+        }
+      }
+    }
+    throw lastErr;
+  };
 
   const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     while (queue.length > 0) {
       const id = queue.shift();
       if (!id) break;
       try {
-        const msgs = await fetchMessagesForSession(id, 200, targetEnv, overrideCreds);
+        const msgs = await fetchWithRetry(id);
         results.set(id, msgs);
       } catch (err) {
         console.warn(`[eval-dataset] 获取会话 ${id} 消息失败:`, err.message);
+        failedSessionIds.push(id);
         results.set(id, []);
       }
     }
   });
 
   await Promise.all(workers);
+  results.failedSessionIds = failedSessionIds;
   return results;
 }

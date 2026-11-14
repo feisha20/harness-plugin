@@ -2,12 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { getConfig, getCredentials } from './api.js';
+import { getConfig, getCredentials, getStorageDir, writeJsonAtomic } from './api.js';
 
 const DEFAULT_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
-const CACHE_DIR = path.join(os.homedir(), '.cache', 'kuaibuddy-eval-regression');
-const TOKEN_CACHE_FILE = path.join(CACHE_DIR, 'tokens.json');
-const TASKS_STORAGE_FILE = path.join('/tmp', 'kuaibuddy_regression_tasks.json');
+const LEGACY_TASKS_STORAGE_FILE = path.join('/tmp', 'kuaibuddy_regression_tasks.json');
+
+function getTokenCacheFile() {
+  return path.join(getStorageDir(), 'tokens.json');
+}
+
+function getTasksStorageFile() {
+  return path.join(getStorageDir(), 'regression-tasks.json');
+}
 
 function md5(s) {
   return crypto.createHash('md5').update(s, 'utf8').digest('hex');
@@ -38,9 +44,10 @@ function encryptPassword({ password, companyId, username, ua, lt, timestamp }) {
 
 // Token cache helpers
 function readCachedToken(baseUrl, username) {
+  const tokenFile = getTokenCacheFile();
   try {
-    if (fs.existsSync(TOKEN_CACHE_FILE)) {
-      const all = JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, 'utf8'));
+    if (fs.existsSync(tokenFile)) {
+      const all = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
       const key = `${baseUrl}_${username}`;
       const item = all[key];
       if (item && item.accessToken && item.expiresAt > Date.now() + 60000) {
@@ -52,14 +59,14 @@ function readCachedToken(baseUrl, username) {
 }
 
 function saveCachedToken(baseUrl, username, tokenData) {
+  const tokenFile = getTokenCacheFile();
   try {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
     let all = {};
-    if (fs.existsSync(TOKEN_CACHE_FILE)) {
-      try { all = JSON.parse(fs.readFileSync(TOKEN_CACHE_FILE, 'utf8')); } catch {}
+    if (fs.existsSync(tokenFile)) {
+      try { all = JSON.parse(fs.readFileSync(tokenFile, 'utf8')); } catch {}
     }
     all[`${baseUrl}_${username}`] = tokenData;
-    fs.writeFileSync(TOKEN_CACHE_FILE, JSON.stringify(all, null, 2), { mode: 0o600 });
+    writeJsonAtomic(tokenFile, all);
   } catch {}
 }
 
@@ -184,9 +191,13 @@ class RegressionTaskManager {
   }
 
   loadPersistedTasks() {
+    const tasksFile = getTasksStorageFile();
     try {
-      if (fs.existsSync(TASKS_STORAGE_FILE)) {
-        const list = JSON.parse(fs.readFileSync(TASKS_STORAGE_FILE, 'utf8'));
+      const sourceFile = fs.existsSync(tasksFile)
+        ? tasksFile
+        : (fs.existsSync(LEGACY_TASKS_STORAGE_FILE) ? LEGACY_TASKS_STORAGE_FILE : null);
+      if (sourceFile) {
+        const list = JSON.parse(fs.readFileSync(sourceFile, 'utf8'));
         if (Array.isArray(list)) {
           for (const t of list) {
             // Restore tasks (reset running to failed on restart)
@@ -204,7 +215,7 @@ class RegressionTaskManager {
   persistTasks() {
     try {
       const list = Array.from(this.tasks.values()).slice(0, 50);
-      fs.writeFileSync(TASKS_STORAGE_FILE, JSON.stringify(list, null, 2), 'utf8');
+      writeJsonAtomic(getTasksStorageFile(), list);
     } catch {}
   }
 

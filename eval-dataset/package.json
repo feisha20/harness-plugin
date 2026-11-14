@@ -12,9 +12,10 @@
     "./icon": "./icon.svg"
   },
   "files": [
-    "index.js",
+    "main.js",
     "api.js",
     "evaluator.js",
+    "regression.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",

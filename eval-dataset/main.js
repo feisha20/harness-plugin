@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -11,7 +12,9 @@ import {
   saveOfficialDataset,
   addOfficialCases,
   removeOfficialCases,
-  updateOfficialCase
+  updateOfficialCase,
+  getStorageDir,
+  writeJsonAtomic
 } from './api.js';
 import { extractEvaluationDataset, exportFormat, isNoiseSession, isFollowupMessage, isStepMessage } from './evaluator.js';
 import { regressionManager } from './regression.js';
@@ -85,7 +88,7 @@ function computeSingleTurnStats(msgs) {
   };
 }
 
-function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, minScore) {
+function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, minScore, failedSessionIds = []) {
   const dataset = extractEvaluationDataset(sessions, messagesMap, minScore);
   const caseBySession = new Map((dataset.cases || []).map(c => [c.sessionId, c]));
   const badcaseBySession = new Map((dataset.badcases || []).map(b => [b.sessionId, b]));
@@ -109,6 +112,7 @@ function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, mi
       companyId: s.compId ?? s.companyId ?? '',
       createdAt: s.createdAt || '',
       model: s.modelId || s.model || '',
+      rawTitle: s.title ?? '',
       title: s.title || prompt.slice(0, 60) || s.sessionId,
       userPrompt: prompt,
       isNoise: isNoiseSession(s),
@@ -125,6 +129,8 @@ function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, mi
 
   return {
     metricsVersion: METRICS_VERSION,
+    minScore,
+    failedSessionIds,
     date,
     env: currentEnv,
     envName,
@@ -136,47 +142,92 @@ function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, mi
   };
 }
 
+function rebuildFromRawSessions(rawSessions) {
+  const rebuiltMessagesMap = new Map();
+  const rebuiltSessions = rawSessions.map(rs => {
+    rebuiltMessagesMap.set(rs.sessionId, Array.isArray(rs.messages) ? rs.messages : []);
+    const preservedTitle = rs.rawTitle !== undefined
+      ? rs.rawTitle
+      : ((rs.isNoise && !isNoiseSession(rs)) ? '' : rs.title);
+    return {
+      sessionId: rs.sessionId,
+      threadId: rs.threadId || '',
+      runId: rs.runId || '',
+      userId: rs.userId,
+      compId: rs.compId ?? rs.companyId ?? '',
+      companyId: rs.compId ?? rs.companyId ?? '',
+      createdAt: rs.createdAt || '',
+      modelId: rs.model || '',
+      title: preservedTitle
+    };
+  });
+  return { rebuiltSessions, rebuiltMessagesMap };
+}
+
 export async function getOrExtractDataset(dateStr, force = false, minScore = 60, targetEnv, overrideCreds) {
   const date = dateStr || getYesterdayStr();
+  const effectiveMinScore = Number.isFinite(minScore) ? minScore : 60;
   const creds = getCredentials(targetEnv, overrideCreds);
   const currentEnv = creds.env;
-  const cacheKey = `${currentEnv}_${creds.key}_${date}_${minScore}`;
+  const credHash = crypto.createHash('sha256').update(`${creds.url}|${creds.key}`).digest('hex').slice(0, 10);
+  const cacheKey = `${currentEnv}_${credHash}_${date}_${effectiveMinScore}`;
+
+  const cacheDir = path.join(getStorageDir(), 'cache');
+  const diskCacheFile = path.join(cacheDir, `kuaibuddy_eval_${currentEnv}_${credHash}_${date}.json`);
+  const legacyDiskCacheFile = path.join('/tmp', `kuaibuddy_eval_${currentEnv}_${date}.json`);
 
   if (!force && datasetCache.has(cacheKey)) {
-    return datasetCache.get(cacheKey);
+    const memCached = datasetCache.get(cacheKey);
+    if (!Array.isArray(memCached.failedSessionIds) || memCached.failedSessionIds.length === 0) {
+      return memCached;
+    }
   }
 
-  // Also check disk cache in /tmp
-  const diskCacheFile = path.join('/tmp', `kuaibuddy_eval_${currentEnv}_${date}.json`);
-  if (!force && fs.existsSync(diskCacheFile)) {
+  // Check disk cache (with legacy /tmp fallback)
+  const candidateDiskFile = fs.existsSync(diskCacheFile)
+    ? diskCacheFile
+    : (fs.existsSync(legacyDiskCacheFile) ? legacyDiskCacheFile : null);
+
+  if (!force && candidateDiskFile) {
     try {
-      const content = fs.readFileSync(diskCacheFile, 'utf8');
+      const content = fs.readFileSync(candidateDiskFile, 'utf8');
       const parsed = JSON.parse(content);
-      if (parsed.metricsVersion === METRICS_VERSION) {
+      const pendingFailed = Array.isArray(parsed.failedSessionIds) ? parsed.failedSessionIds : [];
+
+      if (
+        candidateDiskFile === diskCacheFile &&
+        parsed.metricsVersion === METRICS_VERSION &&
+        parsed.minScore === effectiveMinScore &&
+        pendingFailed.length === 0
+      ) {
         datasetCache.set(cacheKey, parsed);
         return parsed;
       }
+
       if (Array.isArray(parsed.rawSessions) && parsed.rawSessions.length > 0) {
-        const rebuiltMessagesMap = new Map();
-        const rebuiltSessions = parsed.rawSessions.map(rs => {
-          rebuiltMessagesMap.set(rs.sessionId, Array.isArray(rs.messages) ? rs.messages : []);
-          const preservedTitle = (rs.isNoise && !isNoiseSession(rs)) ? '' : rs.title;
-          return {
-            sessionId: rs.sessionId,
-            threadId: rs.threadId || '',
-            runId: rs.runId || '',
-            userId: rs.userId,
-            compId: rs.compId ?? rs.companyId ?? '',
-            companyId: rs.compId ?? rs.companyId ?? '',
-            createdAt: rs.createdAt || '',
-            modelId: rs.model || '',
-            title: preservedTitle
-          };
-        });
-        const upgraded = buildDatasetResult(rebuiltSessions, rebuiltMessagesMap, date, currentEnv, creds.envName, minScore);
+        const { rebuiltSessions, rebuiltMessagesMap } = rebuildFromRawSessions(parsed.rawSessions);
+        let remainingFailed = pendingFailed;
+        if (pendingFailed.length > 0) {
+          const retriedMap = await fetchMessagesBatch(pendingFailed, 6, currentEnv, overrideCreds);
+          for (const [sid, msgs] of retriedMap.entries()) {
+            if (Array.isArray(msgs) && msgs.length > 0) {
+              rebuiltMessagesMap.set(sid, msgs);
+            }
+          }
+          remainingFailed = retriedMap.failedSessionIds || [];
+        }
+        const upgraded = buildDatasetResult(
+          rebuiltSessions,
+          rebuiltMessagesMap,
+          date,
+          currentEnv,
+          creds.envName,
+          effectiveMinScore,
+          remainingFailed
+        );
         datasetCache.set(cacheKey, upgraded);
         try {
-          fs.writeFileSync(diskCacheFile, JSON.stringify(upgraded), 'utf8');
+          writeJsonAtomic(diskCacheFile, upgraded);
         } catch {}
         return upgraded;
       }
@@ -186,16 +237,29 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
   // Fetch raw sessions
   const sessions = await fetchSessionsForDate(date, currentEnv, overrideCreds);
 
-  // Extract messages for all sessions (including noise sessions so all are inspectable)
+  // Extract messages for all sessions
   const sessionIds = sessions.map(s => s.sessionId);
   const messagesMap = await fetchMessagesBatch(sessionIds, 8, currentEnv, overrideCreds);
+  const failedSessionIds = messagesMap.failedSessionIds || [];
 
-  const result = buildDatasetResult(sessions, messagesMap, date, currentEnv, creds.envName, minScore);
+  if (sessions.length > 0 && failedSessionIds.length === sessions.length) {
+    throw new Error(`KuaiBuddy [${creds.envName}] 会话消息拉取全部失败 (${failedSessionIds.length} 条)，请稍后重试`);
+  }
+
+  const result = buildDatasetResult(
+    sessions,
+    messagesMap,
+    date,
+    currentEnv,
+    creds.envName,
+    effectiveMinScore,
+    failedSessionIds
+  );
 
   datasetCache.set(cacheKey, result);
 
   try {
-    fs.writeFileSync(diskCacheFile, JSON.stringify(result), 'utf8');
+    writeJsonAtomic(diskCacheFile, result);
   } catch {}
 
   return result;
@@ -267,7 +331,7 @@ export function apply(ctx) {
       }
 
       const date = args.date || getYesterdayStr();
-      const minScore = args.minScore || 60;
+      const minScore = Number.isFinite(args.minScore) ? args.minScore : 60;
       const targetEnv = args.env;
 
       if (args.action === 'list') {
@@ -505,15 +569,22 @@ export function apply(ctx) {
           return send(200, { success: true, ...saved });
         }
 
+        const parseMinScoreParam = () => {
+          const rawMin = q.get('minScore');
+          if (rawMin === null || rawMin === '') return 60;
+          const n = Number(rawMin);
+          return Number.isFinite(n) ? n : 60;
+        };
+
         if (action === 'get_data') {
           const force = q.get('force') === 'true';
-          const minScore = Number(q.get('minScore')) || 60;
+          const minScore = parseMinScoreParam();
           const data = await getOrExtractDataset(date, force, minScore, targetEnv, overrideCreds);
           return send(200, data);
         }
 
         if (action === 'extract') {
-          const minScore = Number(q.get('minScore')) || 60;
+          const minScore = parseMinScoreParam();
           const data = await getOrExtractDataset(date, true, minScore, targetEnv, overrideCreds);
           return send(200, data);
         }
