@@ -12,25 +12,27 @@ afterEach(async () => {
 const sol = { provider: 'acp-codex-acp', model: 'gpt-6.1-sol' }
 const terra = { provider: 'acp-codex-acp', model: 'gpt-6.1-terra' }
 
-function setup(previous: LlmCallConfig = sol) {
+function setup(previous: LlmCallConfig = sol, lateCompaction = false) {
   const ctx = new Context()
   contexts.push(ctx)
   let failure: Error | undefined
   let guardFailure: Error | undefined
   // 复现宿主 rc.4：先取最终配置，再执行模型切换压缩检查。
-  ctx.on(
-    'agent/request',
-    async (_payload, next) => {
-      const config = await next()
-      if (failure !== undefined) throw failure
-      throw new LlmError('目标模型缺少上下文容量', 'MODEL_SWITCH_COMPACTION_FAILED', {
-        cause: new Error(
-          `compaction-basic: no context capacity for ${config.provider}/${config.model}; configure contextWindow on that adapter model`,
-        ),
-      })
-    },
-    { prepend: true },
-  )
+  const mountCompaction = () =>
+    ctx.on(
+      'agent/request',
+      async (_payload, next) => {
+        const config = await next()
+        if (failure !== undefined) throw failure
+        throw new LlmError('目标模型缺少上下文容量', 'MODEL_SWITCH_COMPACTION_FAILED', {
+          cause: new Error(
+            `compaction-basic: no context capacity for ${config.provider}/${config.model}; configure contextWindow on that adapter model`,
+          ),
+        })
+      },
+      { prepend: true },
+    )
+  let detachCompaction = lateCompaction ? undefined : mountCompaction()
   const guard = vi.fn(async () => {
     if (guardFailure !== undefined) throw guardFailure
   })
@@ -40,14 +42,31 @@ function setup(previous: LlmCallConfig = sol) {
     return config
   })
   const fiber = ctx.plugin((scope) =>
-    installAcpModelSwitchCompatibility(scope, (provider) => provider === sol.provider),
+    installAcpModelSwitchCompatibility(
+      scope,
+      (provider) => provider === sol.provider || provider === 'acp-antigravity-acp',
+    ),
   )
   const request = async (config: LlmCallConfig = terra, signal = new AbortController().signal) => {
     await fiber
+    detachCompaction ??= mountCompaction()
+    const agent = { session: { requestHeader: () => ({ config: previous }) } } as Agent
+    // 与宿主一致：预设就绪后先执行步前检查，再准备模型请求。
+    await ctx.waterfall(
+      'agent/pre-step',
+      {
+        agent,
+        turn: 1,
+        step: 1,
+        signal,
+        messages: [],
+      },
+      async () => ({ kind: 'enter' as const, messages: [] }),
+    )
     return ctx.waterfall(
       'agent/request',
       {
-        agent: { session: { requestHeader: () => ({ config: previous }) } } as Agent,
+        agent,
         turn: 1,
         step: 1,
         signal,
@@ -59,6 +78,10 @@ function setup(previous: LlmCallConfig = sol) {
     request,
     guard,
     fiber,
+    reloadCompaction: () => {
+      detachCompaction?.()
+      detachCompaction = mountCompaction()
+    },
     fail: (error: Error) => {
       failure = error
     },
@@ -69,6 +92,31 @@ function setup(previous: LlmCallConfig = sol) {
 }
 
 describe('同一 ACP 的模型切换兼容', () => {
+  it.each([false, true])('Google ACP 在压缩模块延迟加载=%s 时允许 Carbon 切换 Pro', async (late) => {
+    const h = setup({ provider: 'acp-antigravity-acp', model: 'gemini-4-carbon' }, late)
+    const target = { provider: 'acp-antigravity-acp', model: 'gemini-pro-orchestrator' }
+    await expect(h.request(target)).resolves.toBe(target)
+    expect(h.guard).toHaveBeenCalledOnce()
+  })
+
+  it('预设反复重载后仍可切换，每次只执行一次请求校验', async () => {
+    const h = setup(sol, true)
+    for (let i = 0; i < 3; i++) {
+      await expect(h.request()).resolves.toBe(terra)
+      h.reloadCompaction()
+    }
+    expect(h.guard).toHaveBeenCalledTimes(3)
+  })
+
+  it('延迟加载的压缩模块仍保留真实摘要错误与绑定错误', async () => {
+    const h = setup(sol, true)
+    const error = new LlmError('摘要失败', 'MODEL_SWITCH_COMPACTION_FAILED', { cause: new Error('summary failed') })
+    h.fail(error)
+    await expect(h.request()).rejects.toBe(error)
+    const guardError = new LlmError('绑定校验失败', 'ACP_BACKEND_RECOVERY_REQUIRED')
+    h.rejectGuard(guardError)
+    await expect(h.request()).rejects.toBe(guardError)
+  })
   it('允许 Sol 切换 Terra，保留推理等级，且只执行一次请求校验', async () => {
     const h = setup()
     const target = { ...terra, reasoningEffort: 'medium' } as LlmCallConfig
@@ -119,9 +167,9 @@ describe('同一 ACP 的模型切换兼容', () => {
     await expect(h.request(terra, controller.signal)).rejects.toBe(error)
   })
 
-  it('卸载时释放两个监听器', async () => {
+  it('重排监听器后卸载插件，释放请求监听器和步前监听器', async () => {
     const h = setup()
-    await h.fiber
+    await expect(h.request()).resolves.toBe(terra)
     await h.fiber.dispose()
     await expect(h.request()).rejects.toMatchObject({ code: 'MODEL_SWITCH_COMPACTION_FAILED' })
   })

@@ -4,6 +4,11 @@
 
 User-facing changes and upgrade notes. See [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases) for publication dates, exact installation instructions, and checksums. Historical entries were reconstructed from tag diffs; npm packages were not republished.
 
+## 0.2.1-rc.4.1+quota.4.4
+
+- 修复 NEXT 的压缩模块晚于 ACP 加载或重载后，同一 ACP 内切换模型仍报上下文容量缺失的问题。每步开始时重排兼容监听器，保留请求校验、取消及其他压缩错误。
+- 补充 Gemini 4 Carbon → Gemini Pro Orchestrator、预设重载和插件卸载的回归测试。此修复不代表已完成 NEXT 全功能兼容验证。
+
 ## 0.2.1-rc.4.1+quota.4.3
 
 - 工作日志使用 Antigravity 的 Gemini 3.8 Flash 整理概要和报告时，在模型支持的情况下使用低推理档，缩短等待。
