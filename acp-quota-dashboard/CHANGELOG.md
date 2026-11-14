@@ -4,6 +4,13 @@
 
 User-facing changes and upgrade notes. See [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases) for publication dates, exact installation instructions, and checksums. Historical entries were reconstructed from tag diffs; npm packages were not republished.
 
+## 0.2.1-rc.4.1+quota.4.5
+
+- 大活动详情无损压缩，兼容读取旧文本；内容未变化的重复更新不再新增修订或推送。
+- 首次回放按固定修订上界分页读取各活动最新状态，保留完整历史及打开期间的实时增量。
+- 提供只读源库的历史压缩副本工具，逐条内容摘要核对后收缩副本文件。不会自动重写运行中的历史库。
+- 新压缩详情需要本版本读取；降级前需还原升级前的数据库备份，不能仅替换旧插件。
+
 ## 0.2.1-rc.4.1+quota.4.4
 
 - 修复 NEXT 的压缩模块晚于 ACP 加载或重载后，同一 ACP 内切换模型仍报上下文容量缺失的问题。每步开始时重排兼容监听器，保留请求校验、取消及其他压缩错误。

@@ -570,6 +570,12 @@ export function installInstalledProfileRegistry(
         },
       },
       activityTimeline: {
+        ...(sidecar.activityCurrentPage === undefined
+          ? {}
+          : {
+              currentPage: (sessionId: string, afterActivity: number, limit: number, throughRevision: number) =>
+                sidecar.activityCurrentPage!(sessionId as never, afterActivity, limit, throughRevision),
+            }),
         snapshot: (sessionId, limit, filter) => sidecar.activitySnapshot(sessionId as never, limit, filter),
         page: (sessionId, afterRevision, limit, filter, throughRevision) =>
           sidecar.activityPage(sessionId as never, afterRevision, limit, filter, throughRevision),

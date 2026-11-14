@@ -379,6 +379,13 @@ export interface AcpRemoteServiceDeps {
   /** Host-owned ACP activity journal. All reads are bounded and session-scoped;
    * raw sidecar handles never cross the Remote boundary. */
   activityTimeline?: {
+    /** 按活动序号分页读取固定修订上界的最新状态。旧实现仍可使用修订回放。 */
+    readonly currentPage?: (
+      sessionId: string,
+      afterActivity: number,
+      limit: number,
+      throughRevision: number,
+    ) => Promise<readonly AcpActivityView[]>
     readonly snapshot: (
       sessionId: string,
       limit: number,
@@ -843,12 +850,8 @@ export class AcpRemoteService extends TypertRemoteService {
         queue.push(activitySummary(activity))
         wakeWaiter()
       })
-      // Subscribe first, then rebuild the complete current-state projection
-      // from bounded revision pages up to one fixed head.  A bounded snapshot
-      // cannot safely advance to the full head: when a session owns more rows
-      // than the opening limit, doing so permanently skips every undisclosed
-      // revision.  Folding revision pages keeps transport bounded without
-      // making the user-visible journal lossy.
+      // 先订阅再固定上界。新实现只读各活动最新状态；旧数据源继续按修订回放。
+      // 两条路径均完整分页，不能用有限条快照直接跳到会话头部。
       openingHead = await source.head(sessionId, undefined)
       if (signal.aborted) return
       lastDeliveredRevision = openingHead
@@ -856,13 +859,16 @@ export class AcpRemoteService extends TypertRemoteService {
       let cursor = 0
       while (cursor < openingHead) {
         const before = cursor
-        const page = await source.page(sessionId, cursor, limit, undefined)
+        const page =
+          source.currentPage === undefined
+            ? await source.page(sessionId, cursor, limit, undefined, openingHead)
+            : await source.currentPage(sessionId, cursor, limit, openingHead)
         if (signal.aborted) return
         if (page.length === 0) break
         for (const activity of page) {
           if (activity.revisionSeq > openingHead) break
           current.set(activity.activityId, activitySummary(activity))
-          cursor = Math.max(cursor, activity.revisionSeq)
+          cursor = Math.max(cursor, source.currentPage === undefined ? activity.revisionSeq : activity.activitySeq)
         }
         // A racing writer may make a backend page contain only revisions above
         // the fixed opening head. No row was consumed in that case; stop the

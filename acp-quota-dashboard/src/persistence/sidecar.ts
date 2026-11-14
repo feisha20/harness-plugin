@@ -114,6 +114,7 @@ import {
   type AcpActivityPresentation,
 } from '../domain/policy/activity-presentation.ts'
 import { createHash } from 'node:crypto'
+import { decodeActivityDetail, encodeActivityDetail } from './activity-detail-codec.ts'
 import { chmodSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync, type SQLInputValue, type SQLOutputValue, type StatementSync } from 'node:sqlite'
@@ -608,6 +609,13 @@ export interface AcpSidecar {
   ): Promise<readonly AcpActivityRecord[]>
   /** Current durable activity head. */
   activityHead(sessionId: SessionId, filter?: AcpActivityFilter): Promise<number>
+  /** 固定修订上界的最新状态分页，不加载被后续修订取代的详情。 */
+  activityCurrentPage?(
+    sessionId: SessionId,
+    afterActivity: number,
+    limit: number,
+    throughRevision: number,
+  ): Promise<readonly AcpActivityRecord[]>
   /**
    * Read-only ownership proof for a cold activity source. A session is trusted
    * only when it has a valid persisted ACP binding or an activity row whose
@@ -880,6 +888,8 @@ interface BindingRow {
 }
 
 interface ActivityRow {
+  readonly raw_detail_z?: unknown
+  readonly display_detail_z?: unknown
   readonly display_detail?: unknown
   readonly content_index?: unknown
   readonly dsh_session_id?: unknown
@@ -1012,7 +1022,12 @@ const ACTIVITY_JOURNAL_BASE_COLUMNS = [
   'raw_detail',
   'raw_detail_ref',
 ] as const
-const ACTIVITY_JOURNAL_OPTIONAL_COLUMNS = ['content_index', 'display_detail'] as const
+const ACTIVITY_JOURNAL_OPTIONAL_COLUMNS = [
+  'content_index',
+  'display_detail',
+  'raw_detail_z',
+  'display_detail_z',
+] as const
 
 function tableColumns(db: DatabaseSync, table: string): Set<string> {
   return new Set(
@@ -1025,11 +1040,18 @@ function tableColumns(db: DatabaseSync, table: string): Set<string> {
 function ensureActivityJournalOptionalColumns(db: DatabaseSync): void {
   const columns = tableColumns(db, 'activity_journal')
   if (!columns.has('display_detail')) db.exec('ALTER TABLE activity_journal ADD COLUMN display_detail TEXT')
+  if (!columns.has('raw_detail_z')) db.exec('ALTER TABLE activity_journal ADD COLUMN raw_detail_z BLOB')
+  if (!columns.has('display_detail_z')) db.exec('ALTER TABLE activity_journal ADD COLUMN display_detail_z BLOB')
   if (!columns.has('content_index')) db.exec('ALTER TABLE activity_journal ADD COLUMN content_index INTEGER')
 }
 
 function ensureActivityJournalIndexes(db: DatabaseSync): void {
   const indexes = [
+    {
+      name: 'activity_session_sequence_revision',
+      create:
+        'CREATE INDEX IF NOT EXISTS activity_session_sequence_revision ON activity_journal(dsh_session_id, activity_seq, revision_seq DESC)',
+    },
     {
       name: 'activity_session_id_revision_desc',
       create:
@@ -1266,6 +1288,7 @@ class SidecarStore implements AcpSidecar {
         }
       }
       ensureActivityJournalOptionalColumns(db)
+      ensureActivityJournalIndexes(db)
       if (activityLegacyConflictCount > 0) {
         this.warn(
           `dsh-acp sidecar: retained ${String(activityLegacyConflictCount)} conflicting legacy activity journal row(s); original rows remain available`,
@@ -1315,7 +1338,7 @@ class SidecarStore implements AcpSidecar {
       'SELECT * FROM activity_journal WHERE dsh_session_id = ? AND activity_id = ? ORDER BY revision_seq DESC LIMIT 1',
     )
     this.stmtActivityInsert = db.prepare(
-      'INSERT INTO activity_journal (dsh_session_id, activity_id, owner_dsh_session_id, prompt_anchor_message_id, activity_seq, revision_seq, time, kind, status, presentation, raw_detail, raw_detail_ref, content_index, display_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO activity_journal (dsh_session_id, activity_id, owner_dsh_session_id, prompt_anchor_message_id, activity_seq, revision_seq, time, kind, status, presentation, raw_detail, raw_detail_ref, content_index, display_detail, raw_detail_z, display_detail_z) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     this.stmtActivityUpdate = this.stmtActivityInsert
     this.stmtActivityList = db.prepare(
@@ -1894,10 +1917,23 @@ class SidecarStore implements AcpSidecar {
           throw new Error(`ACP_ACTIVITY_IMMUTABLE: activity ${record.activityId} owner, anchor, and kind cannot change`)
         if (record.kind !== 'plan' && isTerminalActivityStatus(current.status) && record.status === 'running')
           throw new Error(`ACP_ACTIVITY_STATE: terminal activity ${record.activityId} cannot return to running`)
+        // 仅时间戳不同的重复状态不产生新修订，不通知订阅者；真实状态变化仍完整保留。
+        if (
+          current.status === record.status &&
+          current.presentation === presentation &&
+          current.rawDetail === rawDetail &&
+          current.rawDetailRef === rawDetailRef &&
+          stableStringify(current.display) === stableStringify(display)
+        ) {
+          db.exec('COMMIT')
+          return current
+        }
         const revisionSeq =
           Number(
             (this.stmtActivityHead?.get(record.dshSessionId) as { head?: number | bigint } | undefined)?.head ?? 0,
           ) + 1
+        const rawStorage = encodeActivityDetail(rawDetail)
+        const displayStorage = encodeActivityDetail(display === undefined ? undefined : JSON.stringify(display))
         this.stmtActivityUpdate?.run(
           record.dshSessionId,
           record.activityId,
@@ -1909,10 +1945,12 @@ class SidecarStore implements AcpSidecar {
           record.kind,
           record.status,
           presentation,
-          rawDetail ?? null,
+          typeof rawStorage === 'string' ? rawStorage : null,
           rawDetailRef ?? null,
           current.contentIndex ?? null,
-          display === undefined ? null : JSON.stringify(display),
+          typeof displayStorage === 'string' ? displayStorage : null,
+          rawStorage instanceof Uint8Array ? rawStorage : null,
+          displayStorage instanceof Uint8Array ? displayStorage : null,
         )
         db.exec('COMMIT')
         const { display: _previousDisplay, ...previous } = current
@@ -1941,6 +1979,8 @@ class SidecarStore implements AcpSidecar {
       )
       const activitySeq = firstSeenHead + 1
       const revisionSeq = revisionHead + 1
+      const rawStorage = encodeActivityDetail(rawDetail)
+      const displayStorage = encodeActivityDetail(display === undefined ? undefined : JSON.stringify(display))
       this.stmtActivityInsert?.run(
         record.dshSessionId,
         record.activityId,
@@ -1952,10 +1992,12 @@ class SidecarStore implements AcpSidecar {
         record.kind,
         record.status,
         presentation,
-        rawDetail ?? null,
+        typeof rawStorage === 'string' ? rawStorage : null,
         rawDetailRef ?? null,
         record.contentIndex ?? null,
-        display === undefined ? null : JSON.stringify(display),
+        typeof displayStorage === 'string' ? displayStorage : null,
+        rawStorage instanceof Uint8Array ? rawStorage : null,
+        displayStorage instanceof Uint8Array ? displayStorage : null,
       )
       db.exec('COMMIT')
       const committed = {
@@ -1984,6 +2026,38 @@ class SidecarStore implements AcpSidecar {
       }
       throw error
     }
+  }
+
+  async activityCurrentPage(
+    sessionId: SessionId,
+    afterActivity: number,
+    limit: number,
+    throughRevision: number,
+  ): Promise<readonly AcpActivityRecord[]> {
+    assertSafeSessionId(sessionId)
+    if (
+      !Number.isSafeInteger(afterActivity) ||
+      afterActivity < 0 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      !Number.isSafeInteger(throughRevision) ||
+      throughRevision < 0
+    )
+      throw new TypeError('ACP 活动快照分页参数无效')
+    const db = this.openIfExists()
+    if (db === undefined) return []
+    // 按活动序号索引推进，只读取没有更新版本的详情；固定上界保证并发写入时快照不漂移。
+    const rows = db
+      .prepare(
+        `SELECT j.* FROM activity_journal j
+        WHERE j.dsh_session_id = ? AND j.activity_seq > ? AND j.revision_seq <= ?
+        AND NOT EXISTS (SELECT 1 FROM activity_journal newer
+          WHERE newer.dsh_session_id = j.dsh_session_id AND newer.activity_id = j.activity_id
+          AND newer.revision_seq > j.revision_seq AND newer.revision_seq <= ?)
+        ORDER BY j.activity_seq LIMIT ?`,
+      )
+      .all(sessionId, afterActivity, throughRevision, throughRevision, Math.min(limit, 200)) as unknown as ActivityRow[]
+    return rows.map(rowToActivity).filter((row): row is AcpActivityRecord => row !== undefined)
   }
 
   activitySnapshot(
@@ -2718,6 +2792,11 @@ function readActivityDisplay(value: unknown): { display?: AcpActivityPresentatio
 }
 
 function rowToActivity(row: ActivityRow): AcpActivityRecord | undefined {
+  row = {
+    ...row,
+    raw_detail: decodeActivityDetail(row.raw_detail_z ?? row.raw_detail),
+    display_detail: decodeActivityDetail(row.display_detail_z ?? row.display_detail),
+  }
   if (
     typeof row.dsh_session_id !== 'string' ||
     typeof row.activity_id !== 'string' ||

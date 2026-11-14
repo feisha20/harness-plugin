@@ -1,6 +1,6 @@
 {
   "name": "@zaimokuza/dsh-acp-adapter",
-  "version": "0.2.1-rc.4.1+quota.4.4",
+  "version": "0.2.1-rc.4.1+quota.4.5",
   "description": "Harness ACP 适配器二次开发：在模型旁显示 Google AI Pro 会员额度与账号信息。",
   "icon": "./icon.svg",
   "keywords": [
@@ -415,6 +415,7 @@
     "LICENSE",
     "locale/*.json",
     "docs/permission-policy.md",
+    "docs/活动记录性能优化.md",
     "docs/permission-policy.en.md"
   ],
   "packageManager": "pnpm@10.7.0",

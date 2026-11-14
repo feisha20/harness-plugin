@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { createAcpSidecar, type AcpSidecar } from '../../../src/persistence/sidecar.ts'
@@ -36,6 +37,56 @@ function activity(id: string, time: number | undefined = 1_700_000_000_000, over
 }
 
 describe('ACP activity journal', () => {
+  it('压缩大详情后重开数据库仍可完整读取，重复更新不新增修订或通知', async () => {
+    const { root, sidecar } = store()
+    const display = { diffs: [{ path: 'a.ts', oldText: '原文\n'.repeat(8000), newText: '新文\n'.repeat(8000) }] }
+    let notifications = 0
+    sidecar.subscribeActivity(SessionId('session-1'), {}, () => notifications++)
+    const first = await sidecar.upsertActivity({
+      ...activity('large'),
+      display,
+      rawDetail: JSON.stringify({ text: '文本'.repeat(2000) }),
+    })
+    const repeated = await sidecar.upsertActivity({
+      ...activity('large', 1_700_000_000_001),
+      display,
+      rawDetail: first.rawDetail!,
+    })
+    expect(repeated).toEqual(first)
+    expect(notifications).toBe(1)
+    expect(await sidecar.activityHead(SessionId('session-1'))).toBe(1)
+    const db = new DatabaseSync(path.join(root, 'sidecar.sqlite'), { readOnly: true })
+    try {
+      const row = db
+        .prepare('SELECT typeof(display_detail_z) kind, length(display_detail_z) bytes FROM activity_journal')
+        .get()!
+      expect(row.kind).toBe('blob')
+      expect(Number(row.bytes)).toBeLessThan(Buffer.byteLength(JSON.stringify(display)) / 5)
+    } finally {
+      db.close()
+    }
+    await sidecar.dispose()
+    const reopened = createAcpSidecar({ root })
+    sidecars.push(reopened)
+    expect((await reopened.activityPage(SessionId('session-1'), 0))[0]).toEqual(first)
+  })
+
+  it('最新状态按活动分页，固定上界不受后续写入影响，旧修订仍可回放', async () => {
+    const { sidecar } = store()
+    await sidecar.upsertActivity(activity('a'))
+    await sidecar.upsertActivity(activity('b'))
+    const changed = await sidecar.upsertActivity({ ...activity('a'), presentation: 'changed' })
+    const head = await sidecar.activityHead(SessionId('session-1'))
+    const first = await sidecar.activityCurrentPage!(SessionId('session-1'), 0, 1, head)
+    expect(first).toEqual([changed])
+    await sidecar.upsertActivity({ ...activity('b'), status: 'completed' })
+    await sidecar.upsertActivity(activity('c'))
+    const second = await sidecar.activityCurrentPage!(SessionId('session-1'), first[0]!.activitySeq, 1, head)
+    expect(second).toMatchObject([{ activityId: 'b', status: 'running', revisionSeq: 2 }])
+    expect(await sidecar.activityCurrentPage!(SessionId('session-1'), second[0]!.activitySeq, 1, head)).toEqual([])
+    expect(await sidecar.activityPage(SessionId('session-1'), 0)).toHaveLength(5)
+  })
+
   it('keeps full display content beyond audit limits after reopening', async () => {
     const { root, sidecar } = store()
     const text = 'same line\n'.repeat(6000)
@@ -88,6 +139,7 @@ describe('ACP activity journal', () => {
       await sidecar.upsertActivity(
         activity(activityId, 1_700_000_000_000 + revision, {
           promptAnchorMessageId: `bench-anchor-${String(revision % 5)}`,
+          presentation: `修订 ${revision}`,
           activitySeq: revision < 1_000 ? revision + 1 : undefined,
           status: revision % 10 === 9 ? 'completed' : 'running',
         }),

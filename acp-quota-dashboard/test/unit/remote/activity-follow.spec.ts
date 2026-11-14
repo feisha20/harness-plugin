@@ -23,6 +23,12 @@ const idle = () => new Promise<void>((resolve) => setImmediate(resolve))
 const abortListenerCount = (signal: AbortSignal) => getEventListeners(signal, 'abort').length
 
 function createService(source: {
+  currentPage?: (
+    sessionId: string,
+    afterActivity: number,
+    limit: number,
+    throughRevision: number,
+  ) => Promise<readonly AcpActivityRecord[]>
   page: (sessionId: string, after: number, limit: number) => Promise<readonly AcpActivityRecord[]>
   head: () => Promise<number>
   subscribe: (sessionId: string, filter: unknown, listener: (activity: AcpActivityRecord) => void) => () => void
@@ -36,6 +42,7 @@ function createService(source: {
     ownedSessionReadGate: source.ownedSessionReadGate ?? (() => true),
     ...(source.activityReadStatus === undefined ? {} : { activityReadStatus: source.activityReadStatus }),
     activityTimeline: {
+      ...(source.currentPage === undefined ? {} : { currentPage: source.currentPage }),
       snapshot: async () => [],
       page: source.page,
       head: source.head,
@@ -45,6 +52,44 @@ function createService(source: {
 }
 
 describe('ACP activity follow lifecycle', () => {
+  it('最新状态分页跳过旧修订，打开期间的新修订仍完整交付', async () => {
+    let notify!: (activity: AcpActivityRecord) => void
+    const cursors: number[] = []
+    const service = createService({
+      page: async () => {
+        throw new Error('不应回放历史修订')
+      },
+      head: async () => 10,
+      subscribe: (_id, _filter, listener) => {
+        notify = listener
+        return () => undefined
+      },
+      currentPage: async (_id, after, _limit, head) => {
+        expect(head).toBe(10)
+        cursors.push(after)
+        if (after === 0) {
+          notify({ ...row(11), activityId: 'a', activitySeq: 1 })
+          return [{ ...row(9), activityId: 'a', activitySeq: 1 }]
+        }
+        if (after === 1) return [{ ...row(10), activityId: 'b', activitySeq: 2 }]
+        return []
+      },
+    })
+    const abort = new AbortController()
+    const iterator = service.activityFollow('session-1', undefined, abort.signal)[Symbol.asyncIterator]()
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'opened',
+      cursor: 10,
+      activities: [
+        { activityId: 'a', revisionSeq: 9 },
+        { activityId: 'b', revisionSeq: 10 },
+      ],
+    })
+    expect(cursors).toEqual([0, 1, 2])
+    expect((await iterator.next()).value).toMatchObject({ type: 'entry', activity: { revisionSeq: 11 } })
+    abort.abort()
+    await iterator.return!()
+  })
   it('marks only a recognized initial binding race as retryable', async () => {
     const source = {
       page: async () => [],
