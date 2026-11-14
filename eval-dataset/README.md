@@ -23,6 +23,6 @@ DeepSeek Harness 插件：在左侧菜单栏增加「评测集」插件，调用
    - 评测输入与参考答案审查、单条复制、入选依据展示。
    - 完整会话回放（Timeline）：访客提问、客服回复、工具调用入参/结果、模型推理（CoT）全链路可视。
 
-5. **多格式导出**：
-   - 支持勾选批量导出为标准 **JSON**、**JSONL** 或 **Alpaca** 问答评测集格式。
-   - 注册 DSH Tool `kuaibuddy_eval_dataset`，支持 AI Agent 在对话中直接调用提取与查询评测集。
+5. **批量导出**：
+   - 在页面勾选用例后，可以批量导出为标准 **JSON**。
+   - 注册 DSH Tool `kuaibuddy_eval_dataset`，支持 AI Agent 在对话中直接提取和查询评测集，也可导出 **JSON**、**JSONL** 或 **Alpaca** 格式。

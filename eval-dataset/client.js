@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
   --ed-error: var(--dsw-alias-state-error-primary, #f53f3f);
 
   height: 100%;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -30,6 +31,7 @@ window.__ModuleLoader__.load({
 }
 
 .ed-app * { box-sizing: border-box; }
+.ed-app :focus-visible { outline: 2px solid var(--ed-accent); outline-offset: 2px; }
 
 /* Header */
 .ed-header {
@@ -208,6 +210,7 @@ window.__ModuleLoader__.load({
 .ed-btn {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 6px;
   padding: 5px 12px;
   border-radius: 6px;
@@ -245,12 +248,11 @@ window.__ModuleLoader__.load({
   gap: 12px;
   margin-top: 14px;
 }
-@media (max-width: 1100px) {
-  .ed-metrics {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
 .ed-metric-card {
+  min-width: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
   background: var(--ed-bg-base);
   border: 1px solid var(--ed-border1);
   border-radius: 8px;
@@ -258,6 +260,8 @@ window.__ModuleLoader__.load({
   display: flex;
   flex-direction: column;
 }
+button.ed-metric-card { cursor: pointer; }
+button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
 .ed-metric-label {
   font-size: 11px;
   color: var(--ed-text2);
@@ -316,8 +320,11 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--ed-border1);
   border-radius: 6px;
   padding: 4px 10px;
-  min-width: 240px;
+  width: 240px;
+  max-width: 100%;
 }
+.ed-search-box:focus-within { border-color: var(--ed-accent); }
+.ed-search-box > svg { flex: none; }
 .ed-search-box input {
   border: none;
   background: transparent;
@@ -337,8 +344,8 @@ window.__ModuleLoader__.load({
 
 /* Left Case List */
 .ed-list-pane {
-  width: 440px;
-  min-width: 360px;
+  flex: 0 0 clamp(225px, 36%, 440px);
+  min-width: 0;
   border-right: 1px solid var(--ed-border1);
   display: flex;
   flex-direction: column;
@@ -352,6 +359,8 @@ window.__ModuleLoader__.load({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   font-size: 11px;
   color: var(--ed-text2);
 }
@@ -384,6 +393,7 @@ window.__ModuleLoader__.load({
 }
 .ed-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -407,6 +417,7 @@ window.__ModuleLoader__.load({
   border-radius: 4px;
 }
 .ed-card-title {
+  overflow-wrap: anywhere;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
@@ -437,6 +448,7 @@ window.__ModuleLoader__.load({
 /* Right Detail Pane */
 .ed-detail-pane {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -449,8 +461,21 @@ window.__ModuleLoader__.load({
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
+  flex-wrap: wrap;
 }
+.ed-detail-title {
+  flex: 1 1 250px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ed-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+.ed-detail-header > .ed-btn { flex: none; }
 .ed-detail-title h2 {
   margin: 0;
   font-size: 15px;
@@ -462,17 +487,22 @@ window.__ModuleLoader__.load({
   font-size: 11px;
   color: var(--ed-text2);
   display: flex;
-  gap: 12px;
+  gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
 }
 .ed-tabs-row {
   display: flex;
+  overflow-x: auto;
+  flex-shrink: 0;
   border-bottom: 1px solid var(--ed-border1);
   padding: 0 20px;
   background: var(--ed-bg-layer1);
   gap: 16px;
 }
 .ed-tab-btn {
+  flex: none;
+  white-space: nowrap;
   padding: 8px 0;
   font-size: 12px;
   font-weight: 500;
@@ -501,6 +531,7 @@ window.__ModuleLoader__.load({
   flex: 1;
   overflow-y: auto;
   padding: 18px 24px;
+  overflow-wrap: anywhere;
 }
 
 /* Sections */
@@ -1060,49 +1091,6 @@ window.__ModuleLoader__.load({
   color: #ffffff;
   border-color: #059669;
 }
-.ed-btn-official-added {
-  background: rgba(5, 150, 105, 0.08);
-  border: 1px solid rgba(5, 150, 105, 0.3);
-  color: #059669;
-  font-weight: 600;
-}
-.ed-btn-official-added:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.08);
-  border-color: rgba(220, 38, 38, 0.35);
-  color: #dc2626;
-}
-.ed-card-official-pill {
-  font-size: 10.5px;
-  padding: 1.5px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--ed-border1);
-  background: var(--ed-bg-layer1);
-  color: var(--ed-text2);
-  cursor: pointer;
-  font-weight: 550;
-  transition: all 0.15s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-  line-height: 1.3;
-}
-.ed-card-official-pill:hover {
-  border-color: #059669;
-  color: #059669;
-  background: rgba(5, 150, 105, 0.06);
-}
-.ed-card-official-pill.in-official {
-  background: rgba(5, 150, 105, 0.1);
-  border-color: rgba(5, 150, 105, 0.3);
-  color: #059669;
-  font-weight: 600;
-}
-.ed-card-official-pill.in-official:hover {
-  background: rgba(220, 38, 38, 0.08);
-  border-color: rgba(220, 38, 38, 0.3);
-  color: #dc2626;
-}
 .ed-prio-badge {
   font-size: 10.5px;
   font-weight: 700;
@@ -1368,6 +1356,9 @@ window.__ModuleLoader__.load({
   margin-top: 6px;
 }
 .ed-meta-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1424,10 +1415,13 @@ window.__ModuleLoader__.load({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   background: var(--ed-bg-layer1);
 }
 .ed-reg-drawer-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -1443,7 +1437,8 @@ window.__ModuleLoader__.load({
   overflow: hidden;
 }
 .ed-reg-sidebar {
-  width: 320px;
+  width: clamp(150px, 33%, 320px);
+  min-width: 0;
   border-right: 1px solid var(--ed-border1);
   background: var(--ed-bg-layer1);
   display: flex;
@@ -1530,6 +1525,7 @@ window.__ModuleLoader__.load({
 
 .ed-reg-detail-pane {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   padding: 18px 22px;
   background: var(--ed-bg-base);
@@ -1567,6 +1563,8 @@ window.__ModuleLoader__.load({
   .ed-reg-compare-grid { grid-template-columns: 1fr; }
 }
 .ed-reg-compare-col {
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: var(--ed-bg-base);
   border: 1px solid var(--ed-border1);
   border-radius: 8px;
@@ -1592,6 +1590,12 @@ window.__ModuleLoader__.load({
   max-height: 280px;
   overflow-y: auto;
   color: var(--ed-text1);
+}
+
+@container (max-width: 690px) {
+  .ed-header, .ed-toolbar { padding-inline: 12px; }
+  .ed-detail-header, .ed-detail-body, .ed-tabs-row { padding-inline: 12px; }
+  .ed-list-pane { flex-basis: 40%; }
 }
 
 /* Segmented Control (ToolCallStatsPanel & sub-switchers) */
@@ -1650,7 +1654,6 @@ window.__ModuleLoader__.load({
 .ed-tag-pill,
 .ed-tag-badge,
 .ed-reason-pill,
-.ed-card-official-pill,
 .ed-source-badge,
 .ed-eval-criteria-title,
 .ed-tool-tag,
@@ -1664,7 +1667,6 @@ window.__ModuleLoader__.load({
 }
 .ed-tag-badge,
 .ed-reason-pill,
-.ed-card-official-pill,
 .ed-source-badge,
 .ed-tool-tag,
 .ed-reg-status-pill,
@@ -1677,6 +1679,28 @@ window.__ModuleLoader__.load({
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+@container (max-width: 900px) {
+  .ed-header { padding-block: 10px; }
+  .ed-metrics {
+    grid-template-columns: repeat(5, minmax(105px, 1fr));
+    overflow-x: auto;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .ed-metric-card { padding: 6px 8px; }
+  .ed-metric-sub { display: none; }
+  .ed-detail-pane { overflow-y: auto; }
+  .ed-detail-body { flex: none; overflow: visible; }
+  .ed-detail-header { flex-shrink: 0; }
+  .ed-list-header { flex-shrink: 0; }
+  .ed-toolbar .ed-tags-group {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    min-width: 0;
+    padding-block: 3px;
+  }
+  .ed-tag-pill { flex: none; }
 }
 `;
 
@@ -3276,7 +3300,11 @@ window.__ModuleLoader__.load({
           const [selectedCategory, setSelectedCategory] = React.useState('全部');
           const [minScore, setMinScore] = React.useState(60);
           const [searchQuery, setSearchQuery] = React.useState('');
-          const [viewMode, setViewMode] = React.useState('sessions'); // 'cases' | 'badcases' | 'official' | 'sessions'
+          const [viewMode, setViewMode] = React.useState('sessions');
+          const openView = mode => {
+            if (mode !== viewMode) setSearchQuery('');
+            setViewMode(mode);
+          };
           const [selectedCaseId, setSelectedCaseId] = React.useState(null);
           const [selectedBadcaseId, setSelectedBadcaseId] = React.useState(null);
           const [selectedSessionId, setSelectedSessionId] = React.useState(null);
@@ -3303,7 +3331,7 @@ window.__ModuleLoader__.load({
           const [regressionTargetEnv, setRegressionTargetEnv] = React.useState('preprod');
           const [selectedRegressionTaskId, setSelectedRegressionTaskId] = React.useState(null);
           const [submittingRegression, setSubmittingRegression] = React.useState(false);
-          const [reasoningExpanded, setReasoningExpanded] = React.useState(true);
+          const [reasoningExpanded, setReasoningExpanded] = React.useState(false);
 
           // Official Evaluation Dataset Management states
           const [officialCases, setOfficialCases] = React.useState([]);
@@ -3540,21 +3568,6 @@ window.__ModuleLoader__.load({
             showToast(`已从「正式评测集」移出 ${removedCount} 条用例`);
           }, [officialCases, persistOfficialDataset, selectedOfficialCaseId, showToast]);
 
-          const handleToggleCaseOfficial = React.useCallback((item, e) => {
-            if (e) e.stopPropagation();
-            if (!item) return;
-            const itemSourceType = (item.sourceType === 'badcase' || item.badcaseType || (typeof item.id === 'string' && item.id.startsWith('bad_'))) ? 'badcase' : 'case';
-            const matched = officialCases.find(oc =>
-              oc.id === item.id ||
-              (oc.sessionId && item.sessionId && oc.sessionId === item.sessionId && (oc.sourceType || 'case') === itemSourceType)
-            );
-            if (matched) {
-              handleRemoveOfficialCases([matched.id]);
-            } else {
-              handleAddOfficialCases([item]);
-            }
-          }, [officialCases, handleRemoveOfficialCases, handleAddOfficialCases]);
-
           const handleSaveOfficialEdit = React.useCallback(async () => {
             if (!editingOfficialCase) return;
             const updated = {
@@ -3727,6 +3740,21 @@ window.__ModuleLoader__.load({
             return () => document.removeEventListener('mousedown', handleOutside);
           }, [envMenuOpen]);
 
+          React.useEffect(() => {
+            if (!envMenuOpen && !showConfigModal && !regressionModalOpen && !regressionDrawerOpen && !newOfficialModalOpen) return;
+            const closeOnEscape = event => {
+              if (event.key !== 'Escape' || event.defaultPrevented) return;
+              event.preventDefault();
+              if (newOfficialModalOpen) setNewOfficialModalOpen(false);
+              else if (regressionModalOpen && !submittingRegression) setRegressionModalOpen(false);
+              else if (regressionDrawerOpen && !regressionModalOpen) setRegressionDrawerOpen(false);
+              else if (showConfigModal && !savingConfig) setShowConfigModal(false);
+              else setEnvMenuOpen(false);
+            };
+            document.addEventListener('keydown', closeOnEscape);
+            return () => document.removeEventListener('keydown', closeOnEscape);
+          }, [envMenuOpen, showConfigModal, regressionModalOpen, regressionDrawerOpen, newOfficialModalOpen, savingConfig, submittingRegression]);
+
           // 启动时合并配置，再发起数据请求。
           React.useEffect(() => {
             let cancelled = false;
@@ -3818,7 +3846,7 @@ window.__ModuleLoader__.load({
                   json.summary.badcaseBreakdown = bBreakdown;
                 }
               }
-              setData(json);
+              setData({ ...json, date, env: currentEnv });
               if (json.cases && json.cases.length > 0) {
                 setSelectedCaseId(json.cases[0].id);
                 setSelectedIds(new Set(json.cases.map(c => c.id)));
@@ -3921,7 +3949,8 @@ window.__ModuleLoader__.load({
             }
           };
 
-          const summary = data?.summary || {
+          const visibleData = data?.date === date && data?.env === currentEnv ? data : null;
+          const summary = visibleData?.summary || {
             totalRawSessions: 0,
             noiseFilteredOut: 0,
             evaluatedCandidates: 0,
@@ -3933,9 +3962,9 @@ window.__ModuleLoader__.load({
             badcaseBreakdown: {}
           };
 
-          const allCases = data?.cases || [];
-          const allBadcases = data?.badcases || [];
-          const allRawSessions = data?.rawSessions || [];
+          const allCases = visibleData?.cases || [];
+          const allBadcases = visibleData?.badcases || [];
+          const allRawSessions = visibleData?.rawSessions || [];
 
           const filteredRawSessions = React.useMemo(() => {
             return allRawSessions.filter(s => {
@@ -3943,8 +3972,8 @@ window.__ModuleLoader__.load({
               if (selectedSessionFilter === 'Badcase 异常' && !s.badcaseTypeName) return false;
               if (selectedSessionFilter === '普通会话' && (s.isNoise || s.caseCategory || s.badcaseTypeName)) return false;
               if (selectedSessionFilter === '噪音/脚本探测' && !s.isNoise) return false;
-              if (searchQuery.trim()) {
-                const q = searchQuery.trim().toLowerCase();
+              const q = searchQuery.trim().toLowerCase();
+              if (q) {
                 const matchTitle = (s.title || '').toLowerCase().includes(q);
                 const matchPrompt = (s.userPrompt || '').toLowerCase().includes(q);
                 const matchRunId = (s.runId || '').toLowerCase().includes(q);
@@ -3957,15 +3986,15 @@ window.__ModuleLoader__.load({
           }, [allRawSessions, selectedSessionFilter, searchQuery]);
 
           const activeRawSession = React.useMemo(() => {
-            return allRawSessions.find(s => s.id === selectedSessionId) || filteredRawSessions[0] || null;
-          }, [allRawSessions, selectedSessionId, filteredRawSessions]);
+            return filteredRawSessions.find(s => s.id === selectedSessionId) || filteredRawSessions[0] || null;
+          }, [selectedSessionId, filteredRawSessions]);
 
           // Filtering Cases
           const filteredCases = React.useMemo(() => {
             return allCases.filter(c => {
               if (selectedCategory !== '全部' && c.category !== selectedCategory) return false;
-              if (searchQuery.trim()) {
-                const q = searchQuery.trim().toLowerCase();
+              const q = searchQuery.trim().toLowerCase();
+              if (q) {
                 const matchTitle = (c.title || '').toLowerCase().includes(q);
                 const matchPrompt = (c.userPrompt || '').toLowerCase().includes(q);
                 const matchTools = (c.toolNames || []).some(t => t.toLowerCase().includes(q));
@@ -3988,8 +4017,8 @@ window.__ModuleLoader__.load({
                   return false;
                 }
               }
-              if (searchQuery.trim()) {
-                const q = searchQuery.trim().toLowerCase();
+              const q = searchQuery.trim().toLowerCase();
+              if (q) {
                 const matchTitle = (b.title || '').toLowerCase().includes(q);
                 const matchPrompt = (b.userPrompt || '').toLowerCase().includes(q);
                 const matchPhen = (b.phenomenon || '').toLowerCase().includes(q);
@@ -4003,12 +4032,12 @@ window.__ModuleLoader__.load({
           }, [allBadcases, selectedBadcaseType, searchQuery]);
 
           const activeCase = React.useMemo(() => {
-            return allCases.find(c => c.id === selectedCaseId) || filteredCases[0] || null;
-          }, [allCases, selectedCaseId, filteredCases]);
+            return filteredCases.find(c => c.id === selectedCaseId) || filteredCases[0] || null;
+          }, [selectedCaseId, filteredCases]);
 
           const activeBadcase = React.useMemo(() => {
-            return allBadcases.find(b => b.id === selectedBadcaseId) || filteredBadcases[0] || null;
-          }, [allBadcases, selectedBadcaseId, filteredBadcases]);
+            return filteredBadcases.find(b => b.id === selectedBadcaseId) || filteredBadcases[0] || null;
+          }, [selectedBadcaseId, filteredBadcases]);
 
           const officialPosCount = React.useMemo(
             () => officialCases.filter(c => c.sourceType !== 'badcase').length,
@@ -4039,8 +4068,8 @@ window.__ModuleLoader__.load({
               ) {
                 return false;
               }
-              if (searchQuery.trim()) {
-                const q = searchQuery.trim().toLowerCase();
+              const q = searchQuery.trim().toLowerCase();
+              if (q) {
                 const matchTitle = (c.title || '').toLowerCase().includes(q);
                 const matchPrompt = (c.userPrompt || '').toLowerCase().includes(q);
                 const matchCriteria = (c.evalCriteria || '').toLowerCase().includes(q);
@@ -4054,13 +4083,17 @@ window.__ModuleLoader__.load({
           }, [officialCases, selectedOfficialFilter, searchQuery]);
 
           const activeOfficialCase = React.useMemo(() => {
-            return officialCases.find(c => c.id === selectedOfficialCaseId) || filteredOfficialCases[0] || null;
-          }, [officialCases, selectedOfficialCaseId, filteredOfficialCases]);
+            return filteredOfficialCases.find(c => c.id === selectedOfficialCaseId) || filteredOfficialCases[0] || null;
+          }, [selectedOfficialCaseId, filteredOfficialCases]);
 
-          const copyToClipboard = (text, label) => {
-            navigator.clipboard.writeText(text);
-            setCopied(label);
-            setTimeout(() => setCopied(''), 2000);
+          const copyToClipboard = async (text, label) => {
+            try {
+              await navigator.clipboard.writeText(text);
+              setCopied(label);
+              setTimeout(() => setCopied(current => current === label ? '' : current), 2000);
+            } catch {
+              showToast('复制失败，请手动选择并复制文本');
+            }
           };
 
           const renderIdentityChips = (item) => {
@@ -4090,55 +4123,19 @@ window.__ModuleLoader__.load({
             ];
           };
 
-          const copyBadcaseReport = (b) => {
-            if (!b) return;
-            const bm = getBadcaseCardMetrics(b);
-            const report = `# ⚠️ KuaiBuddy Badcase 诊断与归因分析报告
+          const visibleItems = viewMode === 'official' ? filteredOfficialCases
+            : viewMode === 'badcases' ? filteredBadcases
+              : viewMode === 'cases' ? filteredCases : [];
+          const checkedIds = viewMode === 'official' ? selectedOfficialIds
+            : viewMode === 'badcases' ? selectedBadcaseIds : selectedIds;
+          const selectedItems = visibleItems.filter(item => checkedIds.has(item.id));
+          const currentSelectedCount = selectedItems.length;
+          const allVisibleSelected = visibleItems.length > 0 && currentSelectedCount === visibleItems.length;
 
-- **用例标题**: ${b.title}
-- **用例编号**: ${b.id}
-- **缺陷严重度**: ${b.severity}
-- **主分类**: ${b.badcaseTypeName} (${b.badcaseType})
-- **综合缺陷标签**: ${(b.defectTags || [b.badcaseTypeName]).join(' / ')}
-- **交互统计**: ${bm.turnsCount} 轮 · 总计 ${bm.totalSteps} 步 (单轮最高 ${bm.maxTurnSteps} 步 · 单轮最高模型交互 ${bm.maxTurnModel} 次)
-- **工具调用统计**: ${bm.toolCallsCount} 次 (报错 ${b.toolFailuresCount || 0} 次)
-- **关联会话 ID**: ${b.sessionId || 'N/A'}
-- **关联 Run ID**: ${b.runId || 'N/A'}
-- **模型版本**: ${b.modelId || 'MiniMax-M3.1-Flash'}
-- **创建时间**: ${b.createdAt || 'N/A'}
-${b.sampleRepetitions > 1 ? `- **同类聚合频次**: 出现 ${b.sampleRepetitions} 次\n` : ''}
----
-
-### 🚨 1. 故障现象与触发点 (Phenomenon)
-${b.phenomenon}
-
-### 🔍 2. 疑似根因归因 (Suspected Root Cause)
-${b.suspectedCause}
-
-### 🛠 3. 修复与优化建议 (Actionable Remediation)
-${b.recommendation}
-
-### 📝 4. 关键证据与报错触发信息 (Trigger Evidence)
-\`\`\`
-${b.evidence}
-\`\`\`
-
-### 💬 5. 访客原始输入
-> ${b.userPrompt}
-`;
-            copyToClipboard(report, 'badcase_report');
-          };
-
-          const handleExport = async (format) => {
+          const handleExport = async () => {
             const isBadcaseMode = viewMode === 'badcases';
             const isOfficialMode = viewMode === 'official';
-            const itemsToExport = isOfficialMode
-              ? officialCases.filter(c => selectedOfficialIds.has(c.id))
-              : (isBadcaseMode
-                ? allBadcases.filter(b => selectedBadcaseIds.has(b.id))
-                : allCases.filter(c => selectedIds.has(c.id)));
-
-            if (itemsToExport.length === 0) {
+            if (selectedItems.length === 0) {
               alert(`请至少勾选一条${isOfficialMode ? '正式评测集用例' : (isBadcaseMode ? 'Badcase 回归用例' : '评测用例')}`);
               return;
             }
@@ -4148,45 +4145,39 @@ ${b.evidence}
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  format,
+                  format: 'json',
                   type: exportType,
-                  items: itemsToExport
+                  items: selectedItems
                 })
               });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const json = await res.json();
               const blob = new Blob([json.content], { type: 'text/plain;charset=utf-8' });
               const a = document.createElement('a');
-              a.href = URL.createObjectURL(blob);
+              const url = URL.createObjectURL(blob);
+              a.href = url;
               const prefix = isOfficialMode
                 ? 'kuaibuddy_official_dataset'
                 : (isBadcaseMode ? 'kuaibuddy_badcase_regression' : 'kuaibuddy_eval');
-              a.download = `${prefix}_${currentEnv}_${date}_${itemsToExport.length}cases.${format === 'alpaca' ? 'json' : format}`;
+              a.download = `${prefix}_${currentEnv}_${date}_${selectedItems.length}cases.json`;
               a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 0);
             } catch (err) {
               alert('导出失败: ' + err.message);
             }
           };
 
           const toggleSelectAll = () => {
-            if (viewMode === 'cases') {
-              if (selectedIds.size === filteredCases.length) {
-                setSelectedIds(new Set());
-              } else {
-                setSelectedIds(new Set(filteredCases.map(c => c.id)));
+            const updateSelection = viewMode === 'official' ? setSelectedOfficialIds
+              : viewMode === 'badcases' ? setSelectedBadcaseIds : setSelectedIds;
+            updateSelection(previous => {
+              const next = new Set(previous);
+              for (const { id } of visibleItems) {
+                if (allVisibleSelected) next.delete(id);
+                else next.add(id);
               }
-            } else if (viewMode === 'badcases') {
-              if (selectedBadcaseIds.size === filteredBadcases.length) {
-                setSelectedBadcaseIds(new Set());
-              } else {
-                setSelectedBadcaseIds(new Set(filteredBadcases.map(b => b.id)));
-              }
-            } else {
-              if (selectedOfficialIds.size === filteredOfficialCases.length) {
-                setSelectedOfficialIds(new Set());
-              } else {
-                setSelectedOfficialIds(new Set(filteredOfficialCases.map(c => c.id)));
-              }
-            }
+              return next;
+            });
           };
 
           const toggleSelectOne = (id, e) => {
@@ -4226,9 +4217,6 @@ ${b.evidence}
           }, [summary.badcaseBreakdown, allBadcases]);
           const badcaseCategories = ['全部', ...Object.keys(badcaseFilterCounts)];
           const officialCategories = ['全部', '正向基准', '缺陷回归', ...Object.keys(officialCategoryBreakdown)];
-          const currentSelectedCount = viewMode === 'official'
-            ? selectedOfficialIds.size
-            : (viewMode === 'badcases' ? selectedBadcaseIds.size : selectedIds.size);
 
           return h('div', { className: 'ed-app' },
             h('style', null, css),
@@ -4302,8 +4290,9 @@ ${b.evidence}
                     h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, '日期:'),
                     h('input', {
                       type: 'date',
+                      'aria-label': '提取日期',
                       value: date,
-                      onChange: e => setDate(e.target.value)
+                      onChange: e => { if (e.target.value) setDate(e.target.value); }
                     }),
                     h('button', {
                       className: 'ed-btn',
@@ -4329,94 +4318,67 @@ ${b.evidence}
                       ? `回归测试 (${regressionTasks.filter(t => t.status === 'running').length} 运行中)`
                       : `回归测试进展 (${regressionTasks.length})`
                   ),
-                  // Batch Add to Official Dataset button (when in daily cases/badcases view)
-                  viewMode !== 'official' && currentSelectedCount > 0 && h('button', {
-                    className: 'ed-btn ed-btn-official',
-                    onClick: () => {
-                      const selectedList = viewMode === 'cases'
-                        ? allCases.filter(c => selectedIds.has(c.id))
-                        : allBadcases.filter(b => selectedBadcaseIds.has(b.id));
-                      handleAddOfficialCases(selectedList);
-                    },
-                    title: '将当前勾选的用例批量选入正式评测集'
-                  }, h(Glyph, { kind: 'bookmark', size: 13 }), `选入正式评测集 (${currentSelectedCount})`),
-
                   // Manual Add Official Case button (when in official view)
                   viewMode === 'official' && h('button', {
                     className: 'ed-btn ed-btn-official',
                     onClick: () => setNewOfficialModalOpen(true)
                   }, h(Glyph, { kind: 'plus', size: 13 }), '手动新增正式用例'),
 
-                  // Batch Regression button if items selected
-                  currentSelectedCount > 0 && h('button', {
-                    className: 'ed-btn ed-btn-regression',
-                    onClick: () => {
-                      const selectedList = viewMode === 'official'
-                        ? officialCases.filter(c => selectedOfficialIds.has(c.id))
-                        : (viewMode === 'cases'
-                          ? allCases.filter(c => selectedIds.has(c.id))
-                          : allBadcases.filter(b => selectedBadcaseIds.has(b.id)));
-                      openRunRegressionModal(selectedList);
-                    }
-                  }, h(Glyph, { kind: 'rocket', size: 13 }), `批量回归测试 (${currentSelectedCount})`),
-
-                  // Export buttons
-                  h('button', {
+                  // 导出选中的用例
+                  viewMode !== 'sessions' && h('button', {
                     className: 'ed-btn ed-btn-primary',
                     disabled: currentSelectedCount === 0,
-                    onClick: () => handleExport('json')
+                    onClick: handleExport
                   },
                     h(Glyph, { kind: 'download', size: 13 }),
                     viewMode === 'official'
-                      ? `导出正式评测集 (${selectedOfficialIds.size})`
-                      : (viewMode === 'cases' ? `导出评测集 (${selectedIds.size})` : `导出 Badcase 回归集 (${selectedBadcaseIds.size})`)
-                  ),
-                  h('button', {
-                    className: 'ed-btn',
-                    disabled: currentSelectedCount === 0,
-                    onClick: () => handleExport('jsonl')
-                  }, 'JSONL'),
-                  h('button', {
-                    className: 'ed-btn',
-                    disabled: currentSelectedCount === 0,
-                    onClick: () => handleExport('alpaca')
-                  }, 'Alpaca')
+                      ? `导出正式评测集 (${currentSelectedCount})`
+                      : (viewMode === 'cases' ? `导出评测集 (${currentSelectedCount})` : `导出 Badcase 回归集 (${currentSelectedCount})`)
+                  )
                 )
               ),
 
               // 2. Metrics Bar
               h('div', { className: 'ed-metrics' },
-                h('div', {
+                h('button', {
+                  type: 'button',
                   className: 'ed-metric-card',
-                  style: { cursor: 'pointer', borderColor: viewMode === 'sessions' ? 'var(--ed-accent)' : undefined },
-                  onClick: () => setViewMode('sessions')
+                  'aria-pressed': viewMode === 'sessions',
+                  style: { borderColor: viewMode === 'sessions' ? 'var(--ed-accent)' : undefined },
+                  onClick: () => openView('sessions')
                 },
-                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'dataset', size: 13 }), `会话总量 (${data?.envName || (currentEnv === 'prod' ? '生产' : '测试')})`),
+                  h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'dataset', size: 13 }), `会话总量 (${visibleData?.envName || config?.environments?.[currentEnv]?.name || currentEnv})`),
                   h('span', { className: 'ed-metric-val' }, summary.totalRawSessions),
                   h('span', { className: 'ed-metric-sub' }, `清洗排除脚本探测 ${summary.noiseFilteredOut} 条 · 点击查看全部`)
                 ),
-                h('div', {
+                h('button', {
+                  type: 'button',
                   className: 'ed-metric-card',
-                  style: { cursor: 'pointer', borderColor: viewMode === 'cases' ? 'var(--ed-accent)' : undefined },
-                  onClick: () => setViewMode('cases')
+                  'aria-pressed': viewMode === 'cases',
+                  style: { borderColor: viewMode === 'cases' ? 'var(--ed-accent)' : undefined },
+                  onClick: () => openView('cases')
                 },
                   h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'target', size: 13 }), '提取评测用例'),
                   h('span', { className: 'ed-metric-val', style: { color: 'var(--ed-accent)' } }, summary.extractedCount),
                   h('span', { className: 'ed-metric-sub' }, '结构化去重 · 点击查看用例')
                 ),
-                h('div', {
+                h('button', {
+                  type: 'button',
                   className: 'ed-metric-card',
-                  style: { cursor: 'pointer', borderColor: viewMode === 'badcases' ? '#cf1322' : undefined },
-                  onClick: () => setViewMode('badcases')
+                  'aria-pressed': viewMode === 'badcases',
+                  style: { borderColor: viewMode === 'badcases' ? '#cf1322' : undefined },
+                  onClick: () => openView('badcases')
                 },
                   h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'alertTriangle', size: 13 }), 'Badcase 回归集'),
                   h('span', { className: 'ed-metric-val', style: { color: '#cf1322' } }, summary.badcasesCount || allBadcases.length),
                   h('span', { className: 'ed-metric-sub' }, `已归因 ${Object.keys(summary.badcaseBreakdown || {}).length} 类缺陷 · 点击查看`)
                 ),
-                h('div', {
+                h('button', {
+                  type: 'button',
                   className: 'ed-metric-card',
-                  style: { cursor: 'pointer', borderColor: viewMode === 'official' ? '#059669' : undefined },
-                  onClick: () => setViewMode('official')
+                  'aria-pressed': viewMode === 'official',
+                  style: { borderColor: viewMode === 'official' ? '#059669' : undefined },
+                  onClick: () => openView('official')
                 },
                   h('span', { className: 'ed-metric-label' }, h(Glyph, { kind: 'pin', size: 13 }), '正式评测集管理'),
                   h('span', { className: 'ed-metric-val', style: { color: '#059669' } }, officialCases.length),
@@ -4458,6 +4420,7 @@ ${b.evidence}
                   return h('button', {
                     key: cat,
                     className: `ed-tag-pill ${isActive ? 'active' : ''}`,
+                    'aria-pressed': isActive,
                     onClick: () => {
                       if (viewMode === 'sessions') setSelectedSessionFilter(cat);
                       else if (viewMode === 'official') setSelectedOfficialFilter(cat);
@@ -4472,22 +4435,26 @@ ${b.evidence}
                 })
               ),
               h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
-                viewMode === 'official' && selectedOfficialIds.size > 0 && h('button', {
+                viewMode === 'official' && currentSelectedCount > 0 && h('button', {
                   className: 'ed-btn',
                   style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.28)', padding: '4px 10px' },
-                  onClick: () => handleRemoveOfficialCases(Array.from(selectedOfficialIds))
-                }, h(Glyph, { kind: 'trash', size: 12 }), `批量移出 (${selectedOfficialIds.size})`),
+                  onClick: () => handleRemoveOfficialCases(selectedItems.map(item => item.id))
+                }, h(Glyph, { kind: 'trash', size: 12 }), `批量移出 (${currentSelectedCount})`),
                 h('div', { className: 'ed-search-box' },
                   h(Glyph, { kind: 'filter', size: 12 }),
                   h('input', {
-                    placeholder: viewMode === 'sessions'
-                      ? '搜索会话标题、提问、run_id、sessionId 或 threadId...'
-                      : (viewMode === 'official'
-                        ? '搜索正式用例标题、提问、评测标准或来源日期...'
-                        : (viewMode === 'cases' ? '搜索评测标题、用户提问、工具或 run_id...' : '搜索 Badcase 标题、现象、根因、证据或 run_id...')),
+                    'aria-label': '搜索当前列表',
+                    placeholder: '搜索标题、内容或运行 ID',
                     value: searchQuery,
                     onChange: e => setSearchQuery(e.target.value)
-                  })
+                  }),
+                  searchQuery && h('button', {
+                    type: 'button',
+                    className: 'ed-icon-btn',
+                    'aria-label': '清除搜索',
+                    title: '清除搜索',
+                    onClick: () => setSearchQuery('')
+                  }, h(Glyph, { kind: 'close', size: 12 }))
                 )
               )
             ),
@@ -4529,20 +4496,12 @@ ${b.evidence}
                     viewMode !== 'official' && currentSelectedCount > 0 && h('button', {
                       className: 'ed-copy-btn',
                       style: { color: '#059669', fontWeight: 600 },
-                      onClick: () => {
-                        const selectedList = viewMode === 'cases'
-                          ? allCases.filter(c => selectedIds.has(c.id))
-                          : allBadcases.filter(b => selectedBadcaseIds.has(b.id));
-                        handleAddOfficialCases(selectedList);
-                      }
-                    }, `+ 勾选入正式集 (${currentSelectedCount})`),
-                    h('button', {
+                      onClick: () => handleAddOfficialCases(selectedItems)
+                    }, `选入正式评测集 (${currentSelectedCount})`),
+                    visibleItems.length > 0 && h('button', {
                       className: 'ed-copy-btn',
                       onClick: toggleSelectAll
-                    }, (viewMode === 'official'
-                      ? (filteredOfficialCases.length > 0 && selectedOfficialIds.size === filteredOfficialCases.length)
-                      : (viewMode === 'cases' ? selectedIds.size === filteredCases.length : selectedBadcaseIds.size === filteredBadcases.length)
-                    ) ? '取消全选' : '全选')
+                    }, allVisibleSelected ? '取消全选' : '全选')
                   )
                 ),
                 h('div', { className: 'ed-case-cards' },
@@ -4646,12 +4605,7 @@ ${b.evidence}
                               className: 'ed-ico-text',
                               style: { fontSize: '10px', color: 'var(--ed-accent)', fontWeight: '600', gap: '3px' }
                             }, h(Glyph, { kind: 'tool', size: 11 }), `${c.toolCallsCount}次工具`),
-                            h('button', {
-                              type: 'button',
-                              className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
-                              onClick: e => handleToggleCaseOfficial(c, e),
-                              title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该用例加入正式评测集'
-                            }, inOfficial ? [h(Glyph, { key: 'i', kind: 'check', size: 11 }), '已在正式集'] : '+ 选入正式集')
+                            inOfficial && h('span', { className: 'ed-meta-chip' }, '已在正式集')
                           )
                         ),
                         h('div', { className: 'ed-card-title' }, c.title),
@@ -4665,7 +4619,7 @@ ${b.evidence}
                       );
                     })
                   ] : (viewMode === 'badcases' ? [
-                    filteredBadcases.length === 0 && !loading && h('div', { key: 'empty_bad', className: 'ed-empty-state' }, '未发现 Badcase 缺陷记录'),
+                    filteredBadcases.length === 0 && !loading && h('div', { key: 'empty_bad', className: 'ed-empty-state' }, allBadcases.length ? '无匹配的 Badcase 用例' : '未发现 Badcase 缺陷记录'),
                     ...filteredBadcases.map(b => {
                       const isSelected = selectedBadcaseId === b.id;
                       const isChecked = selectedBadcaseIds.has(b.id);
@@ -4700,15 +4654,7 @@ ${b.evidence}
                               title: `单轮与模型交互峰值 ${bm.maxTurnModel} 次 (达到 100 次上限)`
                             }, h(Glyph, { kind: 'alertTriangle', size: 11 }), BADCASE_LABEL_MODEL_LIMIT)
                           ),
-                          h('div', { style: { flexShrink: 0 } },
-                            h('button', {
-                              type: 'button',
-                              className: `ed-card-official-pill ${inOfficial ? 'in-official' : ''}`,
-                              style: { whiteSpace: 'nowrap' },
-                              onClick: e => handleToggleCaseOfficial(b, e),
-                              title: inOfficial ? '已收录至正式评测集（点击可移出）' : '点击将该 Badcase 加入正式评测集'
-                            }, inOfficial ? [h(Glyph, { key: 'i', kind: 'check', size: 11 }), '已在正式集'] : '+ 选入正式集')
-                          )
+                          inOfficial && h('span', { className: 'ed-meta-chip' }, '已在正式集')
                         ),
                         h('div', { className: 'ed-card-title' }, b.title),
                         hasSecondarySignals && h('div', {
@@ -4781,16 +4727,16 @@ ${b.evidence}
                         officialCases.length === 0 ? '正式评测集暂未收录用例' : '无匹配的正式评测集用例'
                       ),
                       h('div', { style: { fontSize: '11.5px', lineHeight: 1.5, maxWidth: '300px' } },
-                        '你可以从每天抓取的「高价值评测集」或「Badcase 诊断与回归集」中点击「+ 选入正式集」，沉淀为日常回归与评估 Agent 能力的标准库。'
+                        '在「提取评测用例」或「Badcase 回归集」勾选用例，然后点击列表上方的「选入正式评测集」。'
                       ),
                       officialCases.length === 0 && h('div', { style: { display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap', justifyContent: 'center' } },
                         h('button', {
                           className: 'ed-btn',
-                          onClick: () => setViewMode('cases')
+                          onClick: () => openView('cases')
                         }, '去挑选高价值用例'),
                         h('button', {
                           className: 'ed-btn',
-                          onClick: () => setViewMode('badcases')
+                          onClick: () => openView('badcases')
                         }, '去挑选 Badcase'),
                         h('button', {
                           className: 'ed-btn ed-btn-official',
@@ -4865,9 +4811,11 @@ ${b.evidence}
               ),
 
               // Right Column: Detail Inspector
-              h('div', { className: 'ed-detail-pane' },
-                viewMode === 'sessions' ? (
-                  !activeRawSession ? h('div', { className: 'ed-empty-state' }, '请在左侧选择一个会话记录') : [
+              h('div', { className: 'ed-detail-pane', 'aria-busy': viewMode !== 'official' && loading },
+                viewMode !== 'official' && !visibleData ? (
+                  h('div', { className: 'ed-empty-state' }, loading ? '正在加载评测数据…' : '暂无可查看的评测数据')
+                ) : viewMode === 'sessions' ? (
+                  !activeRawSession ? h('div', { className: 'ed-empty-state' }, '没有可查看的会话详情') : [
                     h('div', { key: 's_head', className: 'ed-detail-header' },
                       h('div', { className: 'ed-detail-title' },
                         h('h2', null, activeRawSession.title || activeRawSession.sessionId),
@@ -4892,7 +4840,7 @@ ${b.evidence}
                     )
                   ]
                 ) : viewMode === 'cases' ? (
-                  !activeCase ? h('div', { className: 'ed-empty-state' }, '请在左侧选择一个评测用例') : [
+                  !activeCase ? h('div', { className: 'ed-empty-state' }, '没有可查看的评测用例详情') : [
                     // Detail Header
                     h('div', { key: 'head', className: 'ed-detail-header' },
                       h('div', { className: 'ed-detail-title' },
@@ -4922,26 +4870,15 @@ ${b.evidence}
                             onClick: () => copyToClipboard(activeCase.sessionId, 'session_id')
                           }, `会话: ${activeCase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
                           ...(renderIdentityChips(activeCase) || []),
-                          h('span', null, `分类: ${activeCase.category}`),
-                          h('span', null, `价值评分: ${activeCase.valueScore}分`),
-                          h('span', null, `创建时间: ${activeCase.createdAt}`)
+                          h('span', { className: 'ed-meta-chip' }, `分类: ${activeCase.category}`),
+                          h('span', { className: 'ed-meta-chip' }, `价值评分: ${activeCase.valueScore}分`),
+                          h('span', { className: 'ed-meta-chip' }, `创建时间: ${activeCase.createdAt}`)
                         )
                       ),
-                      h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-                        h('button', {
-                          className: `ed-btn ${isCaseInOfficial(activeCase) ? 'ed-btn-official-added' : 'ed-btn-official'}`,
-                          onClick: e => handleToggleCaseOfficial(activeCase, e),
-                          title: isCaseInOfficial(activeCase) ? '点击从正式评测集中移出' : '选入正式评测集，作为日常回归基准'
-                        }, h(Glyph, { kind: isCaseInOfficial(activeCase) ? 'check' : 'pin', size: 12 }), isCaseInOfficial(activeCase) ? '已在正式评测集' : '选入正式评测集'),
-                        h('button', {
-                          className: 'ed-btn ed-btn-regression',
-                          onClick: () => openRunRegressionModal([activeCase])
-                        }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试'),
-                        h('button', {
-                          className: 'ed-btn',
-                          onClick: () => copyToClipboard(JSON.stringify(activeCase, null, 2), 'case')
-                        }, h(Glyph, { kind: 'copy', size: 12 }), copied === 'case' ? '已复制 JSON' : '复制用例 JSON')
-                      )
+                      h('button', {
+                        className: 'ed-btn ed-btn-regression',
+                        onClick: () => openRunRegressionModal([activeCase])
+                      }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试')
                     ),
 
                     // Detail Tabs
@@ -5026,7 +4963,7 @@ ${b.evidence}
                     )
                   ]
                 ) : viewMode === 'badcases' ? (
-                  !activeBadcase ? h('div', { className: 'ed-empty-state' }, '请在左侧选择一个 Badcase 诊断用例') : [
+                  !activeBadcase ? h('div', { className: 'ed-empty-state' }, '没有可查看的 Badcase 详情') : [
                     // Badcase Header
                     h('div', { key: 'b_head', className: 'ed-detail-header' },
                       h('div', { className: 'ed-detail-title' },
@@ -5091,24 +5028,10 @@ ${b.evidence}
                           h('span', { className: 'ed-meta-chip' }, activeBadcase.createdAt || '')
                         )
                       ),
-                      h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-                        h('button', {
-                          className: `ed-btn ${isCaseInOfficial(activeBadcase) ? 'ed-btn-official-added' : 'ed-btn-official'}`,
-                          onClick: (e) => handleToggleCaseOfficial(activeBadcase, e)
-                        }, h(Glyph, { kind: isCaseInOfficial(activeBadcase) ? 'check' : 'pin', size: 12 }), isCaseInOfficial(activeBadcase) ? '已在正式评测集 (点击移出)' : '选入正式评测集'),
-                        h('button', {
-                          className: 'ed-btn ed-btn-regression',
-                          onClick: () => openRunRegressionModal([activeBadcase])
-                        }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试'),
-                        h('button', {
-                          className: 'ed-btn',
-                          onClick: () => copyBadcaseReport(activeBadcase)
-                        }, h(Glyph, { kind: 'copy', size: 12 }), copied === 'badcase_report' ? '已复制报告' : '复制诊断报告'),
-                        h('button', {
-                          className: 'ed-btn',
-                          onClick: () => copyToClipboard(JSON.stringify(activeBadcase, null, 2), 'badcase_json')
-                        }, copied === 'badcase_json' ? '已复制 JSON' : '复制用例 JSON')
-                      )
+                      h('button', {
+                        className: 'ed-btn ed-btn-regression',
+                        onClick: () => openRunRegressionModal([activeBadcase])
+                      }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试')
                     ),
 
                     // Badcase Tabs
@@ -5303,7 +5226,9 @@ ${b.evidence}
                   ]
                 ) : (
                   // Official Evaluation Dataset Detail Inspector
-                  !activeOfficialCase ? (
+                  !activeOfficialCase && officialCases.length > 0 ? (
+                    h('div', { className: 'ed-empty-state' }, '没有可查看的正式用例，请调整筛选条件。')
+                  ) : !activeOfficialCase ? (
                     h('div', { className: 'ed-empty-state', style: { gap: '12px' } },
                       h('div', {
                         style: {
@@ -5328,7 +5253,7 @@ ${b.evidence}
                         }, h(Glyph, { kind: 'plus', size: 12 }), '手动新增正式用例'),
                         h('button', {
                           className: 'ed-btn',
-                          onClick: () => setViewMode('cases')
+                          onClick: () => openView('cases')
                         }, '去高价值评测集挑选 →')
                       )
                     )
@@ -5389,7 +5314,7 @@ ${b.evidence}
                             }, h(Glyph, { kind: 'zap', size: 11 }), `已回归 ${matchedRegTasks.length} 次`)
                           )
                         ),
-                        h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                        h('div', { className: 'ed-detail-actions' },
                           h('button', {
                             className: 'ed-btn ed-btn-regression',
                             onClick: () => openRunRegressionModal([activeOfficialCase])
@@ -5415,10 +5340,6 @@ ${b.evidence}
                               }
                             }
                           }, h(Glyph, { kind: 'edit', size: 12 }), isEditing ? '取消编辑' : '编辑用例 / 判据'),
-                          h('button', {
-                            className: 'ed-btn',
-                            onClick: () => copyToClipboard(JSON.stringify(activeOfficialCase, null, 2), 'official_json')
-                          }, copied === 'official_json' ? '已复制 JSON' : '复制 JSON'),
                           h('button', {
                             className: 'ed-btn',
                             style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.28)' },
@@ -5745,6 +5666,7 @@ ${b.evidence}
                   h('h2', { className: 'ed-ico-text' }, h(Glyph, { kind: 'gear', size: 16 }), 'KuaiBuddy 环境与 Staff-Key 配置'),
                   h('button', {
                     style: { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ed-text2)' },
+                    'aria-label': '关闭环境配置',
                     onClick: () => setShowConfigModal(false)
                   }, h(Glyph, { kind: 'close', size: 16 }))
                 ),
@@ -5960,7 +5882,7 @@ ${b.evidence}
               h('div', { className: 'ed-modal-content', style: { maxWidth: '560px' }, onClick: e => e.stopPropagation() },
                 h('div', { className: 'ed-modal-header' },
                   h('h3', { className: 'ed-ico-text' }, h(Glyph, { kind: 'rocket', size: 15 }), `发起回归测试 (${regressionTargetCases.length} 条用例)`),
-                  h('button', { className: 'ed-icon-btn', onClick: () => setRegressionModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
+                  h('button', { className: 'ed-icon-btn', 'aria-label': '关闭回归测试弹窗', onClick: () => setRegressionModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
                 ),
                 h('div', { className: 'ed-modal-body', style: { maxHeight: '65vh' } },
                   // Case Summary
@@ -6053,8 +5975,8 @@ ${b.evidence}
                   ),
                   h('div', { style: { display: 'flex', gap: '8px' } },
                     h('button', { className: 'ed-btn', onClick: loadRegressionTasks }, h(Glyph, { kind: 'refresh', size: 12 }), '刷新'),
-                    h('button', { className: 'ed-btn', onClick: handleClearRegressionTasks }, '清空已结束'),
-                    h('button', { className: 'ed-icon-btn', onClick: () => setRegressionDrawerOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
+                    h('button', { className: 'ed-btn', disabled: !regressionTasks.some(t => ['completed', 'failed', 'cancelled'].includes(t.status)), onClick: handleClearRegressionTasks }, '清空已结束'),
+                    h('button', { className: 'ed-icon-btn', 'aria-label': '关闭回归测试进展', onClick: () => setRegressionDrawerOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
                   )
                 ),
                 // Body Split
@@ -6105,7 +6027,7 @@ ${b.evidence}
                     const activeTask = regressionTasks.find(t => t.id === selectedRegressionTaskId) || regressionTasks[0] || null;
                     if (!activeTask) {
                       return h('div', { className: 'ed-detail-pane', style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ed-text2)' } },
-                        '请在左侧选择一项回归测试任务'
+                        '选择用例后发起回归测试，结果会显示在这里。'
                       );
                     }
 
@@ -6226,7 +6148,7 @@ ${b.evidence}
               h('div', { className: 'ed-modal-content', style: { maxWidth: '640px' }, onClick: e => e.stopPropagation() },
                 h('div', { className: 'ed-modal-header' },
                   h('h3', { className: 'ed-ico-text' }, h(Glyph, { kind: 'plus', size: 15 }), '手动新增正式评测集用例'),
-                  h('button', { className: 'ed-icon-btn', onClick: () => setNewOfficialModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
+                  h('button', { className: 'ed-icon-btn', 'aria-label': '关闭新增用例弹窗', onClick: () => setNewOfficialModalOpen(false) }, h(Glyph, { kind: 'close', size: 14 }))
                 ),
                 h('div', { className: 'ed-modal-body', style: { maxHeight: '70vh' } },
                   h('div', { style: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', marginBottom: '12px' } },
