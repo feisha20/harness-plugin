@@ -703,15 +703,21 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
   top: 0;
   z-index: 10;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 7px 12px;
   background: var(--ed-bg-layer1);
   border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  flex-wrap: wrap;
+}
+.ed-error-jump-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 .ed-error-jump-info {
   display: flex;
@@ -720,16 +726,34 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
   font-size: 12px;
   font-weight: 600;
   color: #dc2626;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .ed-error-jump-chips {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex: 1;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ed-error-jump-chips::-webkit-scrollbar {
+  display: none;
+}
+.ed-error-jump-chips.expanded {
+  flex-wrap: wrap;
+  flex: none;
+  max-height: 132px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(239, 68, 68, 0.22);
+  scrollbar-width: thin;
 }
 .ed-error-jump-chip {
+  flex-shrink: 0;
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
@@ -756,6 +780,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 .ed-error-jump-btn {
   padding: 3px 9px;
@@ -766,6 +791,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
   background: var(--ed-bg-layer2);
   color: var(--ed-text1);
   cursor: pointer;
+  white-space: nowrap;
 }
 .ed-error-jump-btn:hover {
   border-color: #dc2626;
@@ -779,6 +805,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
   border: 1px solid var(--ed-border1);
   border-radius: 8px;
   overflow: hidden;
+  scroll-margin-top: 72px;
 }
 .ed-bubble-head {
   padding: 6px 12px;
@@ -2235,11 +2262,15 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
         function ConversationTimeline({ messages, scopeId }) {
           const [activeErrorIdx, setActiveErrorIdx] = React.useState(0);
           const [highlightMsgIdx, setHighlightMsgIdx] = React.useState(null);
+          const [errorsExpanded, setErrorsExpanded] = React.useState(false);
           const itemRefs = React.useRef({});
+          const chipRefs = React.useRef({});
+          const chipsContainerRef = React.useRef(null);
 
           React.useEffect(() => {
             setActiveErrorIdx(0);
             setHighlightMsgIdx(null);
+            setErrorsExpanded(false);
           }, [scopeId]);
 
           const safeMessages = (Array.isArray(messages) ? messages : []).filter(m => !isFollowupMessage(m));
@@ -2263,35 +2294,71 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             if (el && typeof el.scrollIntoView === 'function') {
               el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
+            const container = chipsContainerRef.current;
+            const chipEl = chipRefs.current[normalized];
+            if (container && chipEl) {
+              const cRect = container.getBoundingClientRect();
+              const kRect = chipEl.getBoundingClientRect();
+              if (errorsExpanded) {
+                if (kRect.top < cRect.top) {
+                  container.scrollTop -= (cRect.top - kRect.top) + 4;
+                } else if (kRect.bottom > cRect.bottom) {
+                  container.scrollTop += (kRect.bottom - cRect.bottom) + 4;
+                }
+              } else {
+                if (kRect.left < cRect.left) {
+                  container.scrollLeft -= (cRect.left - kRect.left) + 8;
+                } else if (kRect.right > cRect.right) {
+                  container.scrollLeft += (kRect.right - cRect.right) + 8;
+                }
+              }
+            }
           };
+
+          const renderErrorChips = (expanded) => h('div', {
+            ref: chipsContainerRef,
+            className: `ed-error-jump-chips${expanded ? ' expanded' : ''}`
+          },
+            errorItems.map((item, eIdx) => h('button', {
+              key: item.msgIdx,
+              ref: (el) => {
+                if (el) chipRefs.current[eIdx] = el;
+                else delete chipRefs.current[eIdx];
+              },
+              type: 'button',
+              className: `ed-error-jump-chip ${eIdx === activeErrorIdx ? 'active' : ''}`,
+              title: `跳转到第 ${item.msgIdx + 1} 条: ${item.label}`,
+              onClick: () => jumpToError(eIdx)
+            }, `#${eIdx + 1} ${item.label}`))
+          );
 
           return h('div', { className: 'ed-msg-timeline' },
             errorItems.length > 0 && h('div', { className: 'ed-error-jump-bar' },
-              h('div', { className: 'ed-error-jump-info' },
-                h(Glyph, { kind: 'alertTriangle', size: 13 }),
-                h('span', null, `发现 ${errorItems.length} 处错误 (${activeErrorIdx + 1}/${errorItems.length})`)
+              h('div', { className: 'ed-error-jump-row' },
+                h('div', { className: 'ed-error-jump-info' },
+                  h(Glyph, { kind: 'alertTriangle', size: 13 }),
+                  h('span', null, `发现 ${errorItems.length} 处错误 (${activeErrorIdx + 1}/${errorItems.length})`)
+                ),
+                !errorsExpanded && renderErrorChips(false),
+                h('div', { className: 'ed-error-jump-nav' },
+                  h('button', {
+                    type: 'button',
+                    className: 'ed-error-jump-btn',
+                    onClick: () => jumpToError(activeErrorIdx - 1)
+                  }, '↑ 上一个'),
+                  h('button', {
+                    type: 'button',
+                    className: 'ed-error-jump-btn',
+                    onClick: () => jumpToError(activeErrorIdx + 1)
+                  }, '↓ 下一个'),
+                  errorItems.length > 3 && h('button', {
+                    type: 'button',
+                    className: 'ed-error-jump-btn',
+                    onClick: () => setErrorsExpanded(prev => !prev)
+                  }, errorsExpanded ? '收起' : '展开全部')
+                )
               ),
-              h('div', { className: 'ed-error-jump-chips' },
-                errorItems.map((item, eIdx) => h('button', {
-                  key: item.msgIdx,
-                  type: 'button',
-                  className: `ed-error-jump-chip ${eIdx === activeErrorIdx ? 'active' : ''}`,
-                  title: `跳转到第 ${item.msgIdx + 1} 条: ${item.label}`,
-                  onClick: () => jumpToError(eIdx)
-                }, `#${eIdx + 1} ${item.label}`))
-              ),
-              h('div', { className: 'ed-error-jump-nav' },
-                h('button', {
-                  type: 'button',
-                  className: 'ed-error-jump-btn',
-                  onClick: () => jumpToError(activeErrorIdx - 1)
-                }, '↑ 上一个'),
-                h('button', {
-                  type: 'button',
-                  className: 'ed-error-jump-btn',
-                  onClick: () => jumpToError(activeErrorIdx + 1)
-                }, '↓ 下一个')
-              )
+              errorsExpanded && renderErrorChips(true)
             ),
             safeMessages.map((m, idx) => {
               if (!conversationRoles.has(m.role)) return renderReasoningMessage(m, `${scopeId}:${idx}`);
