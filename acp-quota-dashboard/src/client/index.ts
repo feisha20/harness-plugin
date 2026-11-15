@@ -1,3 +1,4 @@
+import { QuotaSidebar } from './ui/QuotaSidebar.ts'
 import { AcpUsageFooter } from './ui/AcpUsageFooter.ts'
 /** Native browser integration for ACP sessions and activity. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -163,6 +164,27 @@ async function registerUi(ctx: ClientContext): Promise<void> {
         inject: () => ({ wire: quotaWire }),
       },
       QuotaBadge,
+    ),
+  )
+  const sidebarQuotaWire = {
+    ...quotaWire,
+    agents: () => {
+      const settings = panelSettingsOf(settingsScope.getSnapshot())
+      if (settings.status !== 'ready') return []
+      return Object.entries(settings.agents)
+        .filter(([, agent]) => agent.runtime === 'antigravity' || agent.runtime === 'codex')
+        .map(([id, agent]) => ({ id, runtime: agent.runtime!, name: agent.name }))
+    },
+  }
+  ctx.slots.inject('sidebar.footer.action', () =>
+    ctx.slots.register(
+      {
+        name: 'sidebar.footer.action',
+        id: 'dsh-acp-sidebar-quota',
+        order: -90,
+        inject: () => ({ wire: sidebarQuotaWire }),
+      },
+      QuotaSidebar,
     ),
   )
   const panelWire: AcpSectionWire = {
