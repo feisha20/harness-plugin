@@ -29,38 +29,3 @@ describe('实时输出速度估算', () => {
     expect(meter.observe('2:1', 100, 4000)).toBeNull()
   })
 })
-
-import { SegmentedOutputSpeed } from '../../../src/client/ui/live-output-speed.ts'
-it('分段平均排除工具等待，按 Token 和时长加权，完成后不增加时间', () => {
-  const meter = new SegmentedOutputSpeed()
-  meter.observe('a', [{ key: '1', tokens: 10 }], 1000)
-  meter.observe('a', [{ key: '1', tokens: 100 }], 2000)
-  meter.observe(
-    'a',
-    [
-      { key: '1', tokens: 100 },
-      { key: '2', tokens: 10 },
-    ],
-    62000,
-  )
-  meter.observe(
-    'a',
-    [
-      { key: '1', tokens: 100 },
-      { key: '2', tokens: 300 },
-    ],
-    64000,
-  )
-  expect(meter.average('a')).toBeCloseTo(400 / 3)
-  meter.observe('a', [{ key: '2', tokens: 300 }], 100000)
-  expect(meter.average('a')).toBeCloseTo(400 / 3)
-  expect(meter.average('b')).toBeNull()
-})
-it('单次推送无可测时长，新任务不继承旧值', () => {
-  const meter = new SegmentedOutputSpeed()
-  meter.observe('a', [{ key: '1', tokens: 100 }], 0)
-  expect(meter.average('a')).toBeNull()
-  meter.observe('a', [{ key: '1', tokens: 200 }], 1000)
-  meter.observe('b', [], 2000)
-  expect(meter.average('b')).toBeNull()
-})

@@ -169,6 +169,11 @@ const ALLOWED_CROSS_FILE_EDGES = new Set([
   // 无依赖用量白名单校验在接收与持久化边界复用。
   'runtime/session/session-runtime.ts->contract/reported-usage.ts',
   'persistence/options-snapshot.ts->contract/reported-usage.ts',
+  // 后台速度快照复用无依赖的数值校验，不引入运行时或 UI 依赖。
+  'persistence/options-snapshot.ts->contract/output-speed.ts',
+  // 已有官方额度采集器仅引用共享叶子的类型，补齐精确依赖登记。
+  'runtime/codex-quota.ts->contract/quota.ts',
+  'runtime/quota.ts->contract/quota.ts',
   'protocol/v1/connection.ts->contract/redaction.ts',
   'domain/observability/redaction.ts->contract/redaction.ts',
   'runtime/session/session-runtime.ts->contract/live-diagnostic-trace.ts',

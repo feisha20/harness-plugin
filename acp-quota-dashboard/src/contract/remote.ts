@@ -1,3 +1,4 @@
+import type { AcpOutputSpeed } from './output-speed.ts'
 import type { AcpReportedUsage } from './reported-usage.ts'
 /**
  * dshAcp Remote 边界的 wire contract：host 与 client 共享的收窄载荷
@@ -465,6 +466,7 @@ export interface AcpAgentSessionSnapshotView {
   readonly configOptions: readonly AcpConfigOption[] | null
   readonly modes: readonly AcpAgentModeView[] | null
   readonly currentModeId: string | null
+  readonly outputSpeed?: AcpOutputSpeed | null
   readonly reportedUsage?: AcpReportedUsage | null
   readonly contextUsage: AcpContextUsageView | null
   readonly note: string | null

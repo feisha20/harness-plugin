@@ -1,3 +1,5 @@
+import type { AcpOutputSpeed } from '../../contract/output-speed.ts'
+import { OutputSpeedMeter } from '../../domain/session/output-speed.ts'
 import type { AcpReportedUsage } from '../../contract/reported-usage.ts'
 /** ACP profile as an ordinary DSH LLM provider route. */
 /// <reference types="node" />
@@ -204,6 +206,7 @@ interface AgentSessionSnapshotView {
   readonly configOptions: readonly AgentSessionConfigOptionView[] | null
   readonly modes: readonly AgentSessionModeView[] | null
   readonly currentModeId: string | null
+  readonly outputSpeed?: AcpOutputSpeed | null
   readonly reportedUsage?: AcpReportedUsage | null
   readonly contextUsage: {
     readonly used: number
@@ -783,6 +786,7 @@ export class AcpProfileAdapter extends LlmAdapter {
   private probeGeneration: ProfileGeneration | undefined
   private readonly runtimes = new Map<string, AcpProfileRuntime>()
   private readonly terminalOutcomes = new WeakMap<AcpProfileRuntime, HostTerminalOutcomes>()
+  private readonly outputSpeedMeters = new WeakMap<AcpProfileRuntime, OutputSpeedMeter>()
   private readonly runtimeOwners = new WeakMap<AcpProfileRuntime, object>()
   private readonly runtimeBindings = new WeakMap<AcpProfileRuntime, AcpBindingData>()
   private readonly nextGenerations = new Map<string, number>()
@@ -1334,7 +1338,10 @@ export class AcpProfileAdapter extends LlmAdapter {
 
   private async readAgentSessionSnapshot(sessionId: string): Promise<AgentSessionSnapshotView> {
     const runtime = this.runtimeForSession(sessionId)
-    if (runtime !== undefined) return this.liveAgentSessionSnapshot(sessionId, runtime)
+    if (runtime !== undefined) {
+      await this.ensureOutputSpeedMeter(sessionId, runtime)
+      return this.liveAgentSessionSnapshot(sessionId, runtime)
+    }
     if (this.sidecar === undefined) throw new LlmError('ACP sidecar is unavailable', 'ACP_BINDING_UNAVAILABLE')
     const lookup = await this.sidecar.readLatestBinding(sessionId as never)
     if (lookup?.status !== 'ok')
@@ -1371,6 +1378,7 @@ export class AcpProfileAdapter extends LlmAdapter {
       sessionId,
       profileId: this.profileId,
       freshness: 'stale',
+      outputSpeed: snapshot.outputSpeed ?? null,
       reportedUsage: snapshot.reportedUsage ?? null,
       editable: false,
       configOptions,
@@ -1716,6 +1724,7 @@ export class AcpProfileAdapter extends LlmAdapter {
       sessionId,
       profileId: this.profileId,
       freshness: 'live',
+      outputSpeed: this.outputSpeedMeters.get(runtime)?.snapshot() ?? null,
       reportedUsage: runtime.reportedUsage ?? null,
       editable: runtime.isBusy !== true,
       configOptions: options,
@@ -1734,6 +1743,24 @@ export class AcpProfileAdapter extends LlmAdapter {
     }
   }
 
+  /** 仅恢复同一配置的后台计数；并发读取不能覆盖已开始的采样。 */
+  private async ensureOutputSpeedMeter(sessionId: string, runtime: AcpProfileRuntime): Promise<OutputSpeedMeter> {
+    let meter = this.outputSpeedMeters.get(runtime)
+    if (meter) return meter
+    // 展示统计恢复失败不能阻止用户继续对话。
+    const saved = await this.sidecar?.readOptionSnapshot?.(sessionId as never).catch(() => undefined)
+    meter = this.outputSpeedMeters.get(runtime)
+    if (meter) return meter
+    const profile = snapshotProfile(this.readConfig())
+    meter = new OutputSpeedMeter(
+      profile && saved?.fingerprint === profileLaunchIdentityHash(this.profileId, profile)
+        ? (saved.outputSpeed ?? undefined)
+        : undefined,
+    )
+    this.outputSpeedMeters.set(runtime, meter)
+    return meter
+  }
+
   private async persistRuntimeSnapshot(sessionId: string, runtime: AcpProfileRuntime, strict = false): Promise<void> {
     if (this.runtimeForSession(sessionId) !== runtime) {
       if (strict) throw new Error('ACP runtime changed before its terminal snapshot could be persisted')
@@ -1750,6 +1777,7 @@ export class AcpProfileAdapter extends LlmAdapter {
         if (strict) throw new Error('ACP profile is unavailable for terminal snapshot persistence')
         return
       }
+      await this.ensureOutputSpeedMeter(sessionId, runtime)
       await this.sidecar.writeOptionSnapshot(
         sessionId as never,
         acpOptionsSnapshotOf(
@@ -1758,6 +1786,7 @@ export class AcpProfileAdapter extends LlmAdapter {
           profileLaunchIdentityHash(this.profileId, profile),
           Date.now(),
           {
+            outputSpeed: this.outputSpeedMeters.get(runtime)?.snapshot() ?? null,
             reportedUsage: runtime.reportedUsage ?? null,
             contextUsage: runtime.contextUsage === undefined ? null : runtime.contextUsage,
             modes:
@@ -2813,6 +2842,7 @@ export class AcpProfileAdapter extends LlmAdapter {
                 profileLaunchIdentityHash(self.profileId, profile),
                 Date.now(),
                 {
+                  outputSpeed: self.outputSpeedMeters.get(runtime)?.snapshot() ?? null,
                   reportedUsage: runtime.reportedUsage ?? null,
                   contextUsage: runtime.contextUsage === undefined ? null : runtime.contextUsage,
                   modes:
@@ -3126,6 +3156,8 @@ export class AcpProfileAdapter extends LlmAdapter {
             await task()
           })
         }
+        const outputSpeed = await self.ensureOutputSpeedMeter(sessionKey, runtime)
+        outputSpeed.begin(admissionProof!.turn)
         const toolContentBoundaries = new Map<string, boolean>()
         const onUpdate = (notification: AcpSessionNotification): void => {
           const update = notification.update
@@ -3136,6 +3168,18 @@ export class AcpProfileAdapter extends LlmAdapter {
           // Native child notifications are evidence for the projected child,
           // never assistant/tool output of the root DSH turn.
           if (runtime.acpSessionId !== undefined && notification.sessionId !== runtime.acpSessionId) return
+          // 在任何异步投影和前端批处理之前记录真实接收时刻，子会话已在上面排除。
+          if (update.sessionUpdate === 'agent_message_chunk' || update.sessionUpdate === 'agent_thought_chunk') {
+            if (update.content.type === 'text')
+              outputSpeed.add(
+                update.sessionUpdate === 'agent_message_chunk' ? 'text' : 'reasoning',
+                update.content.text,
+                observedAt,
+                update.messageId,
+              )
+            else outputSpeed.breakSegment()
+          } else if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update')
+            outputSpeed.breakSegment()
           const responseObservation = { anchor: currentAnchor, seq: ++responseObservationSeq }
           if (completedFact !== undefined) rememberExternalFact(completedFact)
           const isToolUpdate = update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update'

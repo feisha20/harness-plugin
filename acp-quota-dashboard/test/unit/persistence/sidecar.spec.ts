@@ -1344,6 +1344,8 @@ describe(' option 快照（acpOptionsSnapshotOf 有界标准化 + option_snapsho
       TIME_BASE,
     )
     expect(record).toEqual({
+      outputSpeed: null,
+      reportedUsage: null,
       options: [
         { id: 'model', category: 'model', name: 'Model', value: 'm1', values: ['m1', 'm2'] },
         { id: 'fast', category: null, name: 'Fast', value: true, values: null },

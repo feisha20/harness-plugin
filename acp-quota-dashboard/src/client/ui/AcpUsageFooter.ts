@@ -1,4 +1,4 @@
-import { LiveOutputSpeed, SegmentedOutputSpeed, estimateTokens } from './live-output-speed.ts'
+import { LiveOutputSpeed, estimateTokens } from './live-output-speed.ts'
 import { snapshotIsAcp } from './AcpAgentControl.ts'
 import type { OwnsAcpRoute } from '../coordinator/cross-backend-coordinator.ts'
 import { createElement as h, useEffect, useState, useRef } from 'react'
@@ -27,6 +27,14 @@ export function usageLabels(snapshot: AcpAgentSessionSnapshotView): string[] {
   return labels
 }
 
+/** 只展示当前轮次的后台采样，避免把上一任务的速度标成“本次”。 */
+export function outputSpeedLabel(snapshot: AcpAgentSessionSnapshotView | null, turn: number): string {
+  const speed = snapshot?.outputSpeed
+  if (!speed || speed.turn !== turn) return '本次平均：缺少采样'
+  if (speed.durationMs <= 0) return '本次平均：无可测输出时长'
+  return `本次平均 ≈ ${((speed.sampledTokens * 1000) / speed.durationMs).toFixed(1)} tok/s`
+}
+
 /** 同一 Agent 的短暂缺报保留最近值，并明确标记过期。 */
 export function retainUsageSnapshot(
   previous: AcpAgentSessionSnapshotView | null,
@@ -52,8 +60,6 @@ export function AcpUsageFooter({
   const chat = useChat((snapshot) => snapshot.legacy)
   const running = useSession((snapshot) => snapshot.running)
   const meter = useRef(new LiveOutputSpeed())
-  const segments = useRef(new SegmentedOutputSpeed())
-  const [average, setAverage] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
   const [liveSpeed, setLiveSpeed] = useState<number | null>(null)
   const turn = Math.max(0, ...chat.turnTimings.keys())
@@ -67,8 +73,6 @@ export function AcpUsageFooter({
   useEffect(() => {
     meter.current = new LiveOutputSpeed()
     setLiveSpeed(null)
-    segments.current = new SegmentedOutputSpeed()
-    setAverage(null)
   }, [sessionId, isAcp])
   useEffect(() => {
     if (!isAcp || !running) return
@@ -84,22 +88,6 @@ export function AcpUsageFooter({
     meter.current.start(`${sessionId}:${turn}`, timing.startTime)
     setLiveSpeed(meter.current.observe(`${sessionId}:${turn}`, tokens, time))
   }, [sessionId, isAcp, running, turn, timing, tokens, now])
-  useEffect(() => {
-    const task = `${sessionId}:${turn}`
-    if (isAcp && running) {
-      const observed: { key: string; tokens: number }[] = []
-      const collect = (step: number, content: typeof blocks) =>
-        content.forEach((block, index) => {
-          if (block.kind === 'text' || block.kind === 'reasoning')
-            observed.push({ key: `${step}:${index}`, tokens: estimateTokens(block.text) })
-        })
-      for (const node of chat.nodes)
-        if (node.kind === 'assistant' && node.turn === turn) collect(node.step, [...node.blocks])
-      if (chat.partial?.turn === turn) collect(chat.partial.step, [...chat.partial.blocks])
-      segments.current.observe(task, observed, Date.now())
-    }
-    setAverage(segments.current.average(task))
-  }, [sessionId, isAcp, running, turn, chat])
   const [state, setState] = useState<{ id: string; snapshot: AcpAgentSessionSnapshotView | null } | null>(null)
   useEffect(() => {
     let active = true
@@ -139,15 +127,14 @@ export function AcpUsageFooter({
   const labels = snapshot ? usageLabels(snapshot) : ['上下文：待上报']
   if (snapshot?.freshness === 'stale' && snapshot.contextUsage) labels[0] += '（上次）'
   if (running) labels.push(liveSpeed === null ? '实时输出：等待输出' : `实时输出 ≈ ${liveSpeed.toFixed(1)} tok/s`)
-  if (!running && timing)
-    labels.push(average === null ? '本次平均：暂无统计' : `本次平均 ≈ ${average.toFixed(1)} tok/s`)
+  if (!running && timing) labels.push(outputSpeedLabel(snapshot, turn))
   if (labels.length === 0) return null
   return h(
     'div',
     {
       role: 'status',
       title:
-        '上下文为 Agent 上报值。实时速度按最近三秒收到的正文和推理文本估算；无文本三秒后显示零速率，暂无统计时显示等待输出。本次平均按实时观测的各文本段估算 Token 总数除以各段首末增量时间之和，排除段间工具调用及等待；单次推送和未观测的历史段不参与。' +
+        '上下文为 Agent 上报值。实时速度按最近三秒收到的正文和推理文本估算；无文本三秒后显示零速率，暂无统计时显示等待输出。本次平均由后台接收 ACP 正文和推理时采样，按可测文本段的估算 Token 总数除以各段首末增量时间之和，排除段间工具调用及等待，完成后随会话保存。单次推送无可测时长，旧任务没有后台采样时不补算。' +
         (snapshot?.freshness === 'stale' ? '上下文数据暂未更新。' : ''),
       style: {
         display: 'flex',

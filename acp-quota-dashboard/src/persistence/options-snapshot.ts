@@ -1,3 +1,4 @@
+import { outputSpeedOf, type AcpOutputSpeed } from '../contract/output-speed.ts'
 import { reportedUsageOf, type AcpReportedUsage } from '../contract/reported-usage.ts'
 /**
  * Bounded option snapshot codec used by sidecar cold-start presentation.
@@ -57,6 +58,7 @@ export interface AcpOptionsSnapshotRecord {
   readonly updatedAt: number
   readonly fingerprint: string
   /** Last ACP context occupancy; never mapped to DSH TokenUsage. */
+  readonly outputSpeed?: AcpOutputSpeed | null
   readonly reportedUsage?: AcpReportedUsage | null
   readonly contextUsage?: {
     readonly used: number
@@ -198,7 +200,7 @@ export function acpOptionsSnapshotOf(
   currentModeId: string | undefined,
   fingerprint: string,
   updatedAt: number,
-  extras?: Pick<AcpOptionsSnapshotRecord, 'contextUsage' | 'modes' | 'reportedUsage'>,
+  extras?: Pick<AcpOptionsSnapshotRecord, 'contextUsage' | 'modes' | 'reportedUsage' | 'outputSpeed'>,
 ): AcpOptionsSnapshotRecord {
   const options: AcpOptionsSnapshotOption[] = []
   for (const option of configOptions ?? []) {
@@ -215,6 +217,7 @@ export function acpOptionsSnapshotOf(
     modes: SnapshotModes | null | undefined,
     contextUsage: SnapshotContextUsage | null | undefined,
   ): AcpOptionsSnapshotRecord => ({
+    outputSpeed: outputSpeedOf(extras?.outputSpeed) ?? null,
     reportedUsage: reportedUsageOf(extras?.reportedUsage) ?? null,
     options: list,
     currentModeId: stableCurrentModeId,
@@ -373,6 +376,7 @@ export function toOptionsSnapshotRecord(raw: unknown): AcpOptionsSnapshotRecord 
     modes = { currentModeId: raw.modes.currentModeId as string, availableModes }
   } else if (raw.modes === null) modes = null
   return {
+    outputSpeed: outputSpeedOf(raw.outputSpeed) ?? null,
     reportedUsage: reportedUsageOf(raw.reportedUsage) ?? null,
     options,
     currentModeId: raw.currentModeId as string | null,

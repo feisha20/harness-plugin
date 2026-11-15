@@ -26,6 +26,25 @@ describe('generated RPC codecs from the published factory generator', () => {
     ['host', host.invocations],
     ['remote', remote.descriptors],
   ] as const) {
+    it(`${face}: 会话速度穿过生成的 RPC 校验器且兼容旧快照`, () => {
+      const result = descriptors.find((d) => d.method === 'agentSessionSnapshot')!.result.create()
+      const snapshot = {
+        sessionId: 'session-1',
+        profileId: 'codex',
+        freshness: 'stale',
+        editable: false,
+        configOptions: null,
+        modes: null,
+        currentModeId: null,
+        contextUsage: null,
+        note: null,
+      }
+      const outputSpeed = { turn: 1, totalTokens: 400, sampledTokens: 400, durationMs: 3000 }
+      expect(result.parse({ ...snapshot, outputSpeed })).toMatchObject({ outputSpeed })
+      expect(result.parse(snapshot)).toMatchObject(snapshot)
+      expect(() => result.parse({ ...snapshot, outputSpeed: { ...outputSpeed, durationMs: '3000' } })).toThrow()
+    })
+
     it(`${face}: provides native strict validator factories`, () => {
       expect(descriptors.length).toBeGreaterThan(0)
       for (const descriptor of descriptors) {
