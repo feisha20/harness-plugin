@@ -1,0 +1,4 @@
+- insert:
+    - id: google-ultra-manager
+      name: '@local/google-ultra-manager'
+      config: {}

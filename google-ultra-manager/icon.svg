@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <defs>
+    <linearGradient id="gum-bg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1A73E8"/>
+      <stop offset="55%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#9333EA"/>
+    </linearGradient>
+    <linearGradient id="gum-bolt" x1="24" y1="14" x2="40" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE047"/>
+      <stop offset="100%" stop-color="#FB923C"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="8" width="52" height="48" rx="14" fill="url(#gum-bg)"/>
+  <circle cx="32" cy="32" r="17" fill="#0F172A" fill-opacity="0.22" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="1.5"/>
+  <path d="M34.5 16L22.5 33.5H31.5L29.5 48L41.5 30.5H32.5L34.5 16Z" fill="url(#gum-bolt)"/>
+</svg>
