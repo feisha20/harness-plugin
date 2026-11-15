@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <defs>
+    <linearGradient id="cms-bg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="55%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="cms-spark" x1="40" y1="8" x2="56" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE047"/>
+      <stop offset="100%" stop-color="#F97316"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="10" width="52" height="44" rx="12" fill="url(#cms-bg)"/>
+  <rect x="11" y="15" width="42" height="34" rx="8" fill="#0F172A" fill-opacity="0.22" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="1.5"/>
+  <path d="M26 24.5C26 23.4 27.2 22.7 28.2 23.3L40.4 30.8C41.3 31.4 41.3 32.6 40.4 33.2L28.2 40.7C27.2 41.3 26 40.6 26 39.5V24.5Z" fill="#FFFFFF"/>
+  <path d="M16 42L21.5 35.5L25.5 39.5L29 36.5" stroke="#E0E7FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.75"/>
+  <path d="M49 9L50.8 14.2L56 16L50.8 17.8L49 23L47.2 17.8L42 16L47.2 14.2L49 9Z" fill="url(#cms-spark)"/>
+</svg>

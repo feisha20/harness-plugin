@@ -1,0 +1,4 @@
+- insert:
+    - id: colab-media-studio
+      name: '@local/colab-media-studio'
+      config: {}
