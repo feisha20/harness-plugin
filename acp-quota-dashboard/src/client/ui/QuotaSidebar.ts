@@ -17,6 +17,13 @@ export function quotaPercent(bucket: QuotaBucket | undefined): number | null {
     : Math.max(0, Math.min(100, value))
 }
 
+/** 保留两位小数，极小余额和接近满额时也区分真实端点。 */
+export function formatQuotaPercent(percent: number): string {
+  if (percent > 0 && percent < 0.01) return '<0.01%'
+  if (percent < 100 && percent > 99.99) return '>99.99%'
+  return `${Number(percent.toFixed(2))}%`
+}
+
 export function QuotaSidebar({ wire }: { wire: QuotaSidebarWire }): ReactNode {
   const [, update] = useState(0)
   useEffect(() => wire.subscribeConfig(() => update((n) => n + 1)), [wire])
@@ -82,6 +89,7 @@ function ProviderRow({
   const buckets = [codex ? 'codex-primary' : 'gemini-5h', codex ? 'codex-secondary' : 'gemini-weekly'].map((id) =>
     value?.buckets.find((b) => b.id === id),
   )
+  const percents = buckets.map(quotaPercent)
   const name = codex ? 'Codex' : 'Antigravity'
   const rawPlan = value?.plan?.trim()
   const plan = rawPlan
@@ -91,10 +99,12 @@ function ProviderRow({
     agent.name,
     value?.account,
     value?.plan,
-    ...buckets.map(
-      (b, i) =>
-        `${i ? '周额度' : '五小时'}：${b?.disabled ? '不可用' : quotaPercent(b) === null ? '未知' : `剩余 ${quotaPercent(b)}%`}；重置：${b?.resetTime ? new Date(b.resetTime).toLocaleString('zh-CN') : '未知'}`,
-    ),
+    ...buckets.map((bucket, i) => {
+      const percent = percents[i] ?? null
+      const amount = bucket?.disabled ? '不可用' : percent === null ? '未知' : `剩余 ${formatQuotaPercent(percent)}`
+      const reset = bucket?.resetTime ? new Date(bucket.resetTime).toLocaleString('zh-CN') : '未知'
+      return `${i ? '周额度' : '五小时'}：${amount}；重置：${reset}`
+    }),
     value ? `更新于 ${new Date(value.fetchedAt).toLocaleString('zh-CN')}` : '尚未读取额度',
     failed ? '刷新失败，显示上次结果；点击重试' : '点击刷新额度',
   ]
@@ -106,7 +116,7 @@ function ProviderRow({
       type: 'button',
       className: css.row,
       title: detail,
-      disabled: busy,
+      'aria-disabled': busy,
       'aria-label': detail,
       'aria-busy': busy,
       onClick: () => refresh.current(true),
@@ -123,16 +133,16 @@ function ProviderRow({
     h(
       'span',
       { className: css.metrics },
-      ...buckets.map((bucket, i) => {
-        const percent = quotaPercent(bucket)
+      ...percents.map((percent, i) => {
         return h(
           'span',
           { key: i, className: css.metric, 'data-low': percent !== null && percent <= 20 },
           h(
             'span',
             { className: css.label },
-            h('span', null, i ? '周额度' : '5 小时'),
-            h('strong', null, percent === null ? '—' : `${percent.toFixed(0)}%`),
+            h('span', { className: css.shortLabel }, i ? '周' : '5h'),
+            h('span', { className: css.fullLabel }, i ? '周额度' : '5 小时'),
+            h('strong', null, percent === null ? '—' : formatQuotaPercent(percent)),
           ),
           h(
             'span',
