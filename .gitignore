@@ -11,6 +11,7 @@
 **/.typert/
 **/coverage/
 *.tgz
+sidebar-compact-layout.zip
 
 # 本机配置、账号与运行证据
 .env
