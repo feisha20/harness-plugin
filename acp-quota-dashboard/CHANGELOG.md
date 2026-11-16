@@ -4,6 +4,13 @@
 
 User-facing changes and upgrade notes. See [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases) for publication dates, exact installation instructions, and checksums. Historical entries were reconstructed from tag diffs; npm packages were not republished.
 
+## 0.2.1-rc.4.1+quota.4.17
+
+- Antigravity 结束回复时，如果结构化 `run_command` 状态仍为执行中，在同一 DSH 任务内最多自动跟进两次，要求读取已有命令的结果，不重放用户原请求。
+- 仅说“稍等”、权限等待、子会话工具、用户停止和上游取消不触发跟进；已识别的认证或 EOF 错误保留原错误，不自动续发。
+- 若两次跟进后工具仍未回传终态，明确显示“结果未确认”，保留工具的“未完成”状态。该机制依赖 Agent 正确上报工具状态，不能保证取回所有后台任务。
+- 单元回归与构建验证不代表真实 Antigravity 会话已验收；安装前请退出 DSH NEXT，安装后重启。
+
 ## 0.2.1-rc.4.1+quota.4.5
 
 - 大活动详情无损压缩，兼容读取旧文本；内容未变化的重复更新不再新增修订或推送。

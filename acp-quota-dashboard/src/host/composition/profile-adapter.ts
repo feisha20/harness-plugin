@@ -1,3 +1,8 @@
+import {
+  AntigravityCommandFollowup,
+  ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT,
+  ANTIGRAVITY_COMMAND_FOLLOWUP_TEXT,
+} from './antigravity-command-followup.ts'
 import { antigravityOutputFailure } from '../../domain/session/antigravity-output-failure.ts'
 import type { AcpOutputSpeed } from '../../contract/output-speed.ts'
 import { OutputSpeedMeter } from '../../domain/session/output-speed.ts'
@@ -2915,6 +2920,8 @@ export class AcpProfileAdapter extends LlmAdapter {
         const currentActivities = new Map<string, NormalizedActivity>()
         const externalDelegations: ExternalDelegationObservation[] = []
         const profileKind = effectiveRuntimeOf(self.profileId, profile) ?? self.profileId
+        const commandFollowup = profileKind === 'antigravity' ? new AntigravityCommandFollowup() : undefined
+        let commandFollowupExhausted = false
         const delegationNormalizer = new ExternalDelegationNormalizer(profileKind)
         const externalFactsByTool = new Map<string, Map<string, ExternalDelegationLiveFact>>()
         const toolActivityBases = new Map<string, NormalizedActivity>()
@@ -3205,6 +3212,7 @@ export class AcpProfileAdapter extends LlmAdapter {
               ...(update.content === undefined ? {} : { content: update.content }),
             }
             toolCall = toolCallReducer.apply(patch, { externalSignalAborted: options.signal?.aborted === true })
+            commandFollowup?.observe(toolCall)
             const terminal = isTerminalActivityStatus(activityStatus(toolCall.status))
             const previousTerminal = toolContentBoundaries.get(toolId)
             if (previousTerminal === undefined || (previousTerminal && !terminal)) {
@@ -3544,29 +3552,59 @@ export class AcpProfileAdapter extends LlmAdapter {
           if (admissionProof?.anchorMessageId === currentAnchor)
             deliveredHostConclusionByAnchor.set(currentAnchor, ++responseObservationSeq)
         }
-        const promptResult = runtime.prompt(
-          prompt,
-          onUpdate,
-          promptSignal,
-          () => {
-            if (teammateReportEligible) {
-              teammateReportConfirmed = true
-              noteDeliveredHostConclusion()
+        const sendPrompt = (content: acp.ContentBlock[]) =>
+          runtime.prompt(
+            content,
+            onUpdate,
+            promptSignal,
+            () => {
+              if (teammateReportEligible) {
+                teammateReportConfirmed = true
+                noteDeliveredHostConclusion()
+              }
+            },
+            () => {
+              if (turnConclusionEligible) {
+                turnConclusionConfirmed = true
+                noteDeliveredHostConclusion()
+              }
+            },
+            () => {
+              if (successfulToolResultEligible) {
+                successfulToolResultConfirmed = true
+              }
+            },
+            { ...qwenPromptOptions, hostBodySignal },
+          )
+        const promptAnchor = currentAnchor
+        const promptResult = (async (): Promise<acp.PromptResponse> => {
+          let response = await sendPrompt(prompt)
+          let followups = 0
+          while (response.stopReason === 'end_turn' && commandFollowup?.pending === true) {
+            // 等待回复文本投影后再识别上游错误，防止异步队列漏掉 EOF 等终态诊断。
+            await contentDeliveryTail
+            if (
+              promptSignal.aborted ||
+              interruptedForInput ||
+              currentAnchor !== promptAnchor ||
+              antigravityOutputFailure(antigravityOutput) !== undefined
+            )
+              break
+            if (followups >= ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT) {
+              commandFollowupExhausted = true
+              break
             }
-          },
-          () => {
-            if (turnConclusionEligible) {
-              turnConclusionConfirmed = true
-              noteDeliveredHostConclusion()
-            }
-          },
-          () => {
-            if (successfulToolResultEligible) {
-              successfulToolResultConfirmed = true
-            }
-          },
-          { ...qwenPromptOptions, hostBodySignal },
-        )
+            // 上一轮 RPC 已明确结束，才允许跟进同一会话；不重放用户请求。
+            breakContent()
+            outputSpeed.breakSegment()
+            followups += 1
+            self.log?.(`ACP 正在自动读取已有命令结果（${followups}/${ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT}）`)
+            response = await sendPrompt([
+              { type: 'text', text: generatedContextBlock(ANTIGRAVITY_COMMAND_FOLLOWUP_TEXT) },
+            ])
+          }
+          return response
+        })()
         self.controlsChanged?.(sessionKey)
         const waitForKnownTerminalSettlement = async (): Promise<void> => {
           try {
@@ -3864,36 +3902,45 @@ export class AcpProfileAdapter extends LlmAdapter {
             const finalReason =
               responseFinish.kind === 'stop' && !interruptedForInput && upstreamFailure
                 ? { kind: 'error' as const, failure: upstreamFailure }
-                : responseFinish.kind === 'stop' &&
-                    !visibleContentEmitted &&
-                    !interruptedForInput &&
-                    !hasCompletedReport &&
-                    !hasConcludedTurnTool &&
-                    !hasSuccessfulToolResult
+                : responseFinish.kind === 'stop' && !interruptedForInput && commandFollowupExhausted
                   ? {
                       kind: 'error' as const,
                       failure: {
-                        code: 'ACP_NO_VISIBLE_RESPONSE',
-                        message: hasFailedTool
-                          ? isChinese
-                            ? '工具调用失败，ACP 智能体结束本轮时未返回可见回复。请查看失败步骤的详情。'
-                            : 'A tool call failed, and the ACP agent ended this turn without a visible response. See the failed step for details.'
-                          : isChinese
-                            ? 'ACP 智能体结束本轮时未返回可见回复。'
-                            : 'ACP agent completed without a visible response',
+                        code: 'ACP_COMMAND_RESULT_PENDING',
+                        message:
+                          '已自动跟进两次，但 Antigravity 仍未确认已有命令的执行结果。本轮结果未确认，请查看任务详情；不会自动重跑命令。',
                       },
                     }
-                  : responseFinish.kind === 'stop' && !interruptedForInput && hasMissingDevinFollowUp
+                  : responseFinish.kind === 'stop' &&
+                      !visibleContentEmitted &&
+                      !interruptedForInput &&
+                      !hasCompletedReport &&
+                      !hasConcludedTurnTool &&
+                      !hasSuccessfulToolResult
                     ? {
                         kind: 'error' as const,
                         failure: {
-                          code: 'ACP_INCOMPLETE_TOOL_RESPONSE',
-                          message: isChinese
-                            ? '工具调用失败后，Devin 未返回后续回复。请查看失败步骤的详情。'
-                            : 'A tool call failed, and Devin ended this turn without a follow-up response. See the failed step for details.',
+                          code: 'ACP_NO_VISIBLE_RESPONSE',
+                          message: hasFailedTool
+                            ? isChinese
+                              ? '工具调用失败，ACP 智能体结束本轮时未返回可见回复。请查看失败步骤的详情。'
+                              : 'A tool call failed, and the ACP agent ended this turn without a visible response. See the failed step for details.'
+                            : isChinese
+                              ? 'ACP 智能体结束本轮时未返回可见回复。'
+                              : 'ACP agent completed without a visible response',
                         },
                       }
-                    : responseFinish
+                    : responseFinish.kind === 'stop' && !interruptedForInput && hasMissingDevinFollowUp
+                      ? {
+                          kind: 'error' as const,
+                          failure: {
+                            code: 'ACP_INCOMPLETE_TOOL_RESPONSE',
+                            message: isChinese
+                              ? '工具调用失败后，Devin 未返回后续回复。请查看失败步骤的详情。'
+                              : 'A tool call failed, and Devin ended this turn without a follow-up response. See the failed step for details.',
+                          },
+                        }
+                      : responseFinish
             // Start the projection transaction before publishing finish so its
             // canonical sidecar payload is already durable if the host exits.
             // The projector then waits at its parent barrier until DSH consumes
