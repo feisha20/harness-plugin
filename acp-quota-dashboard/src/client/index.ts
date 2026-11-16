@@ -1,5 +1,5 @@
+import { AcpFooter } from './ui/AcpFooter.ts'
 import { QuotaSidebar } from './ui/QuotaSidebar.ts'
-import { AcpUsageFooter } from './ui/AcpUsageFooter.ts'
 /** Native browser integration for ACP sessions and activity. */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -500,9 +500,28 @@ async function registerUi(ctx: ClientContext): Promise<void> {
         id: 'dsh-acp-usage',
         order: 80,
         locale: 'acpActivity',
-        inject: () => ({ remote: acpRemote, streamFactory: ctx.remote, ownsRoute: managedRoutes.owns }),
+        inject: () => ({
+          remote: acpRemote,
+          streamFactory: ctx.remote,
+          sessionAccessSource,
+          ownsRoute: managedRoutes.owns,
+          cancelSession: async (id: string) => {
+            const result = await ctx.remote.session.cancel({ sessionId: id as SessionId })
+            if (!result.ok) throw new Error(result.error.message)
+          },
+          createNewSession: async (id: string) => {
+            const row = sessions.list.getSnapshot().byId[id as SessionId]
+            const location = resolveCrossBackendLocation(id, workspaces.list.getSnapshot().items, row?.cwd)
+            if (!location) throw new Error('原会话的工作区不可用')
+            const child = await sessions.create({
+              ...(location.cwd === undefined ? {} : { cwd: location.cwd }),
+              ...(location.workspaceId === undefined ? {} : { workspaceId: location.workspaceId as never }),
+            })
+            ctx.uiWorkspace.openSession(child)
+          },
+        }),
       },
-      AcpUsageFooter,
+      AcpFooter,
     ),
   )
   ctx.slots.inject('conversation.input.left', () =>

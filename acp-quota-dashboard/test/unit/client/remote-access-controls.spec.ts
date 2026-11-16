@@ -1,3 +1,4 @@
+import { AcpProgressNotice } from '../../../src/client/ui/AcpProgressNotice.ts'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -171,7 +172,20 @@ function setup(owner = false, workspace = true) {
     ])
     return AcpRecoveryDock({ ...common, createNewSession } as never)
   }
-  return { state, remote, control, model, recovery, createNewSession }
+  const cancelSession = vi.fn(async () => {})
+  const progress = (running = true, idle = 180000, open = true) => {
+    seed([0, idle, idle >= 120000, false, null, null, open])
+    return AcpProgressNotice({
+      ...common,
+      cancelSession,
+      createNewSession,
+      useSession: (select: (value: object) => unknown) => select({ running, lastAgentError: null }),
+      useSessionStatus: (select: (value: unknown) => unknown) => select(new Map()),
+      useChat: (select: (value: unknown) => unknown) =>
+        select({ legacy: { turnTimings: new Map([[1, {}]]), nodes: [], partial: null, runningCalls: [] } }),
+    } as never)
+  }
+  return { state, remote, control, model, recovery, createNewSession, progress, cancelSession }
 }
 function groups(tree: Tree): { choices: { disabled: boolean; write: { kind: string } }[] }[] {
   return tree.props.groups as never
@@ -303,4 +317,44 @@ it('uses the destination workspace or global create grant instead of the source 
     ;(allowed.props.onClick as () => void)()
     expect(h.createNewSession).toHaveBeenCalledExactlyOnceWith('lead')
   }
+})
+
+it('无进展操作只显式取消，运行时不提供重连，新建和恢复受授权约束', async () => {
+  const f = setup(true)
+  const active = nodes(f.progress())
+  expect(active.some((n) => n.props.children?.toString() === '重连原会话')).toBe(false)
+  const cancel = active.find((n) => n.props.children?.toString() === '取消本轮')!
+  expect(cancel.props.disabled).toBe(false)
+  ;(cancel.props.onClick as () => void)()
+  ;(cancel.props.onClick as () => void)()
+  expect(f.cancelSession).toHaveBeenCalledTimes(1)
+  expect(f.remote.retryOriginal).not.toHaveBeenCalled()
+  expect(f.createNewSession).not.toHaveBeenCalled()
+  const ended = nodes(f.progress(false))
+  const reconnect = ended.find((n) => n.props.children?.toString() === '重连原会话')!
+  ;(reconnect.props.onClick as () => void)()
+  expect(f.remote.retryOriginal).toHaveBeenCalledWith('lead')
+})
+it('无授权的无进展提示不允许取消或重连', () => {
+  const f = setup(false)
+  for (const running of [true, false]) {
+    const tree = nodes(f.progress(running))
+    const button = tree.find((n) => n.props.children?.toString() === (running ? '取消本轮' : '重连原会话'))!
+    expect(button.props.disabled).toBe(true)
+    ;(button.props.onClick as () => void)()
+  }
+  expect(f.cancelSession).not.toHaveBeenCalled()
+  expect(f.remote.retryOriginal).not.toHaveBeenCalled()
+})
+
+it('正常等待不渲染提示，超时仅保留可点击入口', () => {
+  const f = setup(true)
+  expect(f.progress(true, 45000, false)).toBeNull()
+  const closed = nodes(f.progress(true, 180000, false))
+  const trigger = closed.find((n) => n.props.children?.toString() === '⚠ 暂无新进展')!
+  expect(trigger.props['aria-haspopup']).toBe('dialog')
+  expect(trigger.props['aria-expanded']).toBe(false)
+  expect(closed.some((n) => n.props.children?.toString() === '取消本轮')).toBe(false)
+  expect(f.cancelSession).not.toHaveBeenCalled()
+  expect(f.remote.retryOriginal).not.toHaveBeenCalled()
 })

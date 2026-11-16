@@ -1,3 +1,4 @@
+import { antigravityOutputFailure } from '../../domain/session/antigravity-output-failure.ts'
 import type { AcpOutputSpeed } from '../../contract/output-speed.ts'
 import { OutputSpeedMeter } from '../../domain/session/output-speed.ts'
 import type { AcpReportedUsage } from '../../contract/reported-usage.ts'
@@ -3038,6 +3039,7 @@ export class AcpProfileAdapter extends LlmAdapter {
         let failure: unknown
         let cancelledRuntimeRetirement: Promise<void> | undefined
         let visibleContentEmitted = false
+        let antigravityOutput = ''
         // ACP has no final-vs-progress text marker. For the observed Devin
         // preamble-only failure, retain ordering evidence rather than guessing
         // from prose. A late terminal patch must not invalidate a reply sent
@@ -3101,6 +3103,8 @@ export class AcpProfileAdapter extends LlmAdapter {
           messageId?: string | null,
         ): Promise<void> => {
           if (content.type === 'text') {
+            if (profileKind === 'antigravity' && antigravityOutput.length <= 131072) antigravityOutput += content.text
+
             // DSH treats whitespace-only assistant content as non-visible. Keep
             // the same terminal-response rule here so formatting whitespace
             // cannot mask ACP_NO_VISIBLE_RESPONSE.
@@ -3855,37 +3859,41 @@ export class AcpProfileAdapter extends LlmAdapter {
               })
             const isChinese = responseLocale !== undefined && /^zh(?:[-_]|$)/i.test(responseLocale)
             // This records a delivered Host tool result, not completion of the user's broader task.
+            const upstreamFailure =
+              profileKind === 'antigravity' ? antigravityOutputFailure(antigravityOutput) : undefined
             const finalReason =
-              responseFinish.kind === 'stop' &&
-              !visibleContentEmitted &&
-              !interruptedForInput &&
-              !hasCompletedReport &&
-              !hasConcludedTurnTool &&
-              !hasSuccessfulToolResult
-                ? {
-                    kind: 'error' as const,
-                    failure: {
-                      code: 'ACP_NO_VISIBLE_RESPONSE',
-                      message: hasFailedTool
-                        ? isChinese
-                          ? '工具调用失败，ACP 智能体结束本轮时未返回可见回复。请查看失败步骤的详情。'
-                          : 'A tool call failed, and the ACP agent ended this turn without a visible response. See the failed step for details.'
-                        : isChinese
-                          ? 'ACP 智能体结束本轮时未返回可见回复。'
-                          : 'ACP agent completed without a visible response',
-                    },
-                  }
-                : responseFinish.kind === 'stop' && !interruptedForInput && hasMissingDevinFollowUp
+              responseFinish.kind === 'stop' && !interruptedForInput && upstreamFailure
+                ? { kind: 'error' as const, failure: upstreamFailure }
+                : responseFinish.kind === 'stop' &&
+                    !visibleContentEmitted &&
+                    !interruptedForInput &&
+                    !hasCompletedReport &&
+                    !hasConcludedTurnTool &&
+                    !hasSuccessfulToolResult
                   ? {
                       kind: 'error' as const,
                       failure: {
-                        code: 'ACP_INCOMPLETE_TOOL_RESPONSE',
-                        message: isChinese
-                          ? '工具调用失败后，Devin 未返回后续回复。请查看失败步骤的详情。'
-                          : 'A tool call failed, and Devin ended this turn without a follow-up response. See the failed step for details.',
+                        code: 'ACP_NO_VISIBLE_RESPONSE',
+                        message: hasFailedTool
+                          ? isChinese
+                            ? '工具调用失败，ACP 智能体结束本轮时未返回可见回复。请查看失败步骤的详情。'
+                            : 'A tool call failed, and the ACP agent ended this turn without a visible response. See the failed step for details.'
+                          : isChinese
+                            ? 'ACP 智能体结束本轮时未返回可见回复。'
+                            : 'ACP agent completed without a visible response',
                       },
                     }
-                  : responseFinish
+                  : responseFinish.kind === 'stop' && !interruptedForInput && hasMissingDevinFollowUp
+                    ? {
+                        kind: 'error' as const,
+                        failure: {
+                          code: 'ACP_INCOMPLETE_TOOL_RESPONSE',
+                          message: isChinese
+                            ? '工具调用失败后，Devin 未返回后续回复。请查看失败步骤的详情。'
+                            : 'A tool call failed, and Devin ended this turn without a follow-up response. See the failed step for details.',
+                        },
+                      }
+                    : responseFinish
             // Start the projection transaction before publishing finish so its
             // canonical sidecar payload is already durable if the host exits.
             // The projector then waits at its parent barrier until DSH consumes

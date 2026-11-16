@@ -9,7 +9,7 @@ import type { RemoteStreamFactory } from '@deepseek-ai/dsh-api-gateway/client'
 import { agentSessionStream } from '../data/agent-session-stream.ts'
 import { formatContextTokenCount } from './agent-session-controls.ts'
 
-type Props = PropsRuntime<'conversation.composer.dock'> &
+export type AcpUsageFooterProps = PropsRuntime<'conversation.composer.dock'> &
   PropsLocale<'acpActivity'> & {
     readonly ownsRoute: OwnsAcpRoute
     readonly remote: AcpRemoteLike
@@ -55,7 +55,7 @@ export function AcpUsageFooter({
   useChat,
   useSession,
   ownsRoute,
-}: Props): ReactNode {
+}: AcpUsageFooterProps): ReactNode {
   const isAcp = snapshotIsAcp(useProjection('modelSelection'), ownsRoute)
   const chat = useChat((snapshot) => snapshot.legacy)
   const running = useSession((snapshot) => snapshot.running)

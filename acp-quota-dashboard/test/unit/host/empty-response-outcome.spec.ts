@@ -588,3 +588,41 @@ describe('empty ACP responses after a failed tool', () => {
     ])
   })
 })
+
+describe('Antigravity 上游错误结束', () => {
+  const reply = (text: string): AcpSessionNotification => ({
+    sessionId: 'empty-response-remote',
+    update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
+  })
+  const diagnostic =
+    '⚠ API error (attempt 5): request failed: Post "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse": EOF'
+  it('错误跨流式片段仍输出错误终态，保留原始文本且不重放', async () => {
+    const result = await run({
+      profileId: 'antigravity',
+      updates: [reply(diagnostic.slice(0, 50)), reply(diagnostic.slice(50))],
+    })
+    expect(result.finish).toMatchObject({ reason: { kind: 'error', failure: { code: 'ACP_UPSTREAM_REQUEST_FAILED' } } })
+    expect(
+      result.chunks
+        .filter((c) => c.type === 'text-delta')
+        .map((c) => c.text)
+        .join(''),
+    ).toBe(diagnostic)
+    expect(result.dispatch?.state).toBe('settled')
+  })
+  it.each(['\n\n连接已恢复，最终结果为 42。', '\n这是错误示例的解释。'])(
+    '错误后有效回复保留正常结束',
+    async (suffix) => {
+      const result = await run({ profileId: 'antigravity', updates: [reply(diagnostic + suffix)] })
+      expect(result.finish).toMatchObject({ reason: { kind: 'stop' } })
+    },
+  )
+  it('其他 Agent 不套用 Antigravity 文本规则', async () => {
+    const result = await run({ updates: [reply(diagnostic)] })
+    expect(result.finish).toMatchObject({ reason: { kind: 'stop' } })
+  })
+  it('取消状态不被文本诊断覆盖', async () => {
+    const result = await run({ profileId: 'antigravity', updates: [reply(diagnostic)], stopReason: 'cancelled' })
+    expect(result.finish?.reason.kind).not.toBe('error')
+  })
+})
