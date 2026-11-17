@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   fetchSessionsForDate,
+  fetchSessionsPage,
+  fetchSessionById,
   fetchMessagesBatch,
   fetchMessagesForSession,
   getConfig,
@@ -88,6 +90,39 @@ function computeSingleTurnStats(msgs) {
   };
 }
 
+function buildRawSessionEntry(s, msgs, matchedCase = null, matchedBadcase = null) {
+  const visibleMsgs = msgs.filter(m => !isFollowupMessage(m));
+  const firstUser = visibleMsgs.find(m => m.role === 'user');
+  const prompt = firstUser?.content || s.title || '';
+  const runIds = [...new Set([...msgs.map(m => m.runId), s.runId].filter(Boolean))];
+  const turnStats = computeSingleTurnStats(msgs);
+  return {
+    id: s.sessionId,
+    sessionId: s.sessionId,
+    threadId: s.threadId || '',
+    runId: runIds[0] || '',
+    runIds,
+    userId: s.userId,
+    compId: s.compId ?? s.companyId ?? '',
+    companyId: s.compId ?? s.companyId ?? '',
+    createdAt: s.createdAt || '',
+    updatedAt: s.updatedAt || '',
+    model: s.modelId || s.model || '',
+    rawTitle: s.title ?? '',
+    title: s.title || prompt.slice(0, 60) || s.sessionId,
+    userPrompt: prompt,
+    isNoise: isNoiseSession(s),
+    caseCategory: matchedCase ? matchedCase.category : '',
+    badcaseTypeName: matchedBadcase ? matchedBadcase.badcaseTypeName : '',
+    messageCount: visibleMsgs.length,
+    turnCount: turnStats.turnCount,
+    execSteps: turnStats.execSteps,
+    durationMs: turnStats.durationMs,
+    durationLabel: turnStats.durationLabel,
+    messages: msgs
+  };
+}
+
 function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, minScore, failedSessionIds = []) {
   const dataset = extractEvaluationDataset(sessions, messagesMap, minScore);
   const caseBySession = new Map((dataset.cases || []).map(c => [c.sessionId, c]));
@@ -95,36 +130,7 @@ function buildDatasetResult(sessions, messagesMap, date, currentEnv, envName, mi
 
   const rawSessions = sessions.map(s => {
     const msgs = messagesMap.get(s.sessionId) || [];
-    const visibleMsgs = msgs.filter(m => !isFollowupMessage(m));
-    const firstUser = visibleMsgs.find(m => m.role === 'user');
-    const prompt = firstUser?.content || s.title || '';
-    const runIds = [...new Set(visibleMsgs.map(m => m.runId).filter(Boolean))];
-    const matchedCase = caseBySession.get(s.sessionId);
-    const matchedBadcase = badcaseBySession.get(s.sessionId);
-    const turnStats = computeSingleTurnStats(msgs);
-    return {
-      id: s.sessionId,
-      sessionId: s.sessionId,
-      threadId: s.threadId || '',
-      runId: runIds[0] || s.runId || '',
-      userId: s.userId,
-      compId: s.compId ?? s.companyId ?? '',
-      companyId: s.compId ?? s.companyId ?? '',
-      createdAt: s.createdAt || '',
-      model: s.modelId || s.model || '',
-      rawTitle: s.title ?? '',
-      title: s.title || prompt.slice(0, 60) || s.sessionId,
-      userPrompt: prompt,
-      isNoise: isNoiseSession(s),
-      caseCategory: matchedCase ? matchedCase.category : '',
-      badcaseTypeName: matchedBadcase ? matchedBadcase.badcaseTypeName : '',
-      messageCount: visibleMsgs.length,
-      turnCount: turnStats.turnCount,
-      execSteps: turnStats.execSteps,
-      durationMs: turnStats.durationMs,
-      durationLabel: turnStats.durationLabel,
-      messages: msgs
-    };
+    return buildRawSessionEntry(s, msgs, caseBySession.get(s.sessionId), badcaseBySession.get(s.sessionId));
   });
 
   return {
@@ -263,6 +269,155 @@ export async function getOrExtractDataset(dateStr, force = false, minScore = 60,
   } catch {}
 
   return result;
+}
+
+function sessionMatchesQuery(rawSession, qLower) {
+  if (!rawSession || !qLower) return false;
+  if ((rawSession.sessionId || '').toLowerCase() === qLower) return true;
+  if ((rawSession.threadId || '').toLowerCase() === qLower) return true;
+  if ((rawSession.runId || '').toLowerCase().includes(qLower)) return true;
+  if (Array.isArray(rawSession.runIds) && rawSession.runIds.some(r => String(r).toLowerCase().includes(qLower))) return true;
+  if (Array.isArray(rawSession.messages) && rawSession.messages.some(m => (m.runId || '').toLowerCase().includes(qLower))) return true;
+  if ((rawSession.sessionId || '').toLowerCase().includes(qLower)) return true;
+  if ((rawSession.threadId || '').toLowerCase().includes(qLower)) return true;
+  return false;
+}
+
+async function globalSearchSession(query, targetEnv, overrideCreds, options = {}) {
+  const q = String(query || '').trim();
+  if (!q) throw new Error('请输入要检索的 run_id 或 session_id');
+  const qLower = q.toLowerCase();
+
+  const config = getConfig();
+  const currentEnv = targetEnv || config.activeEnv || 'prod';
+  const creds = getCredentials(currentEnv, overrideCreds);
+  const credHash = crypto.createHash('sha1').update(`${creds.url}|${creds.key || ''}`).digest('hex').slice(0, 10);
+  const cacheDir = path.join(getStorageDir(), 'cache');
+  const cachedSessionReadAt = new Map();
+
+  // 1. Scan in-memory cache first
+  for (const cached of datasetCache.values()) {
+    if (cached?.env !== currentEnv) continue;
+    for (const s of (cached.rawSessions || [])) {
+      if (s.sessionId && cached.readAt) {
+        const prev = cachedSessionReadAt.get(s.sessionId);
+        if (!prev || cached.readAt > prev) cachedSessionReadAt.set(s.sessionId, cached.readAt);
+      }
+      if (sessionMatchesQuery(s, qLower)) {
+        return {
+          found: true,
+          source: 'cache',
+          matchedDate: (s.createdAt || cached.date || '').slice(0, 10),
+          session: s
+        };
+      }
+    }
+  }
+
+  // 2. Scan disk cache files for current env + credHash (newest first)
+  try {
+    if (fs.existsSync(cacheDir)) {
+      const prefix = `kuaibuddy_eval_${currentEnv}_${credHash}_`;
+      const files = fs.readdirSync(cacheDir)
+        .filter(f => f.startsWith(prefix) && f.endsWith('.json'))
+        .sort()
+        .reverse();
+      for (const file of files) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(path.join(cacheDir, file), 'utf8'));
+          for (const s of (parsed.rawSessions || [])) {
+            if (s.sessionId && parsed.readAt) {
+              const prev = cachedSessionReadAt.get(s.sessionId);
+              if (!prev || parsed.readAt > prev) cachedSessionReadAt.set(s.sessionId, parsed.readAt);
+            }
+            if (sessionMatchesQuery(s, qLower)) {
+              return {
+                found: true,
+                source: 'cache',
+                matchedDate: (s.createdAt || parsed.date || '').slice(0, 10),
+                session: s
+              };
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // 3. Direct sessionId lookup (1 API call, works for any date in history)
+  try {
+    const directSession = await fetchSessionById(q, currentEnv, overrideCreds);
+    if (directSession && directSession.sessionId) {
+      const msgs = await fetchMessagesForSession(directSession.sessionId, 200, currentEnv, overrideCreds);
+      const formatted = buildRawSessionEntry(directSession, msgs);
+      return {
+        found: true,
+        source: 'session_api',
+        matchedDate: (directSession.createdAt || '').slice(0, 10),
+        session: formatted
+      };
+    }
+  } catch {}
+
+  // 4. Remote paginated scan for run_id across recent sessions (not limited by creation date)
+  const maxPages = Number.isFinite(options.maxPages) ? Math.max(1, Math.min(20, options.maxPages)) : 5;
+  const pageSize = 200;
+  const concurrency = 15;
+  let scannedSessions = 0;
+
+  for (let curPage = 1; curPage <= maxPages; curPage++) {
+    const page = await fetchSessionsPage(curPage, pageSize, currentEnv, overrideCreds);
+    const list = page.list || [];
+    if (list.length === 0) break;
+
+    const toFetch = list.filter(s => {
+      if (!s?.sessionId) return false;
+      // Direct match on session-level runId if present
+      if ((s.runId || '').toLowerCase().includes(qLower)) return true;
+      // Skip sessions already scanned in local cache whose updatedAt has not changed
+      const cachedAt = cachedSessionReadAt.get(s.sessionId);
+      if (cachedAt && s.updatedAt && new Date(s.updatedAt).getTime() <= new Date(cachedAt).getTime()) {
+        return false;
+      }
+      return true;
+    });
+
+    scannedSessions += list.length;
+
+    let matchedResult = null;
+    const queue = [...toFetch];
+    const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length > 0 && !matchedResult) {
+        const s = queue.shift();
+        if (!s) break;
+        try {
+          const msgs = await fetchMessagesForSession(s.sessionId, 200, currentEnv, overrideCreds);
+          if (msgs.some(m => (m.runId || '').toLowerCase().includes(qLower)) || (s.runId || '').toLowerCase().includes(qLower)) {
+            matchedResult = buildRawSessionEntry(s, msgs);
+          }
+        } catch {}
+      }
+    });
+
+    await Promise.all(workers);
+    if (matchedResult) {
+      return {
+        found: true,
+        source: 'remote_scan',
+        scannedSessions,
+        matchedDate: (matchedResult.createdAt || '').slice(0, 10),
+        session: matchedResult
+      };
+    }
+
+    if (curPage >= (page.totalPage || 1)) break;
+  }
+
+  return {
+    found: false,
+    scannedSessions,
+    message: `已检索本地缓存与最近 ${scannedSessions} 条会话，未找到匹配的 run_id 或 session_id`
+  };
 }
 
 export function apply(ctx) {
@@ -594,6 +749,13 @@ export function apply(ctx) {
           if (!sessionId) return send(400, { error: '缺少 sessionId' });
           const messages = await fetchMessagesForSession(sessionId, 100, targetEnv, overrideCreds);
           return send(200, { sessionId, messages });
+        }
+
+        if (action === 'global_search') {
+          const queryText = q.get('query') || '';
+          const maxPages = q.get('maxPages') ? Number(q.get('maxPages')) : undefined;
+          const result = await globalSearchSession(queryText, targetEnv, overrideCreds, { maxPages });
+          return send(200, result);
         }
 
         if (action === 'export' && req.method === 'POST') {

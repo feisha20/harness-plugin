@@ -424,14 +424,54 @@ export function parseMessageContent(content) {
   return content;
 }
 
-export async function fetchSessionsForDate(dateStr, targetEnv, overrideCreds) {
+async function postStaffSessions(payload, targetEnv, overrideCreds) {
   const { url, key, envName } = getCredentials(targetEnv, overrideCreds);
   if (!key) {
     throw new Error(`【${envName}】尚未配置 X-Staff-Key，请点击右上角「⚙️ 环境配置」填入对应的 Staff Key`);
   }
 
   const endpoint = `${url}/web/agent/api/v1/staff/sessions`;
-  
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'X-Staff-Key': key,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`KuaiBuddy [${envName}] sessions API 失败 (${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (data.code !== 8) {
+    if (data.code === 2008) {
+      throw new Error(`KuaiBuddy [${envName}] Staff Key 无效或未授权 (code 2008)，请检查配置的 Key`);
+    }
+    throw new Error(`KuaiBuddy 响应错误 [${data.code}]: ${data.msg || '未知错误'}`);
+  }
+
+  return data.data || {};
+}
+
+export async function fetchSessionsPage(curPage = 1, pageSize = 200, targetEnv, overrideCreds, extraParams = {}) {
+  const data = await postStaffSessions({ ...extraParams, curPage, pageSize }, targetEnv, overrideCreds);
+  return {
+    list: data.resultlist || [],
+    totalPage: data.totalPage || 1,
+    totalRecord: data.totalRecord || 0
+  };
+}
+
+export async function fetchSessionById(sessionId, targetEnv, overrideCreds) {
+  if (!sessionId) return null;
+  const { list } = await fetchSessionsPage(1, 10, targetEnv, overrideCreds, { sessionId });
+  return list.find(s => s.sessionId === sessionId) || list[0] || null;
+}
+
+export async function fetchSessionsForDate(dateStr, targetEnv, overrideCreds) {
   const createdAtStart = `${dateStr}T00:00:00`;
   const createdAtEnd = `${dateStr}T23:59:59`;
 
@@ -441,37 +481,12 @@ export async function fetchSessionsForDate(dateStr, targetEnv, overrideCreds) {
   let totalPage = 1;
 
   while (curPage <= totalPage) {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'X-Staff-Key': key,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        createdAtStart,
-        createdAtEnd,
-        curPage,
-        pageSize
-      })
+    const page = await fetchSessionsPage(curPage, pageSize, targetEnv, overrideCreds, {
+      createdAtStart,
+      createdAtEnd
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`KuaiBuddy [${envName}] sessions API 失败 (${res.status}): ${text.slice(0, 200)}`);
-    }
-
-    const data = await res.json();
-    if (data.code !== 8) {
-      if (data.code === 2008) {
-        throw new Error(`KuaiBuddy [${envName}] Staff Key 无效或未授权 (code 2008)，请检查配置的 Key`);
-      }
-      throw new Error(`KuaiBuddy 响应错误 [${data.code}]: ${data.msg || '未知错误'}`);
-    }
-
-    const list = data.data?.resultlist || [];
-    allSessions.push(...list);
-
-    totalPage = data.data?.totalPage || 1;
+    allSessions.push(...page.list);
+    totalPage = page.totalPage || 1;
     curPage++;
   }
 

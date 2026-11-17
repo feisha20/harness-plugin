@@ -3343,9 +3343,13 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 const m = computeConversationMetrics(s.messages);
                 const toolNames = [...new Set(s.messages.filter(isToolCallMessage).map(t => getToolExecutionDetails(t).specificName).filter(Boolean))];
                 const assistantMsgs = s.messages.filter(x => x.role === 'assistant');
+                const rids = Array.isArray(s.runIds) && s.runIds.length > 0
+                  ? s.runIds
+                  : [...new Set(s.messages.map(x => x.runId).filter(Boolean))];
                 return {
                   sessionId: s.sessionId,
-                  runId: s.runId || '',
+                  runId: rids[0] || s.runId || '',
+                  runIds: rids,
                   title: s.title,
                   userPrompt: s.userPrompt || s.title || '',
                   referenceAnswer: assistantMsgs[assistantMsgs.length - 1]?.content || '',
@@ -3434,6 +3438,39 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
           const [expandedEnv, setExpandedEnv] = React.useState('prod');
           const envDropdownRef = React.useRef(null);
           const datasetRequestId = React.useRef(0);
+          const [globalSearching, setGlobalSearching] = React.useState(false);
+
+          const handleGlobalSearch = async (overrideQuery) => {
+            const q = String(overrideQuery !== undefined ? overrideQuery : searchQuery).trim();
+            if (!q || globalSearching) return;
+            setGlobalSearching(true);
+            setError('');
+            try {
+              const res = await fetch(`/api/eval-dataset?action=global_search&query=${encodeURIComponent(q)}&env=${encodeURIComponent(currentEnv)}`);
+              const json = await res.json();
+              if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+              if (!json.found || !json.session) {
+                showToast(json.message || '未找到匹配的 run_id 或 session_id');
+                return;
+              }
+              const hit = { ...json.session, _globalSearchMatch: true, _matchedDate: json.matchedDate || '' };
+              setData(prev => {
+                const base = prev || { date: selectedDate, env: currentEnv, summary: {}, cases: [], badcases: [], rawSessions: [] };
+                const existing = Array.isArray(base.rawSessions) ? base.rawSessions : [];
+                const filtered = existing.filter(item => item.sessionId !== hit.sessionId);
+                return { ...base, rawSessions: [hit, ...filtered] };
+              });
+              setViewMode('sessions');
+              setSelectedSessionFilter('全部');
+              setSelectedSessionId(hit.id || hit.sessionId);
+              const srcLabel = json.source === 'cache' ? '本地缓存' : (json.source === 'session_api' ? '精确直查' : '远程扫描');
+              showToast(`已全局定位到会话（创建于 ${json.matchedDate || '未知日期'} · ${srcLabel}）`);
+            } catch (err) {
+              setError(err.message || '全局检索失败');
+            } finally {
+              setGlobalSearching(false);
+            }
+          };
           const extractAfterSave = React.useRef(false);
 
           // Regression Testing states
@@ -3967,28 +4004,23 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
               }
               const json = await res.json();
               if (requestId !== datasetRequestId.current) return;
-              if (Array.isArray(json.cases)) {
-                for (const c of json.cases) {
-                  if (!c.runId && Array.isArray(c.messages)) {
-                    const rids = [...new Set(c.messages.map(m => m.runId).filter(Boolean))];
+              const fillRunIds = (list) => {
+                if (!Array.isArray(list)) return;
+                for (const item of list) {
+                  if (Array.isArray(item.messages)) {
+                    const rids = [...new Set([...item.messages.map(m => m.runId), item.runId].filter(Boolean))];
                     if (rids.length > 0) {
-                      c.runId = rids[0];
-                      c.runIds = rids;
+                      if (!item.runId) item.runId = rids[0];
+                      if (!Array.isArray(item.runIds) || item.runIds.length < rids.length) {
+                        item.runIds = rids;
+                      }
                     }
                   }
                 }
-              }
-              if (Array.isArray(json.badcases)) {
-                for (const b of json.badcases) {
-                  if (!b.runId && Array.isArray(b.messages)) {
-                    const rids = [...new Set(b.messages.map(m => m.runId).filter(Boolean))];
-                    if (rids.length > 0) {
-                      b.runId = rids[0];
-                      b.runIds = rids;
-                    }
-                  }
-                }
-              }
+              };
+              fillRunIds(json.cases);
+              fillRunIds(json.badcases);
+              fillRunIds(json.rawSessions);
               normalizeDatasetMetricsClientSide(json);
               if ((!json.badcases || json.badcases.length === 0) && json.cases && json.cases.length > 0) {
                 const clientBads = extractBadcasesFromCases(json.cases);
@@ -4122,6 +4154,14 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
           const allBadcases = visibleData?.badcases || [];
           const allRawSessions = visibleData?.rawSessions || [];
 
+          const matchesRunIdQuery = (item, q) => {
+            if (!item || !q) return false;
+            if ((item.runId || '').toLowerCase().includes(q)) return true;
+            if (Array.isArray(item.runIds) && item.runIds.some(rid => String(rid).toLowerCase().includes(q))) return true;
+            if (Array.isArray(item.messages) && item.messages.some(m => (m.runId || '').toLowerCase().includes(q))) return true;
+            return false;
+          };
+
           const filteredRawSessions = React.useMemo(() => {
             return allRawSessions.filter(s => {
               if (selectedSessionFilter === '高价值用例' && !s.caseCategory) return false;
@@ -4132,7 +4172,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
               if (q) {
                 const matchTitle = (s.title || '').toLowerCase().includes(q);
                 const matchPrompt = (s.userPrompt || '').toLowerCase().includes(q);
-                const matchRunId = (s.runId || '').toLowerCase().includes(q);
+                const matchRunId = matchesRunIdQuery(s, q);
                 const matchSessionId = (s.sessionId || '').toLowerCase().includes(q);
                 const matchThreadId = (s.threadId || '').toLowerCase().includes(q);
                 if (!matchTitle && !matchPrompt && !matchRunId && !matchSessionId && !matchThreadId) return false;
@@ -4154,7 +4194,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 const matchTitle = (c.title || '').toLowerCase().includes(q);
                 const matchPrompt = (c.userPrompt || '').toLowerCase().includes(q);
                 const matchTools = (c.toolNames || []).some(t => t.toLowerCase().includes(q));
-                const matchRunId = (c.runId || '').toLowerCase().includes(q);
+                const matchRunId = matchesRunIdQuery(c, q);
                 if (!matchTitle && !matchPrompt && !matchTools && !matchRunId) return false;
               }
               return true;
@@ -4180,7 +4220,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 const matchPhen = (b.phenomenon || '').toLowerCase().includes(q);
                 const matchCause = (b.suspectedCause || '').toLowerCase().includes(q);
                 const matchEvid = (b.evidence || '').toLowerCase().includes(q);
-                const matchRunId = (b.runId || '').toLowerCase().includes(q);
+                const matchRunId = matchesRunIdQuery(b, q);
                 if (!matchTitle && !matchPrompt && !matchPhen && !matchCause && !matchEvid && !matchRunId) return false;
               }
               return true;
@@ -4237,7 +4277,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 const matchCriteria = (c.evalCriteria || '').toLowerCase().includes(q);
                 const matchAnswer = (c.referenceAnswer || '').toLowerCase().includes(q);
                 const matchDate = (c.sourceDate || '').toLowerCase().includes(q);
-                const matchRunId = (c.runId || '').toLowerCase().includes(q);
+                const matchRunId = matchesRunIdQuery(c, q);
                 if (!matchTitle && !matchPrompt && !matchCriteria && !matchAnswer && !matchDate && !matchRunId) return false;
               }
               return true;
@@ -4614,9 +4654,14 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                   h(Glyph, { kind: 'filter', size: 12 }),
                   h('input', {
                     'aria-label': '搜索当前列表',
-                    placeholder: '搜索标题、内容或运行 ID',
+                    placeholder: '搜索标题、内容、run_id 或 session_id（回车可全局检索）',
                     value: searchQuery,
-                    onChange: e => setSearchQuery(e.target.value)
+                    onChange: e => setSearchQuery(e.target.value),
+                    onKeyDown: e => {
+                      if (e.key === 'Enter' && searchQuery.trim()) {
+                        handleGlobalSearch();
+                      }
+                    }
                   }),
                   searchQuery && h('button', {
                     type: 'button',
@@ -4625,7 +4670,20 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                     title: '清除搜索',
                     onClick: () => setSearchQuery('')
                   }, h(Glyph, { kind: 'close', size: 12 }))
-                )
+                ),
+                h('button', {
+                  type: 'button',
+                  className: 'ed-btn',
+                  disabled: !searchQuery.trim() || globalSearching,
+                  title: '不限日期，跨缓存与服务端全局检索 run_id 或 session_id',
+                  style: {
+                    padding: '5px 10px',
+                    fontSize: '12px',
+                    whiteSpace: 'nowrap',
+                    opacity: (!searchQuery.trim() || globalSearching) ? 0.55 : 1
+                  },
+                  onClick: () => handleGlobalSearch()
+                }, globalSearching ? '全局检索中...' : '全局检索')
               )
             ),
 
@@ -4676,7 +4734,16 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 ),
                 h('div', { className: 'ed-case-cards' },
                   viewMode === 'sessions' ? [
-                    filteredRawSessions.length === 0 && !loading && h('div', { key: 'empty', className: 'ed-empty-state' }, '无匹配会话记录'),
+                    filteredRawSessions.length === 0 && !loading && h('div', { key: 'empty', className: 'ed-empty-state', style: { display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' } },
+                      h('span', null, searchQuery.trim() ? '当前日期未找到匹配会话' : '无匹配会话记录'),
+                      searchQuery.trim() && h('button', {
+                        type: 'button',
+                        className: 'ed-btn ed-btn-primary',
+                        disabled: globalSearching,
+                        style: { padding: '5px 12px', fontSize: '12px' },
+                        onClick: () => handleGlobalSearch()
+                      }, globalSearching ? '全局检索中...' : '跨日期全局检索该 ID')
+                    ),
                     ...filteredRawSessions.map(s => {
                       const isSelected = (activeRawSession && activeRawSession.id === s.id);
                       return h('div', {
@@ -4696,6 +4763,10 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                             (s.execSteps !== undefined || s.messageCount > 0) && h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } },
                               `${s.execSteps !== undefined ? s.execSteps : 0} 步${s.durationLabel ? ` · 耗时 ${s.durationLabel}` : ''}`
                             ),
+                            s._globalSearchMatch && h('span', {
+                              className: 'ed-tag-badge',
+                              style: { background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' }
+                            }, '跨日期命中'),
                             (s.execSteps || 0) > 100 && h('span', {
                               style: {
                                 fontSize: '10px',
@@ -4709,7 +4780,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                               title: `单轮步骤数达 ${s.execSteps} 步 (>100)，需关注`
                             }, '单轮高步数·需关注')
                           ),
-                          h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, (s.createdAt || '').slice(11, 16))
+                          h('span', { style: { fontSize: '11px', color: 'var(--ed-text2)' } }, s._globalSearchMatch ? (s.createdAt || '').slice(0, 16).replace('T', ' ') : (s.createdAt || '').slice(11, 16))
                         ),
                         h('div', { className: 'ed-card-title' }, s.title || s.sessionId),
                         s.model && h('div', { className: 'ed-card-meta' },
