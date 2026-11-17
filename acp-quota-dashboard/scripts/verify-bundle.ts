@@ -126,8 +126,8 @@ for (const [name, peerRange] of Object.entries(pkg.peerDependencies ?? {})) {
   if (name.startsWith('@deepseek-ai/dsh-') && peerRange !== DSH_COMPAT_RANGE) {
     fail(`package.json: peerDependencies.${name} is ${peerRange}; expected ${DSH_COMPAT_RANGE}`)
   }
-  if (pkg.devDependencies?.[name] !== peerRange) {
-    fail(`package.json: devDependencies.${name} must match its exact peer version`)
+  if (typeof peerRange !== 'string' || !peerRange.split(' || ').includes(pkg.devDependencies?.[name])) {
+    fail(`package.json: devDependencies.${name} 必须固定为 peer 声明中的一个精确版本`)
   }
 }
 for (const section of ['dependencies', 'optionalDependencies'] as const) {

@@ -1,3 +1,4 @@
+import { legacyTeamRoster } from './legacy-service.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-experimental-agent-team'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -13,7 +14,7 @@ export function createTeamManagement(
 ): NonNullable<AcpRemoteServiceDeps['teamManagement']> {
   const models = modelDependencies === undefined ? undefined : createMemberModels(ctx, modelDependencies)
   const resolve = (id: string) => {
-    const teams = ctx.get('agentTeams')
+    const teams = legacyTeamRoster(ctx)
     const agent = ctx.get('agents', false)?.get(id as never)
     if (teams === undefined || agent === undefined || teams.tryMembership(agent)?.role !== 'lead')
       throw new Error('ACP_TEAM_LEAD_UNAVAILABLE')
@@ -24,7 +25,9 @@ export function createTeamManagement(
     return { teams, agent, provider }
   }
   const resolveLead = async (id: string) => {
-    if (ctx.get('agentTeams') !== undefined && ctx.get('agents', false)?.get(id as never) === undefined) {
+    if (legacyTeamRoster(ctx) === undefined)
+      throw new Error('ACP_TEAM_API_UNAVAILABLE: 当前宿主未提供旧版 Team 成员接口，请使用宿主原生的子 Agent 管理。')
+    if (ctx.get('agents', false)?.get(id as never) === undefined) {
       const provider = await readBindingProvider(id)
       if (provider === undefined || !owns(provider)) throw new Error('ACP_TEAM_LEAD_REQUIRED')
       // Historical reads need not activate the Lead. Reuse the host's deduplicated

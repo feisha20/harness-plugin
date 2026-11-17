@@ -4,6 +4,19 @@
 
 User-facing changes and upgrade notes. See [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases) for publication dates, exact installation instructions, and checksums. Historical entries were reconstructed from tag diffs; npm packages were not republished.
 
+## 0.2.1-rc.4.1+quota.4.19
+
+- 修复 rc.3 的 `agentTeams` 已移除 `tryMembership` 时，启用插件扫描已有普通 Agent 导致启动失败的问题。
+- 为旧 Team 成员扩展统一检查实际方法能力，覆盖成员模型、工具上下文、审批子级和提问展示；不模拟新宿主的成员归属或授权。
+- 新版不再提供旧接口时，插件内旧版成员模型管理会明确提示使用宿主原生子 Agent 管理；旧宿主保留原有行为。
+- 增加已有 Agent 和新建 Agent 的回归，并使用真实 rc.3 宿主复现旧版失败、验证修复版热启用及继续创建会话。该验证未调用真实模型、未运行浏览器测试。
+
+## 0.2.1-rc.4.1+quota.4.18
+
+- 补充 DSH NEXT 2.0.23-next 内置宿主 `0.2.2-rc.3` 的精确兼容声明；旧编译基线 `0.2.1-rc.4` 保留，不放开未知后续版本。
+- 将固定开发依赖与运行兼容版本列表分开校验，避免仅因宿主升级就被旧的单版本声明拦截。所有宿主 peer 仍为可选，不自动安装另一份宿主。
+- 新版宿主使用隔离 profile 做插件加载、配置组合、启动及健康服务验证，不代表真实模型对话与全部界面功能已验收。
+
 ## 0.2.1-rc.4.1+quota.4.17
 
 - Antigravity 结束回复时，如果结构化 `run_command` 状态仍为执行中，在同一 DSH 任务内最多自动跟进两次，要求读取已有命令的结果，不重放用户原请求。

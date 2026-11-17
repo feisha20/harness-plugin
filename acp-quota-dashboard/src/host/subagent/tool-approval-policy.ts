@@ -1,3 +1,4 @@
+import { legacyTeamRoster } from '../teams/legacy-service.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -59,7 +60,7 @@ export function createToolApprovalPolicyReader(
         return { sessionId, policy: defaultPolicy(), source: 'session', editable: false }
       throw new Error('ACP_TOOL_APPROVAL_SESSION_NOT_ACP')
     }
-    const teams = ctx.get('agentTeams', false)
+    const teams = legacyTeamRoster(ctx)
     const membership = agent === undefined ? undefined : teams?.tryMembership(agent)
     let root: Agent | undefined
     let teamId: string | undefined

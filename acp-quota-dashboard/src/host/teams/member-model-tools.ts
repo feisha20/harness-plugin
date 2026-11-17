@@ -1,3 +1,4 @@
+import { legacyTeamRoster } from './legacy-service.ts'
 import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
@@ -31,7 +32,7 @@ export function installTeamMemberModelFacts(
     )
       return decision
     try {
-      const teams = ctx.get('agentTeams', false)
+      const teams = legacyTeamRoster(ctx)
       const caller = exec.agent
       const membership = teams?.tryMembership(caller)
       if (teams === undefined || membership === undefined) return decision
@@ -52,7 +53,7 @@ export function installTeamMemberModelFacts(
           return { ...publicMember(row), model: fact.currentModel }
         }),
       )
-      const currentTeams = ctx.get('agentTeams', false)
+      const currentTeams = legacyTeamRoster(ctx)
       const current = currentTeams?.tryMembership(caller)
       if (
         !active ||

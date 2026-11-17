@@ -37,6 +37,7 @@ type HarnessOptions = {
   status?: string
   role?: string
   initialList?: boolean
+  modernTeams?: boolean
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -94,7 +95,10 @@ async function harness(options: HarnessOptions = {}) {
   }
   ctx.provide('llm', llm)
   ctx.provide('agents', agents)
-  ctx.provide('agentTeams', teams)
+  ctx.provide(
+    'agentTeams',
+    options.modernTeams ? ({ isEnabled: () => false, setEnabled: async () => undefined } as never) : teams,
+  )
   const models = createMemberModels(ctx, {
     sidecar: sidecar as unknown as AcpSidecar,
     adapterFor: vi.fn(() => adapter as never),
@@ -107,6 +111,19 @@ async function harness(options: HarnessOptions = {}) {
 }
 
 describe('createMemberModels()', () => {
+  it.each([false, true])('新版团队服务下能处理已有或新建的普通 Agent（预先存在=%s）', async (initialList) => {
+    const { agentCtx, llm, teams } = await harness({ initialList, modernTeams: true })
+    const assembled = await agentCtx.waterfall(
+      'system-prompt/assemble',
+      { sections: [], contexts: [], tools: [], variables: {} },
+      {},
+      async (): Promise<PromptAssembly> => ({ sections: [], contexts: [], tools: [], variables: { preserved: 'yes' } }),
+    )
+    expect(assembled.variables).toEqual({ preserved: 'yes' })
+    expect(teams.tryMembership).not.toHaveBeenCalled()
+    expect(llm.resolveCallConfig).not.toHaveBeenCalled()
+  })
+
   it('hydrates the native helper from a valid binding and resolves the selected model defaults', async () => {
     const current = binding()
     const { agentCtx, llm, sidecar } = await harness({

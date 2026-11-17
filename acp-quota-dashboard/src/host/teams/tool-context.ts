@@ -1,3 +1,4 @@
+import { legacyTeamMembership, legacyTeamRoster } from './legacy-service.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-experimental-agent-team'
@@ -5,13 +6,13 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 
 /** Optional Team ownership and ACP context limits for the shared DSH tool bridge. */
 export function createTeamToolContext(ctx: Context, agent: Agent) {
-  const initial = ctx.get('agentTeams', false)?.tryMembership(agent)
+  const initial = legacyTeamMembership(ctx, agent)
   if (initial === undefined) return undefined
   return {
-    membership: () => ctx.get('agentTeams', false)?.tryMembership(agent),
-    listMembers: () => ctx.get('agentTeams', false)?.listMembers(agent) ?? [],
+    membership: () => legacyTeamMembership(ctx, agent),
+    listMembers: () => legacyTeamRoster(ctx)?.listMembers(agent) ?? [],
     isLive(): boolean {
-      const teams = ctx.get('agentTeams', false)
+      const teams = legacyTeamRoster(ctx)
       const current = teams?.tryMembership(agent)
       if (
         current === undefined ||

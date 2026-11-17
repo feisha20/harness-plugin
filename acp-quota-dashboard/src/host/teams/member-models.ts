@@ -1,3 +1,4 @@
+import { legacyTeamMembership } from './legacy-service.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection, type Agent, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { AcpSidecar } from '../../persistence/sidecar.ts'
@@ -27,7 +28,7 @@ export function createMemberModels(ctx: Context, { sidecar, adapterFor }: Member
   }
   const installed = new WeakSet<Agent>()
   const install = (agent: Agent): void => {
-    const membership = ctx.get('agentTeams')?.tryMembership(agent)
+    const membership = legacyTeamMembership(ctx, agent)
     const provider = agent.options.provider
     if (
       membership?.role !== 'teammate' ||

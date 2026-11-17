@@ -13,7 +13,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close()
 })
 
-async function setup(teams = true) {
+async function setup(teams: boolean | 'modern' = true) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
@@ -25,7 +25,8 @@ async function setup(teams = true) {
   let rosterError: Error | undefined
   let defaultPolicy: 'auto' | 'ask' = 'auto'
   ctx.provide('agents', { get: (id: string) => agents.get(id) })
-  if (teams)
+  if (teams === 'modern') ctx.provide('agentTeams', { isEnabled: () => false } as never)
+  else if (teams)
     ctx.provide('agentTeams', {
       tryMembership: (agent: any) => {
         if (agents.get(agent.id) !== agent) return undefined
@@ -163,4 +164,14 @@ it('rejects ancestry cycles without persisting a preference', async () => {
   h.add('b', 'acp-test', 'a', 'subagent')
   await expect(h.read('a')).rejects.toThrow('ACP_TOOL_APPROVAL_PARENT_CYCLE')
   await expect(h.sidecar.readToolApprovalPolicy(SessionId('a'))).resolves.toBeUndefined()
+})
+
+it('新版团队服务不会阻断子 Agent 的审批策略快照，也不会推断旧 Team 权限', async () => {
+  const h = await setup('modern')
+  h.add('parent', 'acp-test')
+  h.add('child', 'acp-test', 'parent', 'subagent')
+  await h.sidecar.writeToolApprovalPolicy(SessionId('parent'), 'ask')
+  await expect(h.read('child')).resolves.toMatchObject({ policy: 'ask', source: 'session', editable: true })
+  await h.sidecar.writeToolApprovalPolicy(SessionId('parent'), 'auto')
+  await expect(h.read('child')).resolves.toMatchObject({ policy: 'ask', source: 'session', editable: true })
 })

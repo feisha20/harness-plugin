@@ -94,7 +94,12 @@ describe('Lead member management', () => {
   it('does not activate an unowned cold session and preserves host activation errors', async () => {
     const resolveAgent = vi.fn(async () => ({ error: new Error('session/not-found') }))
     const ctx = {
-      get: (key: string) => (key === 'agentTeams' ? {} : key === 'sessionController' ? { resolveAgent } : undefined),
+      get: (key: string) =>
+        key === 'agentTeams'
+          ? { tryMembership: () => undefined, listMembers: () => [] }
+          : key === 'sessionController'
+            ? { resolveAgent }
+            : undefined,
     } as unknown as Context
     const create = (provider: string | undefined) =>
       createTeamManagement(

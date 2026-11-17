@@ -1,3 +1,4 @@
+import { legacyTeamMembership } from '../teams/legacy-service.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -23,7 +24,7 @@ export function createApprovalChildrenReader(ctx: Context, owns: (provider: stri
     }
     const result: AcpApprovalChildView[] = []
     const labelOf = (child: Agent, label: string | undefined): string => {
-      const membership = ctx.get('agentTeams', false)?.tryMembership(child)
+      const membership = legacyTeamMembership(ctx, child)
       return membership?.role === 'teammate' ? membership.name : (label ?? child.id)
     }
     for (const child of agents.list()) {
