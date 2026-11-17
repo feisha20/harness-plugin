@@ -1,0 +1,4 @@
+- insert:
+    - id: langfuse-dashboard
+      name: '@local/langfuse-dashboard'
+      config: {}

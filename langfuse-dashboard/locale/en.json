@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Langfuse trace dashboard",
+    "description": "Configure Langfuse credentials and inspect traces by Session ID, Run ID, or Trace ID with readable execution flows"
+  }
+}

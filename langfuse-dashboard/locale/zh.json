@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Langfuse Trace 看板",
+    "description": "配置多环境 Langfuse 密钥，按 Session ID、Run ID 或 Trace ID 快速检索并可读化分析调用链路"
+  }
+}
