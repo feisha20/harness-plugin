@@ -3431,6 +3431,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
           const [selectedBadcaseIds, setSelectedBadcaseIds] = React.useState(new Set());
           const [activeTab, setActiveTab] = React.useState('case');
           const [badcaseTab, setBadcaseTab] = React.useState('diag');
+          const [sessionTab, setSessionTab] = React.useState('timeline');
           const [answerViewMode, setAnswerViewMode] = React.useState('preview');
           const [copied, setCopied] = React.useState('');
           const [envMenuOpen, setEnvMenuOpen] = React.useState(false);
@@ -4185,6 +4186,39 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             return filteredRawSessions.find(s => s.id === selectedSessionId) || filteredRawSessions[0] || null;
           }, [selectedSessionId, filteredRawSessions]);
 
+          const activeSessionBadcase = React.useMemo(() => {
+            if (!activeRawSession) return null;
+            const existing = allBadcases.find(b => b.sessionId === activeRawSession.sessionId);
+            if (existing) return existing;
+            if (!Array.isArray(activeRawSession.messages) || activeRawSession.messages.length === 0) return null;
+            const m = computeConversationMetrics(activeRawSession.messages);
+            const toolNames = [...new Set(activeRawSession.messages.filter(isToolCallMessage).map(t => getToolExecutionDetails(t).specificName).filter(Boolean))];
+            const assistantMsgs = activeRawSession.messages.filter(x => x.role === 'assistant');
+            const rids = Array.isArray(activeRawSession.runIds) && activeRawSession.runIds.length > 0
+              ? activeRawSession.runIds
+              : [...new Set(activeRawSession.messages.map(x => x.runId).filter(Boolean))];
+            return detectBadcaseItem({
+              sessionId: activeRawSession.sessionId,
+              runId: rids[0] || activeRawSession.runId || '',
+              runIds: rids,
+              title: activeRawSession.title,
+              userPrompt: activeRawSession.userPrompt || activeRawSession.title || '',
+              referenceAnswer: assistantMsgs[assistantMsgs.length - 1]?.content || '',
+              turnsCount: m.turnsCount,
+              toolCallsCount: m.toolCallsCount,
+              toolNames,
+              modelId: activeRawSession.model || '',
+              createdAt: activeRawSession.createdAt || '',
+              compId: activeRawSession.compId ?? activeRawSession.companyId ?? '',
+              userId: activeRawSession.userId ?? '',
+              messages: activeRawSession.messages
+            });
+          }, [activeRawSession, allBadcases]);
+
+          React.useEffect(() => {
+            setSessionTab(activeSessionBadcase ? 'diag' : 'timeline');
+          }, [activeRawSession?.id, Boolean(activeSessionBadcase)]);
+
           // Filtering Cases
           const filteredCases = React.useMemo(() => {
             return allCases.filter(c => {
@@ -4424,6 +4458,247 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
             '缺陷回归',
             ...((officialManualCount > 0 || selectedOfficialFilter === '手动构建') ? ['手动构建'] : []),
             ...Object.keys(officialCategoryBreakdown)
+          ];
+
+          const renderBadcaseInspector = (badcaseItem, currentTab, setTab, keyPrefix = 'b') => [
+            h('div', { key: `${keyPrefix}_head`, className: 'ed-detail-header' },
+              h('div', { className: 'ed-detail-title' },
+                h('h2', null, badcaseItem.title),
+                h('div', { className: 'ed-meta-chips-row' },
+                  h('span', { className: `ed-severity-badge ed-severity-${badcaseItem.severity === '严重' ? 'critical' : (badcaseItem.severity === '高' ? 'high' : 'medium')}` }, badcaseItem.severity),
+                  h('span', {
+                    className: `ed-badcase-type-tag ${badcaseItem.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? 'ed-badcase-type-tag-danger' : ''}`
+                  },
+                    badcaseItem.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
+                    badcaseItem.badcaseTypeName
+                  ),
+                  badcaseItem.toolFailuresCount > 0 && h('span', {
+                    className: 'ed-meta-chip',
+                    style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' }
+                  }, h(Glyph, { kind: 'alertCircle', size: 12 }), `报错 ${badcaseItem.toolFailuresCount} 次`),
+                  (() => {
+                    const bm = getBadcaseCardMetrics(badcaseItem);
+                    return [
+                      h('span', {
+                        key: 'total_steps',
+                        className: 'ed-meta-chip',
+                        title: '对话总步骤数 / 对话总轮次'
+                      }, `总 ${bm.totalSteps} 步 / ${bm.turnsCount} 轮`),
+                      h('span', {
+                        key: 'max_model',
+                        className: 'ed-meta-chip',
+                        style: bm.maxTurnModel >= 100 ? { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' } : undefined
+                      }, `单轮模型交互 ${bm.maxTurnModel} 次`),
+                      bm.maxTurnSteps > 100 && h('span', {
+                        key: 'max_steps',
+                        className: 'ed-meta-chip',
+                        style: { color: '#d97706', borderColor: 'rgba(217,119,6,0.25)', background: 'rgba(217,119,6,0.06)' }
+                      }, `单轮最高 ${bm.maxTurnSteps} 步`)
+                    ];
+                  })(),
+                  h('span', { className: 'ed-meta-chip' }, `模型: ${badcaseItem.modelId || 'M3.1'}`),
+                  badcaseItem.runId && h('span', {
+                    className: 'ed-meta-chip',
+                    style: {
+                      fontFamily: 'ui-monospace, monospace',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      background: 'var(--ed-bg-layer2)',
+                      color: 'var(--ed-text1)',
+                      borderColor: 'var(--ed-border1)'
+                    },
+                    title: `点击复制完整 run_id: ${badcaseItem.runId}`,
+                    onClick: () => copyToClipboard(badcaseItem.runId, 'run_id')
+                  }, `run_id: ${badcaseItem.runId}`, copied === 'run_id' ? ' (已复制)' : ''),
+                  badcaseItem.sessionId && h('span', {
+                    className: 'ed-meta-chip',
+                    style: {
+                      fontFamily: 'ui-monospace, monospace',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    },
+                    title: `点击复制完整 session_id: ${badcaseItem.sessionId}`,
+                    onClick: () => copyToClipboard(badcaseItem.sessionId, 'session_id')
+                  }, `会话: ${badcaseItem.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
+                  ...(renderIdentityChips(badcaseItem) || []),
+                  h('span', { className: 'ed-meta-chip' }, badcaseItem.createdAt || '')
+                )
+              ),
+              h('button', {
+                className: 'ed-btn ed-btn-regression',
+                onClick: () => openRunRegressionModal([badcaseItem])
+              }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试')
+            ),
+            h('div', { key: `${keyPrefix}_tabs`, className: 'ed-tabs-row' },
+              h('button', {
+                className: `ed-tab-btn ${currentTab === 'diag' ? 'active' : ''}`,
+                onClick: () => setTab('diag')
+              }, h(Glyph, { kind: 'search', size: 13 }), '诊断与归因分析报告'),
+              h('button', {
+                className: `ed-tab-btn ${currentTab === 'timeline' ? 'active' : ''}`,
+                onClick: () => setTab('timeline')
+              }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${(badcaseItem.messages || []).filter(m => !isFollowupMessage(m)).length})`),
+              h('button', {
+                className: `ed-tab-btn ${currentTab === 'tools' ? 'active' : ''}`,
+                onClick: () => setTab('tools')
+              }, h(Glyph, { kind: 'tool', size: 13 }), `工具调用统计 (${(badcaseItem.messages || []).filter(m => m.role === 'tool' || m.toolName).length})`)
+            ),
+            h('div', { key: `${keyPrefix}_body`, className: 'ed-detail-body' },
+              currentTab === 'diag' ? [
+                h('div', { key: 'diag_panel', className: 'ed-diag-panel' },
+                  h('div', { className: 'ed-diag-section' },
+                    h('div', { className: 'ed-diag-section-head' },
+                      h('div', { className: 'ed-diag-section-title' },
+                        h(Glyph, { kind: 'alertCircle', size: 14 }),
+                        '1. 故障现象与触发点 (Phenomenon)'
+                      ),
+                      h('span', {
+                        className: 'ed-diag-section-tag',
+                        style: { background: 'rgba(220,38,38,0.08)', color: '#dc2626' }
+                      }, badcaseItem.badcaseTypeName)
+                    ),
+                    h('div', { className: 'ed-diag-text' }, (badcaseItem.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, ''))
+                  ),
+                  h('div', { className: 'ed-diag-section' },
+                    h('div', { className: 'ed-diag-section-head' },
+                      h('div', { className: 'ed-diag-section-title' },
+                        h(Glyph, { kind: 'filter', size: 14 }),
+                        '2. 疑似根因归因 (Suspected Root Cause)'
+                      ),
+                      h('span', {
+                        className: 'ed-diag-section-tag',
+                        style: { background: 'var(--ed-bg-layer2)', color: 'var(--ed-text2)' }
+                      }, '技术归因')
+                    ),
+                    h('div', { className: 'ed-diag-text' }, badcaseItem.suspectedCause)
+                  ),
+                  badcaseItem.failedToolDetails && badcaseItem.failedToolDetails.length > 0 && h('div', {
+                    className: 'ed-diag-section',
+                    style: { borderColor: 'rgba(239, 68, 68, 0.25)', background: 'rgba(239, 68, 68, 0.02)' }
+                  },
+                    h('div', { className: 'ed-diag-section-head' },
+                      h('div', { className: 'ed-diag-section-title', style: { color: '#dc2626' } },
+                        h(Glyph, { kind: 'alertCircle', size: 14 }),
+                        `异常失败的具体工具清单 (${badcaseItem.failedToolDetails.length} 个)`
+                      ),
+                      h('span', {
+                        className: 'ed-diag-section-tag',
+                        style: { background: 'rgba(239,68,68,0.1)', color: '#dc2626' }
+                      }, '明确工具名')
+                    ),
+                    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' } },
+                      badcaseItem.failedToolDetails.map((ftd, fidx) => h('div', {
+                        key: fidx,
+                        style: {
+                          background: 'var(--ed-bg-layer1)',
+                          border: '1px solid var(--ed-border1)',
+                          borderRadius: '6px',
+                          padding: '8px 12px'
+                        }
+                      },
+                        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' } },
+                          h('span', {
+                            className: 'ed-ico-text',
+                            style: {
+                              fontWeight: '650',
+                              fontSize: '12.5px',
+                              color: '#dc2626',
+                              fontFamily: 'ui-monospace, monospace'
+                            }
+                          }, h(Glyph, { kind: 'tool', size: 13 }), ftd.toolName),
+                          ftd.errorDetail && h('span', {
+                            style: {
+                              fontSize: '11px',
+                              color: '#b91c1c',
+                              background: 'rgba(239, 68, 68, 0.08)',
+                              padding: '1px 6px',
+                              borderRadius: '4px'
+                            }
+                          }, ftd.errorDetail)
+                        ),
+                        ftd.args && h('div', {
+                          style: {
+                            fontSize: '11.5px',
+                            color: 'var(--ed-text2)',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                            maxHeight: '80px',
+                            overflowY: 'auto',
+                            background: 'var(--ed-bg-layer2)',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            marginTop: '4px',
+                            fontFamily: 'ui-monospace, monospace'
+                          }
+                        }, `入参: ${typeof ftd.args === 'string' ? ftd.args : JSON.stringify(ftd.args)}`)
+                      ))
+                    )
+                  ),
+                  h('div', { className: 'ed-diag-section' },
+                    h('div', { className: 'ed-diag-section-head' },
+                      h('div', { className: 'ed-diag-section-title' },
+                        h(Glyph, { kind: 'tool', size: 14 }),
+                        '3. 修复与优化建议 (Actionable Remediation)'
+                      ),
+                      h('span', {
+                        className: 'ed-diag-section-tag',
+                        style: { background: 'rgba(16,185,129,0.08)', color: '#059669' }
+                      }, '推荐方案')
+                    ),
+                    h('div', { className: 'ed-diag-action-box' },
+                      h('div', { className: 'ed-diag-action-text' }, badcaseItem.recommendation)
+                    )
+                  ),
+                  h('div', { className: 'ed-diag-section' },
+                    h('div', { className: 'ed-diag-section-head' },
+                      h('div', { className: 'ed-diag-section-title' },
+                        h(Glyph, { kind: 'dataset', size: 14 }),
+                        '4. 关键证据与报错触发信息 (Trigger Evidence)'
+                      ),
+                      h('button', {
+                        className: 'ed-copy-btn',
+                        onClick: () => copyToClipboard(badcaseItem.evidence, `${keyPrefix}_evidence`)
+                      }, copied === `${keyPrefix}_evidence` ? '已复制' : '复制证据')
+                    ),
+                    h('div', { className: 'ed-diag-evidence-terminal' },
+                      h('div', { className: 'ed-diag-evidence-head' },
+                        h('span', null, 'EXCEPTION_STACK / CONTEXT_PAYLOAD'),
+                        h('span', null, `${(badcaseItem.evidence || '').length} 字符`)
+                      ),
+                      h('div', { className: 'ed-diag-evidence-code' }, badcaseItem.evidence || '（未记录具体证据信息）')
+                    )
+                  )
+                ),
+                h('div', { key: `${keyPrefix}_prompt`, className: 'ed-section' },
+                  h('div', { className: 'ed-section-head' },
+                    h('h3', null, '用户原始提问 / 回归输入 (Instruction)'),
+                    h('button', {
+                      className: 'ed-copy-btn',
+                      onClick: () => copyToClipboard(badcaseItem.userPrompt, `${keyPrefix}_prompt`)
+                    }, copied === `${keyPrefix}_prompt` ? '已复制' : '复制')
+                  ),
+                  h('div', { className: 'ed-code-box' }, badcaseItem.userPrompt)
+                ),
+                h('div', { key: `${keyPrefix}_answer`, className: 'ed-section' },
+                  h('div', { className: 'ed-section-head' },
+                    h('h3', null, '当前客服回复 / 异常记录'),
+                    h('button', {
+                      className: 'ed-copy-btn',
+                      onClick: () => copyToClipboard(badcaseItem.referenceAnswer, `${keyPrefix}_ans`)
+                    }, copied === `${keyPrefix}_ans` ? '已复制' : '复制回复')
+                  ),
+                  h('div', { className: 'ed-answer-box' },
+                    badcaseItem.referenceAnswer
+                      ? h(MarkdownView, { content: badcaseItem.referenceAnswer })
+                      : h('span', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '（无回复或会话异常中断）')
+                  )
+                )
+              ] : currentTab === 'timeline' ? [
+                h(ConversationTimeline, { key: `${keyPrefix}_timeline`, messages: badcaseItem.messages, scopeId: badcaseItem.id || badcaseItem.sessionId })
+              ] : [
+                h(ToolCallStatsPanel, { key: `${keyPrefix}_tools`, messages: badcaseItem.messages })
+              ]
+            )
           ];
 
           return h('div', { className: 'ed-app' },
@@ -5057,30 +5332,61 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                 viewMode !== 'official' && !visibleData ? (
                   h('div', { className: 'ed-empty-state' }, loading ? '正在加载评测数据…' : '暂无可查看的评测数据')
                 ) : viewMode === 'sessions' ? (
-                  !activeRawSession ? h('div', { className: 'ed-empty-state' }, '没有可查看的会话详情') : [
-                    h('div', { key: 's_head', className: 'ed-detail-header' },
-                      h('div', { className: 'ed-detail-title' },
-                        h('h2', null, activeRawSession.title || activeRawSession.sessionId),
-                        h('div', { className: 'ed-detail-sub' },
-                          activeRawSession.runId && h('span', { className: 'ed-meta-chip' }, `run_id: ${activeRawSession.runId}`),
-                          activeRawSession.threadId && h('span', { className: 'ed-meta-chip' }, `会话: ${activeRawSession.threadId}`),
-                          ...((renderIdentityChips({
-                            compId: activeRawSession.compId ?? activeRawSession.companyId,
-                            userId: activeRawSession.userId
-                          })) || []),
-                          activeRawSession.execSteps !== undefined && h('span', { className: 'ed-meta-chip' }, `执行步骤: ${activeRawSession.execSteps} 步`),
-                          activeRawSession.durationLabel && h('span', { className: 'ed-meta-chip' }, `执行耗时: ${activeRawSession.durationLabel}`),
-                          activeRawSession.turnCount > 1 && h('span', { className: 'ed-meta-chip' }, `共 ${activeRawSession.turnCount} 轮`),
-                          activeRawSession.createdAt && h('span', { className: 'ed-meta-chip' }, `创建时间: ${activeRawSession.createdAt}`)
+                  !activeRawSession ? h('div', { className: 'ed-empty-state' }, '没有可查看的会话详情') : (
+                    activeSessionBadcase
+                      ? renderBadcaseInspector(activeSessionBadcase, sessionTab, setSessionTab, 'sb')
+                      : [
+                        h('div', { key: 's_head', className: 'ed-detail-header' },
+                          h('div', { className: 'ed-detail-title' },
+                            h('h2', null, activeRawSession.title || activeRawSession.sessionId),
+                            h('div', { className: 'ed-meta-chips-row' },
+                              activeRawSession.caseCategory && h('span', {
+                                className: 'ed-tag-badge',
+                                style: { background: 'rgba(16, 185, 129, 0.1)', color: '#059669' }
+                              }, h(Glyph, { kind: 'target', size: 11 }), activeRawSession.caseCategory),
+                              activeRawSession.execSteps !== undefined && h('span', { className: 'ed-meta-chip' }, `执行步骤: ${activeRawSession.execSteps} 步`),
+                              activeRawSession.durationLabel && h('span', { className: 'ed-meta-chip' }, `执行耗时: ${activeRawSession.durationLabel}`),
+                              activeRawSession.turnCount > 1 && h('span', { className: 'ed-meta-chip' }, `共 ${activeRawSession.turnCount} 轮`),
+                              activeRawSession.model && h('span', { className: 'ed-meta-chip' }, `模型: ${activeRawSession.model}`),
+                              activeRawSession.runId && h('span', {
+                                className: 'ed-meta-chip',
+                                style: { fontFamily: 'ui-monospace, monospace', fontSize: '11px', cursor: 'pointer', background: 'var(--ed-bg-layer2)', color: 'var(--ed-text1)', borderColor: 'var(--ed-border1)' },
+                                title: `点击复制完整 run_id: ${activeRawSession.runId}`,
+                                onClick: () => copyToClipboard(activeRawSession.runId, 'run_id')
+                              }, `run_id: ${activeRawSession.runId}`, copied === 'run_id' ? ' (已复制)' : ''),
+                              activeRawSession.sessionId && h('span', {
+                                className: 'ed-meta-chip',
+                                style: { fontFamily: 'ui-monospace, monospace', fontSize: '11px', cursor: 'pointer' },
+                                title: `点击复制完整 session_id: ${activeRawSession.sessionId}`,
+                                onClick: () => copyToClipboard(activeRawSession.sessionId, 'session_id')
+                              }, `会话: ${activeRawSession.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
+                              ...((renderIdentityChips({
+                                compId: activeRawSession.compId ?? activeRawSession.companyId,
+                                userId: activeRawSession.userId
+                              })) || []),
+                              activeRawSession.createdAt && h('span', { className: 'ed-meta-chip' }, `创建时间: ${activeRawSession.createdAt}`)
+                            )
+                          )
+                        ),
+                        h('div', { key: 's_tabs', className: 'ed-tabs-row' },
+                          h('button', {
+                            className: `ed-tab-btn ${sessionTab !== 'tools' ? 'active' : ''}`,
+                            onClick: () => setSessionTab('timeline')
+                          }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${(activeRawSession.messages || []).filter(m => !isFollowupMessage(m)).length})`),
+                          h('button', {
+                            className: `ed-tab-btn ${sessionTab === 'tools' ? 'active' : ''}`,
+                            onClick: () => setSessionTab('tools')
+                          }, h(Glyph, { kind: 'tool', size: 13 }), `工具调用统计 (${(activeRawSession.messages || []).filter(m => m.role === 'tool' || m.toolName).length})`)
+                        ),
+                        h('div', { key: 's_body', className: 'ed-detail-body' },
+                          sessionTab === 'tools'
+                            ? h(ToolCallStatsPanel, { key: 's_tools', messages: activeRawSession.messages || [] })
+                            : (activeRawSession.messages && activeRawSession.messages.length > 0
+                              ? h(ConversationTimeline, { key: 's_timeline', messages: activeRawSession.messages, scopeId: activeRawSession.id })
+                              : h('div', { className: 'ed-empty-state' }, '该会话暂无消息记录'))
                         )
-                      )
-                    ),
-                    h('div', { key: 's_body', className: 'ed-detail-body' },
-                      activeRawSession.messages && activeRawSession.messages.length > 0
-                        ? h(ConversationTimeline, { key: 's_timeline', messages: activeRawSession.messages, scopeId: activeRawSession.id })
-                        : h('div', { className: 'ed-empty-state' }, '该会话暂无消息记录')
-                    )
-                  ]
+                      ]
+                  )
                 ) : viewMode === 'cases' ? (
                   !activeCase ? h('div', { className: 'ed-empty-state' }, '没有可查看的评测用例详情') : [
                     // Detail Header
@@ -5205,267 +5511,7 @@ button.ed-metric-card:hover { background: var(--ed-bg-layer2); }
                     )
                   ]
                 ) : viewMode === 'badcases' ? (
-                  !activeBadcase ? h('div', { className: 'ed-empty-state' }, '没有可查看的 Badcase 详情') : [
-                    // Badcase Header
-                    h('div', { key: 'b_head', className: 'ed-detail-header' },
-                      h('div', { className: 'ed-detail-title' },
-                        h('h2', null, activeBadcase.title),
-                        h('div', { className: 'ed-meta-chips-row' },
-                          h('span', { className: `ed-severity-badge ed-severity-${activeBadcase.severity === '严重' ? 'critical' : (activeBadcase.severity === '高' ? 'high' : 'medium')}` }, activeBadcase.severity),
-                          h('span', {
-                            className: `ed-badcase-type-tag ${activeBadcase.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? 'ed-badcase-type-tag-danger' : ''}`
-                          },
-                            activeBadcase.badcaseTypeName === BADCASE_LABEL_MODEL_LIMIT ? h(Glyph, { kind: 'alertTriangle', size: 11 }) : null,
-                            activeBadcase.badcaseTypeName
-                          ),
-                          activeBadcase.toolFailuresCount > 0 && h('span', {
-                            className: 'ed-meta-chip',
-                            style: { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' }
-                          }, h(Glyph, { kind: 'alertCircle', size: 12 }), `报错 ${activeBadcase.toolFailuresCount} 次`),
-                          (() => {
-                            const bm = getBadcaseCardMetrics(activeBadcase);
-                            return [
-                              h('span', {
-                                key: 'total_steps',
-                                className: 'ed-meta-chip',
-                                title: '对话总步骤数 / 对话总轮次'
-                              }, `总 ${bm.totalSteps} 步 / ${bm.turnsCount} 轮`),
-                              h('span', {
-                                key: 'max_model',
-                                className: 'ed-meta-chip',
-                                style: bm.maxTurnModel >= 100 ? { color: '#dc2626', borderColor: 'rgba(220,38,38,0.25)', background: 'rgba(220,38,38,0.06)' } : undefined
-                              }, `单轮模型交互 ${bm.maxTurnModel} 次`),
-                              bm.maxTurnSteps > 100 && h('span', {
-                                key: 'max_steps',
-                                className: 'ed-meta-chip',
-                                style: { color: '#d97706', borderColor: 'rgba(217,119,6,0.25)', background: 'rgba(217,119,6,0.06)' }
-                              }, `单轮最高 ${bm.maxTurnSteps} 步`)
-                            ];
-                          })(),
-                          h('span', { className: 'ed-meta-chip' }, `模型: ${activeBadcase.modelId || 'M3.1'}`),
-                          activeBadcase.runId && h('span', {
-                            className: 'ed-meta-chip',
-                            style: {
-                              fontFamily: 'ui-monospace, monospace',
-                              fontSize: '11px',
-                              cursor: 'pointer',
-                              background: 'var(--ed-bg-layer2)',
-                              color: 'var(--ed-text1)',
-                              borderColor: 'var(--ed-border1)'
-                            },
-                            title: `点击复制完整 run_id: ${activeBadcase.runId}`,
-                            onClick: () => copyToClipboard(activeBadcase.runId, 'run_id')
-                          }, `run_id: ${activeBadcase.runId}`, copied === 'run_id' ? ' (已复制)' : ''),
-                          activeBadcase.sessionId && h('span', {
-                            className: 'ed-meta-chip',
-                            style: {
-                              fontFamily: 'ui-monospace, monospace',
-                              fontSize: '11px',
-                              cursor: 'pointer'
-                            },
-                            title: `点击复制完整 session_id: ${activeBadcase.sessionId}`,
-                            onClick: () => copyToClipboard(activeBadcase.sessionId, 'session_id')
-                          }, `会话: ${activeBadcase.sessionId}`, copied === 'session_id' ? ' (已复制)' : ''),
-                          ...(renderIdentityChips(activeBadcase) || []),
-                          h('span', { className: 'ed-meta-chip' }, activeBadcase.createdAt || '')
-                        )
-                      ),
-                      h('button', {
-                        className: 'ed-btn ed-btn-regression',
-                        onClick: () => openRunRegressionModal([activeBadcase])
-                      }, h(Glyph, { kind: 'rocket', size: 12 }), '发起回归测试')
-                    ),
-
-                    // Badcase Tabs
-                    h('div', { key: 'b_tabs', className: 'ed-tabs-row' },
-                      h('button', {
-                        className: `ed-tab-btn ${badcaseTab === 'diag' ? 'active' : ''}`,
-                        onClick: () => setBadcaseTab('diag')
-                      }, h(Glyph, { kind: 'search', size: 13 }), '诊断与归因分析报告'),
-                      h('button', {
-                        className: `ed-tab-btn ${badcaseTab === 'timeline' ? 'active' : ''}`,
-                        onClick: () => setBadcaseTab('timeline')
-                      }, h(Glyph, { kind: 'chat', size: 13 }), `完整对话回放 (${(activeBadcase.messages || []).filter(m => !isFollowupMessage(m)).length})`),
-                      h('button', {
-                        className: `ed-tab-btn ${badcaseTab === 'tools' ? 'active' : ''}`,
-                        onClick: () => setBadcaseTab('tools')
-                      }, h(Glyph, { kind: 'tool', size: 13 }), `工具调用统计 (${(activeBadcase.messages || []).filter(m => m.role === 'tool' || m.toolName).length})`)
-                    ),
-
-                    // Badcase Body
-                    h('div', { key: 'b_body', className: 'ed-detail-body' },
-                      badcaseTab === 'diag' ? [
-                        // Unified Diagnostic Dossier Panel
-                        h('div', { key: 'diag_panel', className: 'ed-diag-panel' },
-                          // 1. Phenomenon
-                          h('div', { className: 'ed-diag-section' },
-                            h('div', { className: 'ed-diag-section-head' },
-                              h('div', { className: 'ed-diag-section-title' },
-                                h(Glyph, { kind: 'alertCircle', size: 14 }),
-                                '1. 故障现象与触发点 (Phenomenon)'
-                              ),
-                              h('span', {
-                                className: 'ed-diag-section-tag',
-                                style: { background: 'rgba(220,38,38,0.08)', color: '#dc2626' }
-                              }, activeBadcase.badcaseTypeName)
-                            ),
-                            h('div', { className: 'ed-diag-text' }, (activeBadcase.phenomenon || '').replace(/^[🚨🛑⚠️\s]+/, ''))
-                          ),
-
-                          // 2. Suspected Cause
-                          h('div', { className: 'ed-diag-section' },
-                            h('div', { className: 'ed-diag-section-head' },
-                              h('div', { className: 'ed-diag-section-title' },
-                                h(Glyph, { kind: 'filter', size: 14 }),
-                                '2. 疑似根因归因 (Suspected Root Cause)'
-                              ),
-                              h('span', {
-                                className: 'ed-diag-section-tag',
-                                style: { background: 'var(--ed-bg-layer2)', color: 'var(--ed-text2)' }
-                              }, '技术归因')
-                            ),
-                            h('div', { className: 'ed-diag-text' }, activeBadcase.suspectedCause)
-                          ),
-
-                          // Specific Failed Tools Table/Card (when available)
-                          activeBadcase.failedToolDetails && activeBadcase.failedToolDetails.length > 0 && h('div', {
-                            className: 'ed-diag-section',
-                            style: { borderColor: 'rgba(239, 68, 68, 0.25)', background: 'rgba(239, 68, 68, 0.02)' }
-                          },
-                            h('div', { className: 'ed-diag-section-head' },
-                              h('div', { className: 'ed-diag-section-title', style: { color: '#dc2626' } },
-                                h(Glyph, { kind: 'alertCircle', size: 14 }),
-                                `异常失败的具体工具清单 (${activeBadcase.failedToolDetails.length} 个)`
-                              ),
-                              h('span', {
-                                className: 'ed-diag-section-tag',
-                                style: { background: 'rgba(239,68,68,0.1)', color: '#dc2626' }
-                              }, '明确工具名')
-                            ),
-                            h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' } },
-                              activeBadcase.failedToolDetails.map((ftd, fidx) => h('div', {
-                                key: fidx,
-                                style: {
-                                  background: 'var(--ed-bg-layer1)',
-                                  border: '1px solid var(--ed-border1)',
-                                  borderRadius: '6px',
-                                  padding: '8px 12px'
-                                }
-                              },
-                                h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' } },
-                                  h('span', {
-                                    className: 'ed-ico-text',
-                                    style: {
-                                      fontWeight: '650',
-                                      fontSize: '12.5px',
-                                      color: '#dc2626',
-                                      fontFamily: 'ui-monospace, monospace'
-                                    }
-                                  }, h(Glyph, { kind: 'tool', size: 13 }), ftd.toolName),
-                                  ftd.errorDetail && h('span', {
-                                    style: {
-                                      fontSize: '11px',
-                                      color: '#b91c1c',
-                                      background: 'rgba(239, 68, 68, 0.08)',
-                                      padding: '1px 6px',
-                                      borderRadius: '4px'
-                                    }
-                                  }, ftd.errorDetail)
-                                ),
-                                ftd.args && h('div', {
-                                  style: {
-                                    fontSize: '11.5px',
-                                    color: 'var(--ed-text2)',
-                                    whiteSpace: 'pre-wrap',
-                                    wordBreak: 'break-all',
-                                    maxHeight: '80px',
-                                    overflowY: 'auto',
-                                    background: 'var(--ed-bg-layer2)',
-                                    padding: '4px 8px',
-                                    borderRadius: '4px',
-                                    marginTop: '4px',
-                                    fontFamily: 'ui-monospace, monospace'
-                                  }
-                                }, `入参: ${typeof ftd.args === 'string' ? ftd.args : JSON.stringify(ftd.args)}`)
-                              ))
-                            )
-                          ),
-
-                          // 3. Remediation
-                          h('div', { className: 'ed-diag-section' },
-                            h('div', { className: 'ed-diag-section-head' },
-                              h('div', { className: 'ed-diag-section-title' },
-                                h(Glyph, { kind: 'tool', size: 14 }),
-                                '3. 修复与优化建议 (Actionable Remediation)'
-                              ),
-                              h('span', {
-                                className: 'ed-diag-section-tag',
-                                style: { background: 'rgba(16,185,129,0.08)', color: '#059669' }
-                              }, '推荐方案')
-                            ),
-                            h('div', { className: 'ed-diag-action-box' },
-                              h('div', { className: 'ed-diag-action-text' }, activeBadcase.recommendation)
-                            )
-                          ),
-
-                          // 4. Evidence
-                          h('div', { className: 'ed-diag-section' },
-                            h('div', { className: 'ed-diag-section-head' },
-                              h('div', { className: 'ed-diag-section-title' },
-                                h(Glyph, { kind: 'dataset', size: 14 }),
-                                '4. 关键证据与报错触发信息 (Trigger Evidence)'
-                              ),
-                              h('button', {
-                                className: 'ed-copy-btn',
-                                onClick: () => copyToClipboard(activeBadcase.evidence, 'b_evidence')
-                              }, copied === 'b_evidence' ? '已复制' : '复制证据')
-                            ),
-                            h('div', { className: 'ed-diag-evidence-terminal' },
-                              h('div', { className: 'ed-diag-evidence-head' },
-                                h('span', null, 'EXCEPTION_STACK / CONTEXT_PAYLOAD'),
-                                h('span', null, `${(activeBadcase.evidence || '').length} 字符`)
-                              ),
-                              h('div', { className: 'ed-diag-evidence-code' }, activeBadcase.evidence || '（未记录具体证据信息）')
-                            )
-                          )
-                        ),
-
-                        // Section: User Prompt
-                        h('div', { key: 'b_prompt', className: 'ed-section' },
-                          h('div', { className: 'ed-section-head' },
-                            h('h3', null, '用户原始提问 / 回归输入 (Instruction)'),
-                            h('button', {
-                              className: 'ed-copy-btn',
-                              onClick: () => copyToClipboard(activeBadcase.userPrompt, 'b_prompt')
-                            }, copied === 'b_prompt' ? '已复制' : '复制')
-                          ),
-                          h('div', { className: 'ed-code-box' }, activeBadcase.userPrompt)
-                        ),
-
-                        // Section: Assistant Response
-                        h('div', { key: 'b_answer', className: 'ed-section' },
-                          h('div', { className: 'ed-section-head' },
-                            h('h3', null, '当前客服回复 / 异常记录'),
-                            h('button', {
-                              className: 'ed-copy-btn',
-                              onClick: () => copyToClipboard(activeBadcase.referenceAnswer, 'b_ans')
-                            }, copied === 'b_ans' ? '已复制' : '复制回复')
-                          ),
-                          h('div', { className: 'ed-answer-box' },
-                            activeBadcase.referenceAnswer
-                              ? h(MarkdownView, { content: activeBadcase.referenceAnswer })
-                              : h('span', { style: { color: 'var(--ed-text2)', fontStyle: 'italic' } }, '（无回复或会话异常中断）')
-                          )
-                        )
-                      ] : badcaseTab === 'timeline' ? [
-                        // Badcase Timeline Replay
-                        h(ConversationTimeline, { key: 'b_timeline', messages: activeBadcase.messages, scopeId: activeBadcase.id })
-                      ] : [
-                        // Badcase Tool Call Stats
-                        h(ToolCallStatsPanel, { key: 'b_tools', messages: activeBadcase.messages })
-                      ]
-                    )
-                  ]
+                  !activeBadcase ? h('div', { className: 'ed-empty-state' }, '没有可查看的 Badcase 详情') : renderBadcaseInspector(activeBadcase, badcaseTab, setBadcaseTab, 'b')
                 ) : (
                   // Official Evaluation Dataset Detail Inspector
                   !activeOfficialCase && officialCases.length > 0 ? (
