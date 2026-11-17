@@ -1762,6 +1762,7 @@ window.__ModuleLoader__.load({
       const [onlyToolAndFinal, setOnlyToolAndFinal] = React.useState(false);
       const [expandedSteps, setExpandedSteps] = React.useState({});
       const [rawTextSteps, setRawTextSteps] = React.useState({});
+      const [visibleCount, setVisibleCount] = React.useState(20);
       const [selectedObsId, setSelectedObsId] = React.useState('');
       const [copiedKey, setCopiedKey] = React.useState('');
 
@@ -1800,6 +1801,10 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         loadState();
       }, []);
+
+      React.useEffect(() => {
+        setVisibleCount(20);
+      }, [selectedTraceId]);
 
       const activeEnv = (state?.environments || []).find((e) => e.id === state?.activeEnvId)
         || state?.environments?.[0]
@@ -3016,7 +3021,8 @@ window.__ModuleLoader__.load({
                           { className: 'lfd-flow' },
                           loadingTraceId === activeTrace.traceId &&
                             h('div', { className: 'lfd-banner', style: { margin: 0 } }, '正在拉取该 Trace 的完整 LLM 与工具调用链路...'),
-                          activeTrace.flow.map((step, i) => renderFlowStep(step, i)),
+                          activeTrace.flow.slice(0, visibleCount).map((step, i) => renderFlowStep(step, i)),
+                          visibleCount < activeTrace.flow.length && h('button', { className: 'lfd-btn', style: { margin: 10 }, onClick: () => setVisibleCount(c => c + 20) }, `加载更多 (${activeTrace.flow.length - visibleCount} 个)`),
                         ),
                       detailTab === 'tree' && renderTreeAndWaterfall(activeTrace),
                       detailTab === 'meta' && renderMetadataTab(activeTrace),
