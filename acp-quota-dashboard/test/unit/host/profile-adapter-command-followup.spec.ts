@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
+import * as followupPolicy from '../../../src/host/composition/antigravity-command-followup.ts'
 import { createUserMessage, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type * as acp from '@agentclientprotocol/sdk'
@@ -11,7 +12,9 @@ import { withSessionFacts } from '../../support/session-facts.ts'
 
 it.each([
   { scenario: '读取已有命令结果', expected: 2 },
-  { scenario: '连续缺失终态时停止跟进', expected: 3, incomplete: true },
+  { scenario: '到达跟进时限', expected: 2, incomplete: true },
+  { scenario: '第三次跟进才收到终态', expected: 4 },
+  { scenario: '等待期间用户停止', expected: 2 },
   { scenario: '已完成的命令', expected: 1 },
   { scenario: '命令失败', expected: 1 },
   { scenario: '未执行的权限等待', expected: 1 },
@@ -37,6 +40,13 @@ it.each([
     ],
   })
   const controller = new AbortController()
+  const pause = vi.spyOn(followupPolicy, 'commandFollowupDelay')
+  if (scenario === '第三次跟进才收到终态') pause.mockReturnValue(1)
+  if (scenario === '等待期间用户停止') pause.mockImplementation((sent) => {
+    if (sent > 0) setTimeout(() => controller.abort(), 1)
+    return sent > 0 ? 60_000 : 0
+  })
+  const clock = vi.spyOn(performance, 'now')
   const sent: acp.ContentBlock[][] = []
   const runtimeFactory = (): AcpProfileRuntime => ({
     acpSessionId: 'remote-command',
@@ -68,7 +78,10 @@ it.each([
           rawInput: { CommandLine: 'networkQuality', WaitMsBeforeAsync: 10000 },
         })
       }
-      if (sent.length === 2 && scenario === '读取已有命令结果') {
+      if (scenario === '到达跟进时限' && sent.length === 2)
+        clock.mockReturnValue(performance.now() + followupPolicy.ANTIGRAVITY_COMMAND_WAIT_MS + 1)
+      if ((sent.length === 2 && scenario === '读取已有命令结果') ||
+          (sent.length === 4 && scenario === '第三次跟进才收到终态')) {
         // 终态补丁省略名称和入参，仍须合并为原工具的真实终态。
         update({ sessionUpdate: 'tool_call_update', toolCallId: 'command-1', status: 'completed' })
       }
@@ -142,7 +155,7 @@ it.each([
       )
       expect((await sidecar.activitySnapshot(sessionId as never))[0]).toMatchObject({ status: 'unfinished' })
     }
-    if (scenario === '读取已有命令结果') {
+    if (scenario === '读取已有命令结果' || scenario === '第三次跟进才收到终态') {
       expect(error).toBeUndefined()
       expect(chunks).toContainEqual(expect.objectContaining({ type: 'finish', reason: { kind: 'stop' } }))
       expect((await sidecar.activitySnapshot(sessionId as never))[0]).toMatchObject({ status: 'completed' })
@@ -152,6 +165,8 @@ it.each([
         error !== undefined || chunks.some((chunk) => chunk.type === 'finish' && chunk.reason.kind === 'error'),
       ).toBe(true)
   } finally {
+    pause.mockRestore()
+    clock.mockRestore()
     await adapter.close()
     await sidecar.dispose()
     fs.rmSync(root, { recursive: true, force: true })

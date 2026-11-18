@@ -12,7 +12,7 @@
 
 ## 环境与兼容性
 
-当前版本：`0.2.1-rc.4.1+quota.4.19`。需要 macOS／Linux、Python3 和已登录的官方 Antigravity CLI，当前实测 CLI 为 `1.5.2`。
+当前版本：`0.2.1-rc.4.1+quota.4.20`。需要 macOS／Linux、Python3 和已登录的官方 Antigravity CLI，当前实测 CLI 为 `1.5.2`。
 
 编译依赖固定在 Harness `0.2.1-rc.4`；运行声明支持 `0.2.1-rc.4` 与 NEXT 2.0.23-next 内置的 `0.2.2-rc.3`。rc.3 已通过隔离插件加载、宿主启动及 ACP 健康服务检查，真实模型对话和界面功能尚待使用后确认。此前 Desktop `0.2.2-rc.1` 的安装与额度验证不代表后续版本自动兼容。
 

@@ -21,7 +21,11 @@ export class AntigravityCommandFollowup {
   }
 }
 
-export const ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT = 2
+export const ANTIGRAVITY_COMMAND_WAIT_MS = 30 * 60_000
+
+export function commandFollowupDelay(sent: number): number {
+  return sent === 0 ? 0 : Math.min(60_000, 5_000 * 2 ** Math.min(sent - 1, 4))
+}
 
 export const ANTIGRAVITY_COMMAND_FOLLOWUP_TEXT =
   '上一轮已启动的命令尚未返回终态。请继续读取同一任务的状态和输出，必要时使用 command_status 等待已有命令完成，然后向用户报告结果。不要重新执行原命令、启动替代命令或重复用户任务；若无法读取已有任务，请明确说明原因。'

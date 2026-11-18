@@ -4,6 +4,10 @@
 
 User-facing changes and upgrade notes. See [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases) for publication dates, exact installation instructions, and checksums. Historical entries were reconstructed from tag diffs; npm packages were not republished.
 
+## 0.2.1-rc.4.1+quota.4.20
+
+- Antigravity 长命令在首次提前结束回复后有 30 分钟的自动跟进窗口。首次立即读取已有结果，随后逐步延长查询间隔至一分钟，用户仍可随时停止。
+
 ## 0.2.1-rc.4.1+quota.4.19
 
 - 修复 rc.3 的 `agentTeams` 已移除 `tryMembership` 时，启用插件扫描已有普通 Agent 导致启动失败的问题。

@@ -1,6 +1,7 @@
 import {
   AntigravityCommandFollowup,
-  ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT,
+  ANTIGRAVITY_COMMAND_WAIT_MS,
+  commandFollowupDelay,
   ANTIGRAVITY_COMMAND_FOLLOWUP_TEXT,
 } from './antigravity-command-followup.ts'
 import { antigravityOutputFailure } from '../../domain/session/antigravity-output-failure.ts'
@@ -15,6 +16,7 @@ import { ACP_ACTIVITY_RAW_MAX, modeIntentBindingKey } from '../../persistence/si
 import { teamModeChoices } from '../../contract/session-modes.ts'
 
 import fs from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
 import path from 'node:path'
 import type * as acp from '@agentclientprotocol/sdk'
 import type { Context } from '@deepseek-ai/cordis'
@@ -3580,6 +3582,7 @@ export class AcpProfileAdapter extends LlmAdapter {
         const promptResult = (async (): Promise<acp.PromptResponse> => {
           let response = await sendPrompt(prompt)
           let followups = 0
+          const followupDeadline = performance.now() + ANTIGRAVITY_COMMAND_WAIT_MS
           while (response.stopReason === 'end_turn' && commandFollowup?.pending === true) {
             // 等待回复文本投影后再识别上游错误，防止异步队列漏掉 EOF 等终态诊断。
             await contentDeliveryTail
@@ -3590,7 +3593,18 @@ export class AcpProfileAdapter extends LlmAdapter {
               antigravityOutputFailure(antigravityOutput) !== undefined
             )
               break
-            if (followups >= ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT) {
+            const remaining = followupDeadline - performance.now()
+            const pause = Math.min(remaining, commandFollowupDelay(followups))
+            if (pause > 0) {
+              try {
+                await delay(pause, undefined, { signal: promptSignal })
+              } catch (error) {
+                if (!promptSignal.aborted) throw error
+              }
+            }
+            if (promptSignal.aborted || interruptedForInput || currentAnchor !== promptAnchor || !commandFollowup.pending)
+              break
+            if (performance.now() >= followupDeadline) {
               commandFollowupExhausted = true
               break
             }
@@ -3598,7 +3612,7 @@ export class AcpProfileAdapter extends LlmAdapter {
             breakContent()
             outputSpeed.breakSegment()
             followups += 1
-            self.log?.(`ACP 正在自动读取已有命令结果（${followups}/${ANTIGRAVITY_COMMAND_FOLLOWUP_LIMIT}）`)
+            self.log?.(`ACP 正在第 ${followups} 次读取已有命令结果`)
             response = await sendPrompt([
               { type: 'text', text: generatedContextBlock(ANTIGRAVITY_COMMAND_FOLLOWUP_TEXT) },
             ])
@@ -3908,7 +3922,7 @@ export class AcpProfileAdapter extends LlmAdapter {
                       failure: {
                         code: 'ACP_COMMAND_RESULT_PENDING',
                         message:
-                          '已自动跟进两次，但 Antigravity 仍未确认已有命令的执行结果。本轮结果未确认，请查看任务详情；不会自动重跑命令。',
+                          '已达到 30 分钟的自动跟进时限，Antigravity 仍未确认已有命令的执行结果。请查看任务详情。',
                       },
                     }
                   : responseFinish.kind === 'stop' &&
