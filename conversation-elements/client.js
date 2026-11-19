@@ -32,7 +32,10 @@ window.__ModuleLoader__.load({
     const icePaint = 'radial-gradient(ellipse at center,transparent 28%,#96cfe7b8 100%),' +
       frost + ' 0 0 / 240px 210px repeat,linear-gradient(135deg,#edfaff70,#7fbdda66 52%,#e1f7ff99)';
     const css = `
-      .ce-fire{position:absolute;bottom:calc(100% - 2px);left:10px;right:10px;height:25px;z-index:4;pointer-events:none;background-image:${flame};background-repeat:repeat-x;background-size:180px 4800%;mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 14px),transparent)}
+      .ce-fire{position:absolute;bottom:calc(100% - 2px);left:12px;right:12px;height:0;z-index:4;pointer-events:none}
+      .ce-plume{position:absolute;bottom:0;height:var(--height);transform-origin:50% 100%}
+      .ce-plume::before{content:"";position:absolute;inset:0;background-image:${flame};background-repeat:repeat-x;background-size:var(--texture-width) 4800%;background-position-x:var(--offset);mask-image:linear-gradient(90deg,transparent,#000 19%,#000 77%,transparent);transform-origin:50% 100%}
+      .ce-ember{position:absolute;left:54%;bottom:57%;width:3px;height:6px;border-radius:65% 35% 70% 40%;background:radial-gradient(ellipse at 50% 65%,#ffdf83,#ff923d 48%,transparent 75%);opacity:0}
       .ce-ice{position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0;overflow:hidden;background:${icePaint};backdrop-filter:blur(3px) saturate(.65);cursor:${hammer} 3 17,pointer;touch-action:none;color:#183d56}
       .ce-ice::backdrop{background:transparent}
       .ce-ice span{position:absolute;left:50%;bottom:12%;transform:translateX(-50%);border:1px solid #ffffffaa;border-radius:30px;padding:8px 18px;background:#eefbffe3;white-space:nowrap;font:500 14px/1.5 system-ui}
@@ -49,7 +52,13 @@ window.__ModuleLoader__.load({
         100%{transform:perspective(650px) translate(var(--dx),var(--fall)) rotateX(var(--flip)) rotate(var(--spin));opacity:0}
       }
       @keyframes ce-burn{to{background-position-y:100%}}
-      @media(prefers-reduced-motion:no-preference){.ce-fire{animation-name:ce-burn;animation-duration:1.6s;animation-timing-function:steps(47,end);animation-iteration-count:infinite}}
+      @keyframes ce-sway{0%,100%{transform:scaleY(.76) skewX(-3deg)}48%{transform:scaleY(1) skewX(4deg)}75%{transform:scaleY(.87) skewX(1deg)}}
+      @keyframes ce-lift{0%,48%{opacity:0;transform:none}54%{opacity:.8}72%{opacity:.55;transform:translate(3px,-9px) scale(.76)}96%,100%{opacity:0;transform:translate(var(--drift),-24px) scale(.18)}}
+      @media(prefers-reduced-motion:no-preference){
+        .ce-plume::before{animation:ce-burn var(--cycle) steps(47,end) var(--phase) infinite}
+        .ce-plume{animation:ce-sway var(--sway) ease-in-out var(--phase) infinite}
+        .ce-ember{animation:ce-lift var(--lift) ease-out var(--phase) infinite}
+      }
       @media(prefers-reduced-motion:reduce){.ce-ice i{animation:none}}
     `;
 
@@ -57,6 +66,32 @@ window.__ModuleLoader__.load({
       const rim = document.createElement('div');
       rim.className = 'ce-fire';
       rim.setAttribute('aria-hidden', 'true');
+      // 按输入框宽度划分火簇，火苗的高度、宽度和摆动周期分别取样。
+      const count = Math.max(4, Math.round(pane.clientWidth / 55) || 4);
+      const origin = Math.random() * Math.PI * 2;
+      for (let i = 0; i < count; i++) {
+        const plume = document.createElement('div');
+        plume.className = 'ce-plume';
+        const crest = (1 + Math.sin(i * 1.73 + origin)) / 2;
+        const height = 9 + 43 * crest ** 1.7 + Math.random() * 8;
+        const breadth = .68 + Math.random() * .43;
+        plume.style.left = ((i + (1 - breadth) / 2) * 100 / count) + '%';
+        plume.style.width = (breadth * 100 / count) + '%';
+        plume.style.setProperty('--height', height + 'px');
+        plume.style.setProperty('--texture-width', (95 + Math.random() * 95) + 'px');
+        plume.style.setProperty('--offset', -Math.random() * 180 + 'px');
+        plume.style.setProperty('--cycle', (1.2 + Math.random() * .8) + 's');
+        plume.style.setProperty('--sway', (1.7 + Math.random() * 1.5) + 's');
+        plume.style.setProperty('--phase', -Math.random() * 5 + 's');
+        rim.append(plume);
+        if (crest > .65) {
+          const ember = document.createElement('i');
+          ember.className = 'ce-ember';
+          ember.style.setProperty('--lift', (1.4 + Math.random() * 1.6) + 's');
+          ember.style.setProperty('--drift', (Math.random() * 21 - 8) + 'px');
+          plume.append(ember);
+        }
+      }
       pane.append(rim);
       return () => rim.remove();
     }
