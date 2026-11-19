@@ -35,7 +35,7 @@ export const ACP_SNAPSHOT_TOTAL_BYTES = 16384 as const
  * `value` 为当前值（select=string 值 id / boolean=原生 boolean）；`values`
  * 为 select 的拍平可选值 id 列表（boolean 归 null）。
  */
-export interface AcpOptionsSnapshotOption {
+interface AcpOptionsSnapshotOption {
   readonly id: string
   readonly category: string | null
   readonly name: string
@@ -217,8 +217,8 @@ export function acpOptionsSnapshotOf(
     modes: SnapshotModes | null | undefined,
     contextUsage: SnapshotContextUsage | null | undefined,
   ): AcpOptionsSnapshotRecord => ({
-    outputSpeed: outputSpeedOf(extras?.outputSpeed) ?? null,
-    reportedUsage: reportedUsageOf(extras?.reportedUsage) ?? null,
+    ...(extras?.outputSpeed === undefined ? {} : { outputSpeed: outputSpeedOf(extras.outputSpeed) ?? null }),
+    ...(extras?.reportedUsage === undefined ? {} : { reportedUsage: reportedUsageOf(extras.reportedUsage) ?? null }),
     options: list,
     currentModeId: stableCurrentModeId,
     updatedAt,
@@ -376,8 +376,8 @@ export function toOptionsSnapshotRecord(raw: unknown): AcpOptionsSnapshotRecord 
     modes = { currentModeId: raw.modes.currentModeId as string, availableModes }
   } else if (raw.modes === null) modes = null
   return {
-    outputSpeed: outputSpeedOf(raw.outputSpeed) ?? null,
-    reportedUsage: reportedUsageOf(raw.reportedUsage) ?? null,
+    ...(raw.outputSpeed === undefined ? {} : { outputSpeed: outputSpeedOf(raw.outputSpeed) ?? null }),
+    ...(raw.reportedUsage === undefined ? {} : { reportedUsage: reportedUsageOf(raw.reportedUsage) ?? null }),
     options,
     currentModeId: raw.currentModeId as string | null,
     updatedAt: raw.updatedAt,

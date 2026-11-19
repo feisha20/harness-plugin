@@ -1,3 +1,4 @@
+import { isDirectChild } from './subagent-tree.ts'
 /** Public package + published Host + real ACP subprocess; no model credentials. */
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
@@ -42,7 +43,7 @@ class NativeParent extends LlmAdapter {
 }
 
 async function fixture() {
-  const host = await launchAdapterWorld({ toolsMode: 'native' })
+  const host = await launchAdapterWorld({ toolExecutor: 'native' })
   const browser = await launchBrowser({ headless: true })
   const page = await newEnglishPage(browser)
   page.setDefaultTimeout(15_000)
@@ -95,30 +96,30 @@ async function fixture() {
     const parent = required(host.ctx.agents.get(await ready))
     const url = page.url()
     const requireAdapter = createRequire(join(root, 'package.json'))
-    const policyEntry = requireAdapter.resolve('@zaimokuza/dsh-acp-adapter/permission-policy')
+    const policyEntry = requireAdapter.resolve('@feisha20/dsh-acp-adapter/permission-policy')
     const { default: Policy } = await host.ctx.loader.import(pathToFileURL(policyEntry).href)
     expect(host.ctx.get('acpPermissionPolicy')).toBeUndefined()
     await host.ctx.plugin(Policy)
     expect(host.ctx.get('acpPermissionPolicy')).toBeDefined()
     const spawn = async (key: string, owner = parent, native = false) => {
+      const name = `policy-${key}`
       const activation = await host.ctx.subagents.startActivation({
         provider: 'spawn',
+        name,
         label: `Policy worker ${key}`,
         delivery: 'caller',
-        request: {
-          parent: owner,
-          prompt: [
-            { type: 'text', text: native ? 'HOLD_POLICY_NATIVE_PARENT' : `E2E_PARENT_PERMISSION_OPTIONS:${key}` },
-          ],
-          agentOptions: {
-            provider: native ? 'policy-native' : 'acp-policy-fixture',
-            model: native ? 'fixture' : 'mock-model-a',
-          },
+        parent: owner,
+        prompt: [{ type: 'text', text: native ? 'HOLD_POLICY_NATIVE_PARENT' : `E2E_PARENT_PERMISSION_OPTIONS:${key}` }],
+        agentOptions: {
+          provider: native ? 'policy-native' : 'acp-policy-fixture',
+          model: native ? 'fixture' : 'mock-model-a',
         },
         signal: new AbortController().signal,
       })
       activations.push(activation)
       const child = required(host.ctx.agents.get(activation.childId))
+      const parentName = host.ctx.subagents.namesOf(owner).self
+      expect(host.ctx.subagents.namesOf(child).self).toBe(parentName === 'lead' ? name : `${parentName}/${name}`)
       children.push(child)
       return { activation, child }
     }
@@ -184,8 +185,14 @@ function assertAudit(world: World, child: Agent, key: string, decision: Record<s
 it('isolates concurrent machine decisions while preserving the original full parent choice across refresh', async (context) => {
   const world = await fixture()
   const calls: { agentId: string; requestId: string; callId: string | undefined }[] = []
+  const manualReason = 'This rule covers reads only. Review the requested write.'
   let legacyCalls = 0
   const releaseConcurrent = Promise.withResolvers<void>()
+  const policyEntered = new Map<string, PromiseWithResolvers<void>>(
+    ['machine-allow', 'machine-deny', 'machine-failed', 'manual'].map(
+      (key) => [`parent-scope-${key}`, Promise.withResolvers<void>()] as const,
+    ),
+  )
   context.onTestFinished(async () => {
     releaseConcurrent.resolve()
     await world.close()
@@ -201,10 +208,12 @@ it('isolates concurrent machine decisions while preserving the original full par
   world.ctx.on('dsh-acp/permission-policy', async (request, next) => {
     const callId = request.params.toolCall.toolCallId
     calls.push({ agentId: request.agent.id, requestId: request.requestId, callId })
+    if (callId !== undefined) policyEntered.get(callId)?.resolve()
     if (callId?.startsWith('parent-scope-machine-')) await releaseConcurrent.promise
     if (callId === 'parent-scope-machine-allow') return 'allow-once'
     if (callId === 'parent-scope-machine-deny') return 'deny-once'
     if (callId === 'parent-scope-machine-failed') throw new Error('Controlled policy backend failure')
+    if (callId === 'parent-scope-manual') return { decision: 'not-applicable', reason: manualReason }
     return next()
   })
   try {
@@ -212,7 +221,10 @@ it('isolates concurrent machine decisions while preserving the original full par
     const deny = await world.spawn('machine-deny')
     const failed = await world.spawn('machine-failed')
     const manual = await world.spawn('manual')
-    await expect.poll(() => calls.length).toBe(4)
+    // Activation publication precedes ACP startup. Wait for each distinct
+    // policy callback before releasing any concurrent decision.
+    await Promise.all([...policyEntered.values()].map(({ promise }) => promise))
+    expect(calls).toHaveLength(4)
     expect(world.effects('machine-allow')).toEqual([])
     expect(acpPermissionAudit(world, 'decided')).toHaveLength(0)
     releaseConcurrent.resolve()
@@ -243,12 +255,16 @@ it('isolates concurrent machine decisions while preserving the original full par
     ).toEqual([expect.stringContaining('(ACP_PERMISSION_POLICY_UNAVAILABLE)')])
     const card = world.card('manual')
     await card.getByRole('radio', { name: 'Allow', exact: true }).waitFor()
+    expect(await card.innerText()).toContain(manualReason)
     expect(await card.getByRole('radio').count()).toBe(PARENT_PERMISSION_OPTIONS.length)
-    expect(await card.locator('[data-question-source]').innerText()).toContain(manual.child.id.slice(0, 8))
+    expect(await card.locator('[data-question-source]').innerText()).toContain(
+      `${world.ctx.subagents.namesOf(manual.child).self} · ${manual.child.id.slice(0, 8)}`,
+    )
     expect(world.effects('manual')).toEqual([])
     await world.save('manual-pending-wide', { calls, legacyCalls })
     await world.page.reload()
     await card.getByRole('radio', { name: 'Reject', exact: true }).waitFor()
+    expect(await card.innerText()).toContain(manualReason)
     for (const option of PARENT_PERMISSION_OPTIONS)
       expect(await card.getByRole('radio', { name: option.name, exact: true }).count()).toBe(1)
     expect(acpPermissionAudit(world, 'asked')).toHaveLength(4)
@@ -281,6 +297,38 @@ it('isolates concurrent machine decisions while preserving the original full par
   }
 })
 
+it('honors an opted-in binary denial even when the native approval service would allow', async () => {
+  const world = await fixture()
+  try {
+    const owners: string[] = []
+    let nativeCalls = 0
+    world.ctx.on('dsh-acp/binary-permission-policy', async (request) => {
+      owners.push(request.agent.id)
+      return { decision: 'deny-once', reason: 'This command writes outside the approved scope.' }
+    })
+    world.ctx.on(
+      'approval/request',
+      async () => {
+        nativeCalls++
+        return 'allowed-once'
+      },
+      { prepend: true },
+    )
+    const { activation, child } = await world.spawn('binary-policy-deny')
+    await activation.result
+    expect(owners).toEqual([child.id])
+    expect(nativeCalls).toBe(0)
+    expect(world.effects('binary-policy-deny')).toEqual([])
+    assertAudit(world, child, 'binary-policy-deny', {
+      outcome: 'selected',
+      optionId: 'reject_once',
+      decisionVia: 'external-policy',
+    })
+  } finally {
+    await world.close()
+  }
+})
+
 it('cancels a nested child policy and ignores its late allow without changing execution identity', async (context) => {
   const world = await fixture()
   const entered = Promise.withResolvers<AcpExternalPolicyRequest>()
@@ -303,8 +351,8 @@ it('cancels a nested child policy and ignores its late allow without changing ex
     const request = await entered.promise
     expect(request.agent).toBe(leaf.child)
     expect(request.agent).not.toBe(middle.child)
-    expect(world.ctx.agents.isOwnedBy(leaf.child.id, middle.child)).toBe(true)
-    expect(world.ctx.agents.isOwnedBy(middle.child.id, world.parent)).toBe(true)
+    expect(isDirectChild(world.ctx, leaf.child.id, middle.child)).toBe(true)
+    expect(isDirectChild(world.ctx, middle.child.id, world.parent)).toBe(true)
     expect(world.effects('nested-cancel')).toEqual([])
     await world.save('nested-policy-pending-wide', { requestId: request.requestId, policyAgentId: request.agent.id })
     leaf.child.cancel({ kind: 'user' })

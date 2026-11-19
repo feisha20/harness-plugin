@@ -1,111 +1,9 @@
 /**
- * Sidecar 旁路存储（sidecar 持久化规则，持久化原则）：审批审计与 ACP binding
- * **不落 session log**，落 harness-home 下的插件私有存储（root =
- * `<dshHome>/dsh-acp`）。
- *
- * 为什么不在 session log：live-event ordering evidence 表明（
- * orchestrator 复跑复证）——插件直写 `ctx.sessionPersistence.append` 会在 live
- * session 上每条 marker 静默吞掉其后一条 live 事件（重启才显形）；`Session.append`
- * 又无 ignorable 写入面。在宿主提供可忽略审计事件入口前，sidecar 是审计真源。
- *
- * ## node:sqlite（DatabaseSync）+ WAL 生产化重写
- *
- * 存储引擎从「每 sessionId 一个 JSONL 文件 + tmp/fsync/rename 原子发布」重写为
- * 单库文件 `<root>/sidecar.sqlite`（`journal_mode=WAL`、`synchronous=NORMAL`、
- * `busy_timeout=5000`）。选型定稿理由：Node ≥22.13 `node:sqlite` 免 flag
- * （engines `^22.19||>=24` 全覆盖），零新依赖；WAL 自带崩溃恢复（进程级 kill -9
- * 不丢已 commit 事务）；追加是 O(1) 页写入而非 JSONL 的全文重写。`synchronous=
- * NORMAL` 下 commit 不逐条 fsync（无 fsync 风暴），进程崩溃不丢已提交记录；整库
- * checkpoint 在 {@link AcpSidecar.flush}/{@link AcpSidecar.dispose} 周期性执行。
- *
- * **不自动迁移旧 JSONL**：SQLite 重写发生在 1.0 前的 RC 阶段，旧
- * `<sessionId>.jsonl` 从未成为稳定存储契约。启动时若发现旧文件，仅 warn 并忽略，
- * 不读、不迁、不删；对应旧会话因缺少 binding 进入 reconciliation-required
- * fail-safe（`binding-missing`）。需要保留旧 Agent 上下文时，应先用生成该 JSONL
- * 的旧插件版本处理；否则由用户显式放弃旧 ACP 上下文。当前 SQLite 数据库保持兼容。
- * `.corrupt-*` 坏行隔离概念随之删除——SQLite 要么库损坏要么不损坏，不存在行级
- * 隔离；库无法打开或校验失败时 open 即 fail loud，读路径不吞错继续。
- *
- * `platform` option 与 ./platform.ts（rename/重试画像）随本重写一并移除——SQLite
- * 的 commit/WAL 恢复取代了 tmp+rename 发布面；这是上述 1.0 前 RC 的存储破坏性变更。
- *
- * ## 表结构
- *
- * - `audit` 追加表（全部 kind 的完整历史）：record_id（per-session 唯一）、
- *   dsh_session_id、seq（per-session 单调，1 起）、time、kind、acp_provider_id?、
- *   acp_session_id?、dedupe_key（仅 permission decided 有值，`(dsh_session_id,
- *   dedupe_key)` 部分唯一索引）、payload（canonical JSON 文本，键序稳定）。
- * - `bindings` 最新索引表：dsh_session_id 主键 upsert（payload + envelope 分量），
- *   {@link AcpSidecar.readLatestBinding}/{@link AcpSidecar.listBindings} 只查此表。
- * - `option_snapshots` 冷启动 last-known 配置快照表：每会话
- *   至多一行（dsh_session_id 主键 upsert），payload 为
- *   {@link AcpOptionsSnapshotRecord}——标准化且有界（`_meta`/未知键剥离，
- *   字段/值数/总字节硬上限见 `ACP_SNAPSHOT_*` 常量）；取代 binding 曾携带的
- *   一次性无界 `configSnapshot`（该字段已删除，单一事实副本只在此表）。
- *   活体权威快照到达即刷新（建立/set_config_option/set_mode/turn 收束变更）；
- *   写失败仅 warn（last-known 是展示/参考面，不是提交面）。
- * - `member_model_selections` teammate 模型选择表：每个 DSH session 至多一行，
- *   记录最近选择及其 binding key；binding 变化由调用方决定是否重新解释，sidecar
- *   不主动清除该配置。
- * - `activity_journal` 外部 Agent 活动表：按 DSH session 隔离、以 activity_id
- *   append-only revision，activity_seq 只在首次出现时分配，revision_seq 为每次
- *   mutation 的连续游标；它是机器可读的执行活动面，和面向人的 audit envelope
- *   分开。活动行可独立分页，并作为会话轨迹与外部子代理投影的持久事实源。
- *
- * **recordId 派生**（钉版规则不变）：permission **decided** →
- * `decided:<agentSessionId>:<toolCallId>:<requestId>`（requestId 为
- * `dsh-acp-permission-<randomUUID >`，跨进程/跨重启唯一）；其余 →
- * `h:<sha256-16>`（canonical `[kind,time,payload]` 的键序无关稳定哈希），同会话内
- * 撞名追加 `-2/-3…` 序号。
- *
- * **decided 去重**（幂等语义不变）：待写 decided 的去重键已存在 → 跳过写入并
- * 正常 resolve（`BEGIN IMMEDIATE` + 精确 dedupe 冲突处理；先 SELECT 预检避免
- * 无谓消耗 seq）。只对 decided 去重：同 requestId 的 asked 重放是真实事件，审计如实各落
- * 一条；键缺任一分量的 decided 不参与去重（宁多落一条也不丢审计）。
- *
- * **binding 语义门槛（不变）** envelope 落库 ≠ binding 可用。
- * {@link AcpSidecar.readLatestBinding} 对 bindings 表最新 payload 做全字段语义校验
- * （{@link AcpBindingData} 全部必填字段）；不通过判 `{status:'outdated'}`（调用方
- * 映射 'binding-outdated'，绝不回退更早的 binding——索引表只有最新一条）。
- * binding 指纹的扩展分量一律 optional：
- * 缺席（旧版本写出的 binding）不判 outdated，由 profile-adapter.ts 的指纹 canonical 哈希
- * 预检以既有 'profile-changed' 阻断；字段在场时这里只做形态校验。
- *
- * ## 有界审计队列（有界审计队列）
- *
- * 同步 durable 路径（append 落库 commit 后才 resolve）：`binding`（recordBinding
- * fail-closed：binding 先于 prompt）与 `permission`（审批桥 fail-closed：append
- * reject → cancelled，见 src/domain/policy/permissions.ts）。其余 kind
- * （reconciliation/degradation/replay-assessment）进**有界
- * 内存队列**（上限 {@link ACP_SIDECAR_AUDIT_QUEUE_LIMIT}，默认 1024；满 → 丢弃
- * 新记录并 warn 计数，绝不阻塞 turn），microtask 批量事务落库；
- * {@link AcpSidecar.flush} 落齐全部排队记录（生产接线：AcpAgent turn 收束与
- * dispose 前调用）。读路径（list/readLatestBinding/listBindings）先
- * 落齐队列再查库——append → list 的可见性顺序与 JSONL 时代一致。队列是内存面：
- * 进程崩溃丢失未 flush 的非审批审计（可接受，设计既定）；binding/permission 不走
- * 队列，无此窗口。
- *
- * ## 权限位与生命周期
- *
- * 目录 `0700`；`sidecar.sqlite` 及 `-wal`/`-shm` `0600`（打开后显式 chmod 兜底——
- * SQLite 自建的 wal/shm 不吃 umask 之外的约束，flush/checkpoint 后复 chmod）。
- *
- * 宿主仍无插件可消费的会话删除钩子；sidecar 行的生命周期
- * 因此与 harness-home 一致。ACP 审计不随 DSH 官方 `/export`（Alpha 仍无
- * ignorable 事件 seam，DSH 自定义审计 seam 缺失）。
- *
- * stateRoot 来源：dsh 没有 per-profile 插件目录，惯例是 harness-home 全局
- * （settings-file、sessions 同在 `resolveDshHome()` 下，dev/prod 隔离靠
- * `DSH_HOME`）。app-boot `boot()` 在挂载插件树之前 `ctx.provide('dshHomePath',
- * dshHomePath)`（app-boot/src/index.ts:770），故 {@link installAcpSidecar} 用
- * host composition 的 widen-accessor 模式读该 slot；slot 缺席
- * （裸 Context 单测）返回 `undefined` 并 warn—— sidecar 是 ACP 会话的
- * 强制前提：缺席时 ACP 会话一律拒绝启动（fail loud，见
- * provider runtime），不再「退化为纯窥测」。
- *
- * @module @zaimokuza/dsh-acp-adapter/persistence/sidecar
+ * ACP audit records, session bindings and recovery state live in `<DSH_HOME>/dsh-acp/sidecar.sqlite`.
+ * Binding and permission writes commit before their callers continue. Lower-priority audit records
+ * use a bounded queue that is drained on reads and shutdown. Legacy JSONL files are left in place
+ * and do not establish a binding for a new Agent session.
  */
-
 /// <reference types="node" />
 
 import {
@@ -113,7 +11,7 @@ import {
   boundedActivityPresentation,
   type AcpActivityPresentation,
 } from '../domain/policy/activity-presentation.ts'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { decodeActivityDetail, encodeActivityDetail } from './activity-detail-codec.ts'
 import { chmodSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -126,23 +24,11 @@ import type {
   AcpTerminalAuditData,
   AcpSessionForkAuditData,
 } from '../domain/policy/events.ts'
-import { ACP_SNAPSHOT_TOTAL_BYTES, acpOptionsSnapshotOf, toOptionsSnapshotRecord } from './options-snapshot.ts'
+import { ACP_SNAPSHOT_TOTAL_BYTES, toOptionsSnapshotRecord, type AcpOptionsSnapshotRecord } from './options-snapshot.ts'
 import { ACP_CONFIG_IDENTIFIER_MAX } from '../contract/config-options.ts'
-import type { AcpOptionsSnapshotRecord } from './options-snapshot.ts'
+import { isAcpModelRouteWithinBounds } from '../contract/model-selection.ts'
 import { isSensitiveActivityField, redactSecretText } from '../domain/observability/redaction.ts'
-
-// Compatibility facade: snapshot callers keep importing from sidecar while the
-// bounded codec stays an independent persistence concern.
-export {
-  ACP_SNAPSHOT_FIELD_MAX,
-  ACP_SNAPSHOT_MODE_DESCRIPTION_MAX,
-  ACP_SNAPSHOT_OPTION_LIMIT,
-  ACP_SNAPSHOT_TOTAL_BYTES,
-  ACP_SNAPSHOT_VALUES_LIMIT,
-  acpOptionsSnapshotOf,
-  toOptionsSnapshotRecord,
-} from './options-snapshot.ts'
-export type { AcpOptionsSnapshotRecord, AcpOptionsSnapshotOption } from './options-snapshot.ts'
+import { nativeForkSourceSchema, type AcpNativeForkSource } from './native-fork-source.ts'
 
 /** sidecar 记录格式版本（envelope 的 `schemaVersion`）。 */
 export const ACP_SIDECAR_SCHEMA_VERSION = 2 as const
@@ -157,9 +43,9 @@ export const ACP_SIDECAR_DB_FILENAME = 'sidecar.sqlite'
 export const ACP_SIDECAR_AUDIT_QUEUE_LIMIT = 1024 as const
 
 /** Activity presentation/detail bounds keep the journal safe to render and page. */
-export const ACP_ACTIVITY_PRESENTATION_MAX = 2_048 as const
+const ACP_ACTIVITY_PRESENTATION_MAX = 2_048 as const
 export const ACP_ACTIVITY_RAW_MAX = 16_384 as const
-export const ACP_ACTIVITY_REF_MAX = 512 as const
+const ACP_ACTIVITY_REF_MAX = 512 as const
 
 /** Durable provider dispatch state. A committed `dispatch-uncertain` row is
  * intentionally visible after a host crash; a later request must not silently
@@ -182,6 +68,8 @@ export interface AcpDispatchRecord {
     readonly acceptedMessageIds: readonly string[]
     /** Absent on rows written by older pre-release builds. */
     readonly projectionFiltered?: boolean
+    /** Pre-dispatch ACP selection on a managed route, independent of completion and usage. */
+    readonly confirmedAgentModel?: string
   }
 }
 
@@ -270,13 +158,39 @@ export interface AcpModeIntent {
   readonly modeId: string
 }
 
-/** A member's selected model stays binding-scoped and is retained after application. */
+/** Most recent completed turn on one model within an exact ACP binding. */
+export interface AcpManagedModelTurn {
+  readonly model: string
+  /** Zero for a model that has only produced a failed response. */
+  readonly ordinal: number
+  readonly failureOrdinal?: number | null
+  /** Occupancy from this exact successful prompt, or null when none was observed. */
+  readonly used: number | null
+  /** Most recent window observed on this model in this binding. */
+  readonly size: number | null
+  readonly costAmount?: number | null
+  readonly costCurrency?: string | null
+}
+
+/** A confirmed target is the contract for every later dispatch on this binding. */
+export interface AcpManagedModelIntent {
+  readonly revision: number
+  readonly bindingKey: string
+  readonly optionId: string
+  readonly target: string
+  readonly confirmed: boolean
+}
+
+/** A member's unapplied model intent belongs to one exact ACP binding. */
 export interface AcpMemberModelSelection {
   readonly bindingKey: string
   readonly model: string
+  /** Exact next Session event sequence before this unapplied intent was saved. Absent on legacy rows. */
+  readonly sessionSeq?: number
+  /** Native recorded selection at that cut, serialized as a bounded comparison key. */
+  readonly nativeSelectionKey?: string
 }
 
-const ACP_MEMBER_MODEL_MAX = 512
 const ACP_MEMBER_BINDING_KEY_MAX = 8192
 
 export function modeIntentBindingKey(binding: AcpBindingData): string {
@@ -571,6 +485,12 @@ type StampedEntry = {
 export interface AcpSidecar {
   /** 存储根目录（`<dshHome>/dsh-acp`）。 */
   readonly root: string
+  /** Synchronously initialize a durable journal identity; storage failure throws before publication. */
+  initializeNativeForkScope(): string
+  /** Record one verified ordinary native fork; retries agree exactly or fail. */
+  recordNativeFork(source: AcpNativeForkSource): Promise<void>
+  /** Durable explicit source; absence never licenses guessing from copied events. */
+  readNativeFork(sessionId: SessionId): Promise<AcpNativeForkSource | undefined>
   /**
    * 追加一条记录。`binding`/`permission` 同步落库 commit 后才 resolve（durable
    * 语义）；其余 kind 进有界内存队列、入队即 resolve（绝不阻塞 turn，flush 落齐，
@@ -582,15 +502,24 @@ export interface AcpSidecar {
    */
   append(sessionId: SessionId, entry: AcpSidecarEntryInput): Promise<void>
   /** Commit a confirmed cwd fork against its exact durable parent and fork intent. */
-  commitDirectoryFork(sessionId: SessionId, parent: AcpBindingData, replacement: AcpBindingData): Promise<void>
+  commitDirectoryFork(
+    sessionId: SessionId,
+    parent: AcpBindingData,
+    replacement: AcpBindingData,
+    model?: { readonly id: string; readonly value: string },
+  ): Promise<void>
   /** Persist the dispatch uncertainty before crossing the ACP process boundary. */
   beginDispatch(record: AcpDispatchRecord): Promise<void>
   /** Mark a previously durable dispatch complete; idempotent for settled rows. */
   settleDispatch(sessionId: SessionId, key: string, settledAt?: number): Promise<void>
   /** Read a dispatch ledger row after restart. */
   readDispatch(sessionId: SessionId, key: string): Promise<AcpDispatchRecord | undefined>
-  /** Explicitly resolve a user-reviewed uncertain dispatch without replaying it. */
+  /** Clear a user-reviewed dispatch, or an exact key proven not to have crossed the RPC boundary. */
   clearDispatch(sessionId: SessionId, key?: string): Promise<void>
+  recordManagedModelTurn(sessionId: SessionId, bindingKey: string, turn: AcpManagedModelTurn): Promise<void>
+  recordManagedModelFailure(sessionId: SessionId, bindingKey: string, model: string, ordinal: number): Promise<void>
+  clearManagedModelFailures(sessionId: SessionId, bindingKey: string, throughOrdinal: number): Promise<void>
+  readManagedModelTurns(sessionId: SessionId, bindingKey: string): Promise<AcpManagedModelTurn[]>
   /** Upsert one external ACP activity, preserving its first-seen sequence. */
   upsertActivity(record: AcpActivityInput): Promise<AcpActivityRecord>
   /** Opening snapshot, ordered by stable first-seen activity sequence. */
@@ -646,6 +575,8 @@ export interface AcpSidecar {
    * （畸形行跳过并 warn；库不存在 → 空数组）。
    */
   listBindings(): Promise<readonly AcpBoundSessionBinding[]>
+  /** Historical route hints only. Validate the specific session with readLatestBinding before use. */
+  listBoundProviders(): Promise<readonly string[]>
   /** 该 sessionId 全量合法 entry（按 seq 升序；行级校验失败者跳过并 warn）；库不存在 → 空数组。 */
   list(sessionId: SessionId): Promise<readonly AcpSidecarEntry[]>
   /** Cursor-paged audit read. Only the requested bounded window is decoded. */
@@ -672,17 +603,24 @@ export interface AcpSidecar {
   auditHead(sessionId: SessionId): Promise<number>
   /**
    * 写入（upsert）该会话的 last-known option 快照（输入须先经
-   * {@link acpOptionsSnapshotOf} 标准化）。同步 durable；写失败 reject
+   * `acpOptionsSnapshotOf` 标准化）。同步 durable；写失败 reject
    * （调用方按「last-known 展示面」纪律降级为 warn，不翻转主链路）。
    */
   writeOptionSnapshot(sessionId: SessionId, snapshot: AcpOptionsSnapshotRecord): Promise<void>
   /** Pending user selection, scoped to an exact ACP binding. */
+  readManagedModelIntent(sessionId: SessionId): Promise<AcpManagedModelIntent | undefined>
+  changeManagedModelIntent(
+    sessionId: SessionId,
+    next: Omit<AcpManagedModelIntent, 'revision'>,
+    previous?: AcpManagedModelIntent,
+  ): Promise<AcpManagedModelIntent>
   readModeIntent(sessionId: SessionId): Promise<AcpModeIntent | undefined>
   writeModeIntent(sessionId: SessionId, intent: AcpModeIntent): Promise<void>
   clearModeIntent(sessionId: SessionId, intent: AcpModeIntent): Promise<void>
-  /** Persist the latest selected model for a teammate binding. */
+  /** Persist an unapplied model intent for a teammate binding. */
   readMemberModelSelection(sessionId: SessionId): Promise<AcpMemberModelSelection | undefined>
   writeMemberModelSelection(sessionId: SessionId, selection: AcpMemberModelSelection): Promise<void>
+  clearMemberModelSelection(sessionId: SessionId, selection: AcpMemberModelSelection): Promise<void>
   /** Read or durably initialize the session's host-owned DSH tool approval policy. */
   readToolApprovalPolicy(sessionId: SessionId, initialize?: 'auto' | 'ask'): Promise<'auto' | 'ask' | undefined>
   /** Persist a session-scoped override. */
@@ -926,6 +864,24 @@ CREATE TABLE IF NOT EXISTS audit (
   PRIMARY KEY (dsh_session_id, record_id)
 ) STRICT;
 CREATE UNIQUE INDEX IF NOT EXISTS audit_session_seq ON audit(dsh_session_id, seq);
+CREATE TABLE IF NOT EXISTS managed_model_turns (
+  dsh_session_id TEXT NOT NULL,
+  binding_key TEXT NOT NULL,
+  model TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  failure_ordinal INTEGER,
+  used INTEGER,
+  size INTEGER,
+  cost_amount REAL,
+  cost_currency TEXT,
+  PRIMARY KEY (dsh_session_id, binding_key, model)
+) STRICT;
+CREATE TABLE IF NOT EXISTS managed_model_failure_acknowledgements (
+  dsh_session_id TEXT NOT NULL,
+  binding_key TEXT NOT NULL,
+  through_ordinal INTEGER NOT NULL CHECK (through_ordinal >= 0),
+  PRIMARY KEY (dsh_session_id, binding_key)
+) STRICT;
 CREATE UNIQUE INDEX IF NOT EXISTS audit_session_dedupe ON audit(dsh_session_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS bindings (
   dsh_session_id TEXT PRIMARY KEY,
@@ -934,6 +890,14 @@ CREATE TABLE IF NOT EXISTS bindings (
   acp_session_id TEXT,
   payload TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS managed_model_intents (
+  dsh_session_id TEXT PRIMARY KEY,
+  binding_key TEXT NOT NULL,
+  option_id TEXT NOT NULL,
+  target TEXT NOT NULL,
+  confirmed INTEGER NOT NULL CHECK (confirmed IN (0, 1)),
+  revision INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS mode_intents (
   dsh_session_id TEXT PRIMARY KEY,
   binding_key TEXT NOT NULL,
@@ -942,7 +906,9 @@ CREATE TABLE IF NOT EXISTS mode_intents (
 CREATE TABLE IF NOT EXISTS member_model_selections (
   dsh_session_id TEXT PRIMARY KEY,
   binding_key TEXT NOT NULL,
-  model_id TEXT NOT NULL
+  model_id TEXT NOT NULL,
+  session_seq INTEGER,
+  native_selection_key TEXT
 ) STRICT;
 CREATE TABLE IF NOT EXISTS tool_approval_policies (
   dsh_session_id TEXT PRIMARY KEY,
@@ -959,6 +925,14 @@ CREATE TABLE IF NOT EXISTS recovery_states (
   last_attempt_at INTEGER,
   last_user_action TEXT,
   payload TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS native_fork_sources (
+  dsh_session_id TEXT PRIMARY KEY,
+  payload TEXT NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS native_fork_scope (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  scope_id TEXT NOT NULL
 ) STRICT;
 CREATE TABLE IF NOT EXISTS dispatch_ledger (
   dsh_session_id TEXT NOT NULL,
@@ -1204,6 +1178,17 @@ class SidecarStore implements AcpSidecar {
         (db.prepare('PRAGMA table_info(dispatch_ledger)').all() as Array<{ name?: string }>).map((row) => row.name),
       )
       if (!dispatchColumns.has('provenance')) db.exec('ALTER TABLE dispatch_ledger ADD COLUMN provenance TEXT')
+      if (!tableColumns(db, 'managed_model_intents').has('revision'))
+        db.exec('ALTER TABLE managed_model_intents ADD COLUMN revision INTEGER NOT NULL DEFAULT 1')
+      const memberModelColumns = new Set(
+        (db.prepare('PRAGMA table_info(member_model_selections)').all() as Array<{ name?: string }>).map(
+          (row) => row.name,
+        ),
+      )
+      if (!memberModelColumns.has('session_seq'))
+        db.exec('ALTER TABLE member_model_selections ADD COLUMN session_seq INTEGER')
+      if (!memberModelColumns.has('native_selection_key'))
+        db.exec('ALTER TABLE member_model_selections ADD COLUMN native_selection_key TEXT')
       let activityLegacyConflictCount = 0
       const activitySql = (
         db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'activity_journal'").get() as
@@ -1355,10 +1340,10 @@ class SidecarStore implements AcpSidecar {
       'INSERT INTO recovery_states (dsh_session_id, time, last_attempt_at, last_user_action, payload) VALUES (?, ?, ?, ?, ?) ON CONFLICT(dsh_session_id) DO UPDATE SET time = excluded.time, last_attempt_at = excluded.last_attempt_at, last_user_action = excluded.last_user_action, payload = excluded.payload',
     )
     this.stmtGetMemberModelSelection = db.prepare(
-      'SELECT binding_key, model_id FROM member_model_selections WHERE dsh_session_id = ?',
+      'SELECT binding_key, model_id, session_seq, native_selection_key FROM member_model_selections WHERE dsh_session_id = ?',
     )
     this.stmtUpsertMemberModelSelection = db.prepare(
-      'INSERT INTO member_model_selections (dsh_session_id, binding_key, model_id) VALUES (?, ?, ?) ON CONFLICT(dsh_session_id) DO UPDATE SET binding_key = excluded.binding_key, model_id = excluded.model_id',
+      'INSERT INTO member_model_selections (dsh_session_id, binding_key, model_id, session_seq, native_selection_key) VALUES (?, ?, ?, ?, ?) ON CONFLICT(dsh_session_id) DO UPDATE SET binding_key = excluded.binding_key, model_id = excluded.model_id, session_seq = excluded.session_seq, native_selection_key = excluded.native_selection_key',
     )
     try {
       chmodSync(this.dbPath, 0o600)
@@ -1412,73 +1397,52 @@ class SidecarStore implements AcpSidecar {
     return (row?.max_seq ?? 0) + 1
   }
 
-  /**
-   * 同步落库：序号、内容 ID 与 decided 去重都在数据库写锁内分配；binding
-   * 同时 upsert 最新索引表。
-   */
-  private insertSync(sessionId: string, entry: StampedEntry, directoryForkParent?: AcpBindingData): void {
+  private transaction(write: () => void): void {
     const db = this.ensureDb()
-    const ids = deriveAcpIds(entry.kind, entry.data)
-    const dedupeKey = decidedDedupeKeyOf(entry.kind, entry.data)
-    const payload = stableStringify(entry.data)
     db.exec('BEGIN IMMEDIATE')
-    let transactionOpen = true
     try {
-      if (entry.kind === 'permission' && dedupeKey !== undefined && this.stmtHasDedupe?.get(sessionId, dedupeKey)) {
-        db.exec('COMMIT')
-        transactionOpen = false
-        return
-      }
-      if (entry.kind === 'binding') {
-        if (directoryForkParent === undefined) this.assertBindingTransition(sessionId, entry)
-        else this.assertDirectoryForkTransition(sessionId, entry, directoryForkParent)
-      }
-      const identity = this.nextAuditIdentity(sessionId, entry)
-      const seq = identity.seq
-      const recordId = dedupeKey ?? identity.recordId
-      const result =
-        entry.kind === 'permission' && dedupeKey !== undefined
-          ? this.stmtInsertIgnore?.run(
-              recordId,
-              sessionId,
-              seq,
-              entry.time,
-              entry.kind,
-              ids.acpProviderId ?? null,
-              ids.acpSessionId ?? null,
-              dedupeKey,
-              payload,
-            )
-          : this.stmtInsert?.run(
-              recordId,
-              sessionId,
-              seq,
-              entry.time,
-              entry.kind,
-              ids.acpProviderId ?? null,
-              ids.acpSessionId ?? null,
-              null,
-              payload,
-            )
-      if (result !== undefined && Number(result.changes) === 0) {
-        db.exec('COMMIT')
-        transactionOpen = false
-        return
-      }
-      if (entry.kind === 'binding')
-        this.stmtUpsertBinding?.run(sessionId, entry.time, ids.acpProviderId ?? null, ids.acpSessionId ?? null, payload)
+      write()
       db.exec('COMMIT')
-      transactionOpen = false
-    } catch (error: unknown) {
-      if (transactionOpen) {
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* preserve original */
-        }
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* preserve original failure */
       }
       throw error
     }
+  }
+
+  private insertSync(sessionId: string, entry: StampedEntry): void {
+    this.transaction(() => this.insertInTransaction(sessionId, entry))
+  }
+
+  /** Allocate audit identities and update the binding index under the caller's SQLite write lock. */
+  private insertInTransaction(sessionId: string, entry: StampedEntry, directoryForkParent?: AcpBindingData): void {
+    const dedupeKey = decidedDedupeKeyOf(entry.kind, entry.data)
+    const deduplicate = entry.kind === 'permission' && dedupeKey !== undefined
+    if (deduplicate && this.stmtHasDedupe?.get(sessionId, dedupeKey)) return
+    if (entry.kind === 'binding') {
+      if (directoryForkParent === undefined) this.assertBindingTransition(sessionId, entry)
+      else this.assertDirectoryForkTransition(sessionId, entry, directoryForkParent)
+    }
+    const ids = deriveAcpIds(entry.kind, entry.data)
+    const payload = stableStringify(entry.data)
+    const { seq, recordId } = this.nextAuditIdentity(sessionId, entry)
+    const statement = deduplicate ? this.stmtInsertIgnore : this.stmtInsert
+    const result = statement!.run(
+      dedupeKey ?? recordId,
+      sessionId,
+      seq,
+      entry.time,
+      entry.kind,
+      ids.acpProviderId ?? null,
+      ids.acpSessionId ?? null,
+      deduplicate ? dedupeKey : null,
+      payload,
+    )
+    if (entry.kind === 'binding' && Number(result.changes) !== 0)
+      this.stmtUpsertBinding!.run(sessionId, entry.time, ids.acpProviderId ?? null, ids.acpSessionId ?? null, payload)
   }
 
   /** 为一条非去重审计分配 seq 与无碰撞 record id。 */
@@ -1738,10 +1702,52 @@ class SidecarStore implements AcpSidecar {
     }
   }
 
-  async commitDirectoryFork(sessionId: SessionId, parent: AcpBindingData, replacement: AcpBindingData): Promise<void> {
+  async commitDirectoryFork(
+    sessionId: SessionId,
+    parent: AcpBindingData,
+    replacement: AcpBindingData,
+    model?: { readonly id: string; readonly value: string },
+  ): Promise<void> {
     assertSafeSessionId(sessionId)
     this.drainQueue()
-    this.insertSync(sessionId, { kind: 'binding', time: this.now(), data: replacement }, parent)
+    const time = this.now()
+    this.transaction(() => {
+      this.insertInTransaction(sessionId, { kind: 'binding', time, data: replacement }, parent)
+      // Move only this verified parent's choice. A fork that does not report the selected
+      // model needs a fresh user confirmation before any message may reach the child.
+      this.ensureDb()
+        .prepare(
+          'UPDATE managed_model_intents SET binding_key = ?, revision=revision+1, option_id = COALESCE(?, option_id), confirmed = CASE WHEN option_id = ? AND target = ? THEN confirmed ELSE 0 END WHERE dsh_session_id = ? AND binding_key = ?',
+        )
+        .run(
+          modeIntentBindingKey(replacement),
+          model?.id ?? null,
+          model?.id ?? null,
+          model?.value ?? null,
+          sessionId,
+          modeIntentBindingKey(parent),
+        )
+
+      this.insertInTransaction(sessionId, {
+        kind: 'session-fork',
+        time,
+        data: {
+          outcome: 'inherited',
+          reason: 'inherited',
+          parentSessionId: sessionId,
+          parentAgentSessionId: parent.agentSessionId,
+          agentSessionId: replacement.agentSessionId,
+        },
+      })
+      this.upsertRecoveryState({
+        dshSessionId: sessionId,
+        kind: 'healthy',
+        provider: replacement.provider,
+        acpSessionId: replacement.agentSessionId,
+        generation: replacement.generation,
+        updatedAt: time,
+      })
+    })
   }
 
   async beginDispatch(record: AcpDispatchRecord): Promise<void> {
@@ -1752,6 +1758,12 @@ class SidecarStore implements AcpSidecar {
       throw new TypeError('dsh-acp dispatch key must be 1..1024 characters')
     if (record.provider.length === 0 || record.model.length === 0 || !Number.isSafeInteger(record.createdAt))
       throw new TypeError('dsh-acp dispatch record is malformed')
+    const selected = record.provenance?.confirmedAgentModel
+    if (
+      selected !== undefined &&
+      (typeof selected !== 'string' || !selected || selected.length > ACP_CONFIG_IDENTIFIER_MAX)
+    )
+      throw new TypeError('Invalid confirmed ACP model')
     const provenance = record.provenance === undefined ? null : JSON.stringify(record.provenance)
     if (provenance !== null && provenance.length > 32_768)
       throw new TypeError('dsh-acp dispatch provenance exceeds 32 KiB')
@@ -1843,7 +1855,16 @@ class SidecarStore implements AcpSidecar {
     if (typeof row.provenance === 'string') {
       try {
         const parsed = JSON.parse(row.provenance)
-        if (isPlainObject(parsed)) provenance = parsed as AcpDispatchRecord['provenance']
+        if (isPlainObject(parsed)) {
+          if (
+            parsed.confirmedAgentModel !== undefined &&
+            (typeof parsed.confirmedAgentModel !== 'string' ||
+              !parsed.confirmedAgentModel ||
+              parsed.confirmedAgentModel.length > ACP_CONFIG_IDENTIFIER_MAX)
+          )
+            delete parsed.confirmedAgentModel
+          provenance = parsed as AcpDispatchRecord['provenance']
+        }
       } catch {
         /* malformed provenance is omitted from diagnostics */
       }
@@ -2301,6 +2322,63 @@ class SidecarStore implements AcpSidecar {
     }
   }
 
+  initializeNativeForkScope(): string {
+    const db = this.ensureDb()
+    db.prepare('INSERT OR IGNORE INTO native_fork_scope (singleton, scope_id) VALUES (1, ?)').run(randomUUID())
+    const row = db.prepare('SELECT scope_id FROM native_fork_scope WHERE singleton = 1').get() as
+      { scope_id: unknown } | undefined
+    if (typeof row?.scope_id !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(row.scope_id))
+      throw new Error('ACP native fork scope is malformed')
+    return row.scope_id
+  }
+
+  readNativeFork(sessionId: SessionId): Promise<AcpNativeForkSource | undefined> {
+    assertSafeSessionId(sessionId)
+    try {
+      const row = this.openIfExists()
+        ?.prepare('SELECT payload FROM native_fork_sources WHERE dsh_session_id = ?')
+        .get(sessionId) as { payload: string } | undefined
+      if (row === undefined) return Promise.resolve(undefined)
+      const source = nativeForkSourceSchema.parse(JSON.parse(row.payload))
+      if (source.dshSessionId !== sessionId || source.sourceSessionId === sessionId)
+        throw new Error('ACP native fork source is malformed')
+      return Promise.resolve(source)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  }
+
+  recordNativeFork(source: AcpNativeForkSource): Promise<void> {
+    const validated = nativeForkSourceSchema.parse(source)
+    assertSafeSessionId(validated.dshSessionId)
+    assertSafeSessionId(validated.sourceSessionId)
+    if (validated.dshSessionId === validated.sourceSessionId) throw new Error('ACP native fork cannot source itself')
+    try {
+      const db = this.ensureDb()
+      const payload = stableStringify(validated)
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        const existing = db
+          .prepare('SELECT payload FROM native_fork_sources WHERE dsh_session_id = ?')
+          .get(validated.dshSessionId) as { payload: string } | undefined
+        if (existing !== undefined && existing.payload !== payload)
+          throw new Error('ACP native fork already has a different source or cut')
+        if (existing === undefined)
+          db.prepare('INSERT INTO native_fork_sources (dsh_session_id, payload) VALUES (?, ?)').run(
+            validated.dshSessionId,
+            payload,
+          )
+        db.exec('COMMIT')
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+      return Promise.resolve()
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  }
+
   readRecoveryState(sessionId: SessionId): Promise<AcpRecoveryState | undefined> {
     assertSafeSessionId(sessionId)
     try {
@@ -2338,30 +2416,38 @@ class SidecarStore implements AcpSidecar {
     )
       throw new TypeError('dsh-acp sidecar: dispatch can only be cleared with an explicit healthy recovery action')
     try {
-      const db = this.ensureDb()
-      db.exec('BEGIN IMMEDIATE')
-      try {
-        this.stmtUpsertRecoveryState?.run(
-          validated.dshSessionId,
-          validated.updatedAt,
-          validated.lastAttemptAt ?? null,
-          validated.lastUserAction ?? null,
-          stableStringify(validated),
-        )
-        if (options?.clearDispatch === true) this.stmtDeleteDispatch?.run(validated.dshSessionId)
-        db.exec('COMMIT')
-      } catch (error: unknown) {
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* preserve original failure */
+      this.transaction(() => {
+        this.upsertRecoveryState(validated)
+        if (options?.clearDispatch === true) {
+          this.stmtDeleteDispatch?.run(validated.dshSessionId)
+          if (validated.lastUserAction === 'rebind-blank')
+            this.ensureDb()
+              .prepare('DELETE FROM managed_model_intents WHERE dsh_session_id=?')
+              .run(validated.dshSessionId)
         }
-        throw error
-      }
+      })
       return Promise.resolve()
     } catch (error: unknown) {
       return Promise.reject(error instanceof Error ? error : new Error(errorMessage(error)))
     }
+  }
+
+  private upsertRecoveryState(state: AcpRecoveryState): void {
+    this.stmtUpsertRecoveryState!.run(
+      state.dshSessionId,
+      state.updatedAt,
+      state.lastAttemptAt ?? null,
+      state.lastUserAction ?? null,
+      stableStringify(state),
+    )
+  }
+
+  async listBoundProviders(): Promise<readonly string[]> {
+    this.drainQueue()
+    const db = this.openIfExists()
+    if (db === undefined) return []
+    const rows = db.prepare('SELECT DISTINCT acp_provider_id FROM bindings').all()
+    return rows.map((row) => row.acp_provider_id).filter((id): id is string => typeof id === 'string')
   }
 
   listBindings(): Promise<readonly AcpBoundSessionBinding[]> {
@@ -2505,6 +2591,163 @@ class SidecarStore implements AcpSidecar {
     return Number(row?.max_seq ?? 0)
   }
 
+  async recordManagedModelTurn(sessionId: SessionId, bindingKey: string, turn: AcpManagedModelTurn): Promise<void> {
+    assertSafeSessionId(sessionId)
+    if (
+      !bindingKey ||
+      bindingKey.length > ACP_MEMBER_BINDING_KEY_MAX ||
+      !turn.model ||
+      turn.model.length > ACP_CONFIG_IDENTIFIER_MAX ||
+      !Number.isSafeInteger(turn.ordinal) ||
+      turn.ordinal < 1 ||
+      (turn.used === null) !== (turn.size === null) ||
+      (turn.used !== null && (!Number.isSafeInteger(turn.used) || turn.used < 0)) ||
+      (turn.size !== null && (!Number.isSafeInteger(turn.size) || turn.size <= 0))
+    )
+      throw new TypeError('Invalid ACP managed model turn')
+    this.ensureDb()
+      .prepare(
+        `
+      INSERT INTO managed_model_turns (dsh_session_id, binding_key, model, ordinal, used, size, cost_amount, cost_currency)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (dsh_session_id, binding_key, model) DO UPDATE SET
+        ordinal = excluded.ordinal, used = excluded.used, size = COALESCE(excluded.size, managed_model_turns.size),
+        cost_amount = excluded.cost_amount, cost_currency = excluded.cost_currency
+      WHERE excluded.ordinal > managed_model_turns.ordinal
+    `,
+      )
+      .run(
+        sessionId,
+        bindingKey,
+        turn.model,
+        turn.ordinal,
+        turn.used,
+        turn.size,
+        turn.costAmount ?? null,
+        turn.costCurrency ?? null,
+      )
+  }
+
+  async readManagedModelTurns(sessionId: SessionId, bindingKey: string): Promise<AcpManagedModelTurn[]> {
+    assertSafeSessionId(sessionId)
+    return (this.openIfExists()
+      ?.prepare(
+        `SELECT model, ordinal, used, size, cost_amount AS costAmount, cost_currency AS costCurrency,
+          CASE WHEN failure_ordinal > COALESCE(through_ordinal, 0) THEN failure_ordinal END AS failureOrdinal
+        FROM managed_model_turns LEFT JOIN managed_model_failure_acknowledgements USING (dsh_session_id, binding_key)
+        WHERE dsh_session_id = ? AND binding_key = ? ORDER BY ordinal DESC`,
+      )
+      .all(sessionId, bindingKey) ?? []) as unknown as AcpManagedModelTurn[]
+  }
+
+  async recordManagedModelFailure(
+    sessionId: SessionId,
+    bindingKey: string,
+    model: string,
+    ordinal: number,
+  ): Promise<void> {
+    assertSafeSessionId(sessionId)
+    if (
+      !model ||
+      model.length > ACP_CONFIG_IDENTIFIER_MAX ||
+      !Number.isSafeInteger(ordinal) ||
+      ordinal <= 0 ||
+      !bindingKey ||
+      bindingKey.length > ACP_MEMBER_BINDING_KEY_MAX
+    )
+      throw new TypeError('Invalid ACP failed model turn')
+    this.ensureDb()
+      .prepare(
+        `
+      INSERT INTO managed_model_turns (dsh_session_id, binding_key, model, ordinal, failure_ordinal)
+      VALUES (?, ?, ?, 0, ?)
+      ON CONFLICT (dsh_session_id, binding_key, model) DO UPDATE SET failure_ordinal = excluded.failure_ordinal
+      WHERE excluded.failure_ordinal > COALESCE(managed_model_turns.failure_ordinal, 0)
+    `,
+      )
+      .run(sessionId, bindingKey, model, ordinal)
+  }
+
+  async clearManagedModelFailures(sessionId: SessionId, bindingKey: string, throughOrdinal: number): Promise<void> {
+    assertSafeSessionId(sessionId)
+    if (
+      !bindingKey ||
+      bindingKey.length > ACP_MEMBER_BINDING_KEY_MAX ||
+      !Number.isSafeInteger(throughOrdinal) ||
+      throughOrdinal < 0
+    )
+      throw new TypeError('Invalid ACP model failure acknowledgement')
+    this.ensureDb()
+      .prepare(
+        `
+      INSERT INTO managed_model_failure_acknowledgements VALUES (?, ?, ?)
+      ON CONFLICT (dsh_session_id, binding_key) DO UPDATE SET through_ordinal = excluded.through_ordinal
+      WHERE excluded.through_ordinal > managed_model_failure_acknowledgements.through_ordinal
+    `,
+      )
+      .run(sessionId, bindingKey, throughOrdinal)
+  }
+
+  async readManagedModelIntent(sessionId: SessionId): Promise<AcpManagedModelIntent | undefined> {
+    assertSafeSessionId(sessionId)
+    const row = this.openIfExists()
+      ?.prepare(
+        'SELECT binding_key, option_id, target, confirmed,revision FROM managed_model_intents WHERE dsh_session_id = ?',
+      )
+      .get(sessionId) as
+      { binding_key: string; option_id: string; target: string; confirmed: number; revision: number } | undefined
+    return row === undefined
+      ? undefined
+      : {
+          bindingKey: row.binding_key,
+          optionId: row.option_id,
+          target: row.target,
+          confirmed: row.confirmed === 1,
+          revision: row.revision,
+        }
+  }
+
+  async changeManagedModelIntent(
+    sessionId: SessionId,
+    next: Omit<AcpManagedModelIntent, 'revision'>,
+    previous?: AcpManagedModelIntent,
+  ): Promise<AcpManagedModelIntent> {
+    assertSafeSessionId(sessionId)
+    if (
+      !next.bindingKey ||
+      next.bindingKey.length > ACP_MEMBER_BINDING_KEY_MAX ||
+      !next.optionId ||
+      next.optionId.length > ACP_CONFIG_IDENTIFIER_MAX ||
+      !next.target ||
+      next.target.length > ACP_CONFIG_IDENTIFIER_MAX ||
+      (previous !== undefined && next.bindingKey !== previous.bindingKey)
+    )
+      throw new Error('Invalid ACP model intent')
+    const db = this.ensureDb()
+    const revision = (previous?.revision ?? 0) + 1
+    if (!Number.isSafeInteger(revision)) throw new Error('Invalid ACP model selection revision')
+    const result =
+      previous === undefined
+        ? db
+            .prepare('INSERT OR IGNORE INTO managed_model_intents VALUES (?, ?, ?, ?, ?, ?)')
+            .run(sessionId, next.bindingKey, next.optionId, next.target, Number(next.confirmed), revision)
+        : db
+            .prepare(
+              'UPDATE managed_model_intents SET option_id=?, target=?, confirmed=?, revision=? WHERE dsh_session_id=? AND binding_key=? AND revision=?',
+            )
+            .run(
+              next.optionId,
+              next.target,
+              Number(next.confirmed),
+              revision,
+              sessionId,
+              previous.bindingKey,
+              previous.revision,
+            )
+    if (result.changes !== 1) throw new Error('ACP model selection has changed')
+    return { ...next, revision }
+  }
+
   async readModeIntent(sessionId: SessionId): Promise<AcpModeIntent | undefined> {
     assertSafeSessionId(sessionId)
     const row = this.openIfExists()
@@ -2542,22 +2785,30 @@ class SidecarStore implements AcpSidecar {
       this.openIfExists() === undefined
         ? undefined
         : (this.stmtGetMemberModelSelection?.get(sessionId) as
-            { binding_key?: unknown; model_id?: unknown } | undefined)
+            | { binding_key?: unknown; model_id?: unknown; session_seq?: unknown; native_selection_key?: unknown }
+            | undefined)
     if (row === undefined) return undefined
     if (
       typeof row.binding_key !== 'string' ||
       row.binding_key.length === 0 ||
       row.binding_key.length > ACP_MEMBER_BINDING_KEY_MAX ||
       typeof row.model_id !== 'string' ||
-      row.model_id.length === 0 ||
-      row.model_id.length > ACP_MEMBER_MODEL_MAX
+      !isAcpModelRouteWithinBounds(row.model_id) ||
+      (row.session_seq != null && (!Number.isSafeInteger(row.session_seq) || Number(row.session_seq) < 0)) ||
+      (row.native_selection_key != null &&
+        (typeof row.native_selection_key !== 'string' || row.native_selection_key.length > ACP_MEMBER_BINDING_KEY_MAX))
     ) {
       this.warn(
         `dsh-acp sidecar: malformed member model selection row for session ${JSON.stringify(sessionId as string)}; ignoring it`,
       )
       return undefined
     }
-    return { bindingKey: row.binding_key, model: row.model_id }
+    return {
+      bindingKey: row.binding_key,
+      model: row.model_id,
+      ...(row.session_seq == null ? {} : { sessionSeq: Number(row.session_seq) }),
+      ...(row.native_selection_key == null ? {} : { nativeSelectionKey: String(row.native_selection_key) }),
+    }
   }
 
   async writeMemberModelSelection(sessionId: SessionId, selection: AcpMemberModelSelection): Promise<void> {
@@ -2568,13 +2819,38 @@ class SidecarStore implements AcpSidecar {
       selection.bindingKey.length === 0 ||
       selection.bindingKey.length > ACP_MEMBER_BINDING_KEY_MAX ||
       typeof selection.model !== 'string' ||
-      selection.model.length === 0 ||
-      selection.model.length > ACP_MEMBER_MODEL_MAX
+      !isAcpModelRouteWithinBounds(selection.model) ||
+      (selection.sessionSeq !== undefined &&
+        (!Number.isSafeInteger(selection.sessionSeq) || selection.sessionSeq < 0)) ||
+      (selection.nativeSelectionKey !== undefined &&
+        (typeof selection.nativeSelectionKey !== 'string' ||
+          selection.nativeSelectionKey.length > ACP_MEMBER_BINDING_KEY_MAX))
     ) {
       throw new TypeError('Invalid ACP member model selection')
     }
     this.ensureDb()
-    this.stmtUpsertMemberModelSelection?.run(sessionId, selection.bindingKey, selection.model)
+    this.stmtUpsertMemberModelSelection?.run(
+      sessionId,
+      selection.bindingKey,
+      selection.model,
+      selection.sessionSeq ?? null,
+      selection.nativeSelectionKey ?? null,
+    )
+  }
+
+  async clearMemberModelSelection(sessionId: SessionId, selection: AcpMemberModelSelection): Promise<void> {
+    assertSafeSessionId(sessionId)
+    this.openIfExists()
+      ?.prepare(
+        'DELETE FROM member_model_selections WHERE dsh_session_id = ? AND binding_key = ? AND model_id = ? AND session_seq IS ? AND native_selection_key IS ?',
+      )
+      .run(
+        sessionId,
+        selection.bindingKey,
+        selection.model,
+        selection.sessionSeq ?? null,
+        selection.nativeSelectionKey ?? null,
+      )
   }
 
   async readToolApprovalPolicy(sessionId: SessionId, initialize?: 'auto' | 'ask'): Promise<'auto' | 'ask' | undefined> {

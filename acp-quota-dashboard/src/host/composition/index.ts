@@ -10,8 +10,9 @@ import { installLegacySettingsImport } from './legacy-settings.ts'
 import { Config } from './config.ts'
 export { Config }
 import { installInstalledProfileRegistry } from './installed-profile-registry.ts'
-import { installAcpTextGeneration } from './text-generation.ts'
 import { resolveSubprocessSeam } from './subprocess.ts'
+import { installAcpTextGeneration } from './text-generation.ts'
+import { warnOnHostVersionMismatch } from './host-version.ts'
 
 export const name = 'dsh-acp-adapter'
 // Wait for the host-owned seams before creating routes. This avoids freezing a
@@ -20,23 +21,15 @@ export const name = 'dsh-acp-adapter'
 // when DSH can read its durable image references.  Waiting for this seam at
 // composition time prevents a health probe from freezing a false
 // `promptImage: unsupported` result before the host finishes booting.
-// Permission facts are read from the host preset projection before ACP dispatch.
-export const inject = [
-  'llm',
-  'sessions',
-  'subprocess',
-  'dshHomePath',
-  'attachments',
-  'sessionProjections',
-  'permissionPresets',
-]
+export const inject = ['llm', 'sessions', 'subprocess', 'dshHomePath', 'attachments', 'sessionProjections']
 
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
+  warnOnHostVersionMismatch(ctx)
   ctx.inject(['settings'], (child) => {
     child.effect(() => child.settings.configure({ auto: false }, ctx.fiber))
   })
   const subprocess = resolveSubprocessSeam(ctx)
-  const registry = installInstalledProfileRegistry(ctx, config, { installRemote: true, subprocess })
+  const registry = await installInstalledProfileRegistry(ctx, config, { installRemote: true, subprocess })
   installAcpTextGeneration(ctx, registry, subprocess)
   installLegacySettingsImport(ctx)
 }

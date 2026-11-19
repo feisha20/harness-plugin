@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type * as acp from '@agentclientprotocol/sdk'
+import { isOpenCodeQuestion } from '../../../src/agents/compatibility.ts'
+import { openCodeQuestionFixture } from '../../fixtures/opencode-question.ts'
 import {
   createAcpNativeElicitationHandler,
   type AcpNativeUserQuestionService,
@@ -36,7 +38,10 @@ describe('native ACP form elicitation bridge (M5c)', () => {
     expect(question?.options).toBeUndefined()
   })
 
-  it('maps string/enum, boolean, number/integer and multi-select answers to ACP content', async () => {
+  it.each([
+    { enabled: true, label: 'Yes', ratio: 1.5, count: 2 },
+    { enabled: false, label: 'No', ratio: 0, count: 0 },
+  ])('maps typed answers to ACP content, preserving false and zero: %j', async ({ enabled, label, ratio, count }) => {
     const agent = { id: 'root-agent' }
     const requests: unknown[] = []
     const userQuestions: AcpNativeUserQuestionService = {
@@ -46,9 +51,9 @@ describe('native ACP form elicitation bridge (M5c)', () => {
           answers: [
             { id: 'name', selected: [], custom: 'release-1' },
             { id: 'channel', selected: ['stable'] },
-            { id: 'enabled', selected: ['Yes'] },
-            { id: 'ratio', selected: [], custom: '1.5' },
-            { id: 'count', selected: [], custom: '2' },
+            { id: 'enabled', selected: [label] },
+            { id: 'ratio', selected: [], custom: String(ratio) },
+            { id: 'count', selected: [], custom: String(count) },
             { id: 'tags', selected: ['one', 'two'] },
           ],
         }
@@ -61,7 +66,7 @@ describe('native ACP form elicitation bridge (M5c)', () => {
         channel: { type: 'string', enum: ['stable', 'canary'] },
         enabled: { type: 'boolean' },
         ratio: { type: 'number', minimum: 0, maximum: 2 },
-        count: { type: 'integer', minimum: 1, maximum: 3 },
+        count: { type: 'integer', minimum: 0, maximum: 3 },
         tags: { type: 'array', items: { type: 'string', enum: ['one', 'two', 'three'] }, minItems: 1 },
       }),
     )
@@ -70,9 +75,9 @@ describe('native ACP form elicitation bridge (M5c)', () => {
       content: {
         name: 'release-1',
         channel: 'stable',
-        enabled: true,
-        ratio: 1.5,
-        count: 2,
+        enabled,
+        ratio,
+        count,
         tags: ['one', 'two'],
       },
     })
@@ -405,5 +410,276 @@ describe('native ACP form elicitation bridge (M5c)', () => {
     }
     expect(await handler(params, controller.signal)).toEqual({ action: 'cancel' })
     expect(approveDelegatedOnce).toHaveBeenCalledTimes(['approval-error', 'late-abort'].includes(scenario) ? 1 : 0)
+  })
+
+  describe('OpenCode question tool (#75)', () => {
+    it.each([
+      ['single choice', false, ['B'], undefined, { q0: 'B' }],
+      ['single custom', false, [], 'My plan', { q0_custom: 'My plan' }],
+      ['multiple choices and custom', true, ['A', 'B'], 'Another plan', { q0: ['A', 'B'], q0_custom: 'Another plan' }],
+      ['custom multi-select only', true, [], 'My plan', { q0_custom: 'My plan' }],
+      ['skipped', false, [], undefined, {}],
+    ] as const)('keeps %s on one native question', async (_name, multiple, selected, custom, content) => {
+      const { tool, request } = openCodeQuestionFixture(multiple)
+      expect(isOpenCodeQuestion('OpenCode', request, tool)).toBe(true)
+      const handler = createAcpNativeElicitationHandler({
+        getAgent: () => ({}),
+        openCodeQuestion: true,
+        userQuestions: {
+          ask: async ({ questions }) => {
+            expect(questions.map((q) => q.id)).toEqual(['q0'])
+            expect(questions[0]?.multiSelect === true).toBe(multiple)
+            return { answers: [{ id: 'q0', selected, ...(custom === undefined ? {} : { custom }) }] }
+          },
+        },
+      })
+      await expect(handler(request)).resolves.toEqual({ action: 'accept', content })
+    })
+
+    it('requires the live OpenCode call, its original input and the whole generated schema', () => {
+      const { tool, request } = openCodeQuestionFixture()
+      expect(isOpenCodeQuestion('another-agent', request, tool)).toBe(false)
+      expect(isOpenCodeQuestion('OpenCode', request, undefined)).toBe(false)
+      expect(isOpenCodeQuestion('OpenCode', request, { ...tool, name: 'another-tool' })).toBe(false)
+      expect(isOpenCodeQuestion('OpenCode', request, { ...tool, toolCallId: 'another-call' })).toBe(false)
+      expect(isOpenCodeQuestion('OpenCode', request, { ...tool, rawInput: {} })).toBe(false)
+      const properties = request.requestedSchema.properties
+      for (const requestedSchema of [
+        {},
+        { properties: null },
+        { properties: [] },
+        { ...request.requestedSchema, properties: { ...properties, notes: { type: 'string' as const } } },
+        {
+          ...request.requestedSchema,
+          properties: { ...properties, q0_custom: { ...properties.q0_custom, maxLength: 10 } },
+        },
+        { ...request.requestedSchema, properties: { ...properties, q0: { ...properties.q0, title: 'New plan' } } },
+        { ...request.requestedSchema, required: ['q0_custom'] },
+      ]) {
+        expect(isOpenCodeQuestion('OpenCode', { ...request, requestedSchema }, tool)).toBe(false)
+      }
+    })
+  })
+
+  describe('optional fields without inferred companion relationships (#75)', () => {
+    type Answer = { id: string; selected: string[]; custom?: string }
+    const ask = (answers: (ids: readonly string[]) => Answer[]) => {
+      const seen: Parameters<AcpNativeUserQuestionService['ask']>[0]['questions'][] = []
+      const handler = createAcpNativeElicitationHandler({
+        getAgent: () => ({}),
+        userQuestions: {
+          ask: async ({ questions }) => {
+            seen.push([...questions])
+            return { answers: answers(questions.map((question) => question.id)) }
+          },
+        },
+      })
+      return { handler, seen }
+    }
+    // A generic form can legitimately name an independent text field "(other)".
+    const single = (required: string[] = []) =>
+      form(
+        {
+          pick: {
+            type: 'string',
+            title: 'Repro',
+            oneOf: [
+              { const: 'a', title: 'Option A' },
+              { const: 'b', title: 'Option B' },
+            ],
+          },
+          pick_custom: { type: 'string', title: 'Repro (other)', description: 'Type your own answer' },
+        },
+        required,
+      )
+
+    it.each([
+      ['a listed choice', ['Option A'], undefined, { pick: 'a' }],
+      ['the independent text answer', [], 'my own', { pick_custom: 'my own' }],
+      ['both fields', ['Option B'], 'deployment notes', { pick: 'b', pick_custom: 'deployment notes' }],
+      ['Skip', [], undefined, {}],
+    ] as const)('preserves both questions and accepts %s', async (_name, selected, custom, content) => {
+      const { handler, seen } = ask(() => [
+        { id: 'pick', selected: [...selected] },
+        { id: 'pick_custom', selected: [], ...(custom === undefined ? {} : { custom }) },
+      ])
+      await expect(handler(single())).resolves.toEqual({ action: 'accept', content })
+      expect(seen[0]!.map((question) => question.id)).toEqual(['pick', 'pick_custom'])
+      expect(seen[0]!.map((question) => question.header)).toEqual(['Optional', 'Optional'])
+      expect(seen[0]![1]).toMatchObject({ question: 'Repro (other)', detail: 'Type your own answer' })
+    })
+
+    it('preserves an independent optional field whose name ends in _custom', async () => {
+      const { handler, seen } = ask(() => [
+        { id: 'plan', selected: ['pro'] },
+        { id: 'plan_custom', selected: [], custom: 'Use our existing deployment' },
+      ])
+      await expect(
+        handler(
+          form(
+            {
+              plan: { type: 'string', enum: ['basic', 'pro'] },
+              plan_custom: {
+                type: 'string',
+                title: 'Custom deployment notes',
+                description: 'Describe changes needed for the selected plan',
+              },
+            },
+            [],
+          ),
+        ),
+      ).resolves.toEqual({ action: 'accept', content: { plan: 'pro', plan_custom: 'Use our existing deployment' } })
+      expect(seen[0]![1]).toMatchObject({
+        id: 'plan_custom',
+        question: 'Custom deployment notes',
+        detail: 'Describe changes needed for the selected plan',
+      })
+    })
+
+    it('parses a titled anyOf multi-select and preserves the separate text field', async () => {
+      const { handler, seen } = ask(() => [
+        { id: 'tags', selected: ['One', 'Two'] },
+        { id: 'tags_custom', selected: [], custom: 'three' },
+      ])
+      const params = form(
+        {
+          tags: {
+            type: 'array',
+            items: {
+              anyOf: [
+                { const: 'one', title: 'One' },
+                { const: 'two', title: 'Two' },
+              ],
+            },
+          },
+          tags_custom: { type: 'string', description: 'Add your own answer' },
+        },
+        [],
+      )
+      await expect(handler(params)).resolves.toEqual({
+        action: 'accept',
+        content: { tags: ['one', 'two'], tags_custom: 'three' },
+      })
+      expect(seen[0]).toHaveLength(2)
+      expect(seen[0]![0]!.multiSelect).toBe(true)
+    })
+
+    it('rejects a multi-select declaring both oneOf and anyOf', async () => {
+      const { handler, seen } = ask(() => [])
+      const choices = [{ const: 'one', title: 'One' }]
+      await expect(
+        handler(form({ tags: { type: 'array', items: { oneOf: choices, anyOf: choices } } })),
+      ).resolves.toEqual({ action: 'cancel' })
+      expect(seen).toHaveLength(0)
+    })
+
+    it('preserves a required choice and omits the skipped optional text field', async () => {
+      const { handler, seen } = ask(() => [
+        { id: 'pick', selected: ['Option B'] },
+        { id: 'pick_custom', selected: [] },
+      ])
+      await expect(handler(single(['pick']))).resolves.toEqual({ action: 'accept', content: { pick: 'b' } })
+      expect(seen[0]!.map((question) => question.id)).toEqual(['pick', 'pick_custom'])
+      expect(seen[0]!.map((question) => question.header)).toEqual([undefined, 'Optional'])
+    })
+
+    it.each([
+      ['a required companion', { a: { type: 'string', enum: ['x'] }, a_custom: { type: 'string' } }, ['a_custom']],
+      [
+        'a companion that is not adjacent',
+        { a: { type: 'string', enum: ['x'] }, note: { type: 'string' }, a_custom: { type: 'string' } },
+        [],
+      ],
+      ['a text field without choices', { a: { type: 'string' }, a_custom: { type: 'string' } }, []],
+    ] as const)('does not merge %s', async (_name, properties, required) => {
+      const { handler, seen } = ask((ids) => ids.map((id) => ({ id, selected: [] })))
+      await handler(form(properties, [...required]))
+      expect(seen[0]!.map((question) => question.id)).toEqual(Object.keys(properties))
+    })
+
+    it.each([false, true])('refuses enum free text regardless of a following _custom field: %s', async (withCustom) => {
+      const { handler } = ask(() => [{ id: 'pick', selected: [], custom: 'anything' }])
+      await expect(
+        handler(
+          form(
+            { pick: { type: 'string', enum: ['a', 'b'] }, ...(withCustom ? { pick_custom: { type: 'string' } } : {}) },
+            [],
+          ),
+        ),
+      ).resolves.toEqual({ action: 'cancel' })
+    })
+
+    it('omits skipped optional enum, number, boolean and constrained text fields', async () => {
+      const { handler } = ask((ids) => ids.map((id) => ({ id, selected: [] })))
+      const params = form(
+        {
+          choice: { type: 'string', enum: ['a', 'b'] },
+          count: { type: 'integer', minimum: 1 },
+          enabled: { type: 'boolean' },
+          code: { type: 'string', minLength: 3 },
+          tags: { type: 'array', minItems: 1, items: { enum: ['one'] } },
+        },
+        [],
+      )
+      await expect(handler(params)).resolves.toEqual({ action: 'accept', content: {} })
+    })
+
+    it.each([
+      { type: 'string' },
+      { type: 'string', enum: ['a', 'b'] },
+      { type: 'number' },
+      { type: 'boolean' },
+      { type: 'array', items: { enum: ['a'] } },
+    ])('cancels when a required field is missing or skipped: %j', async (field) => {
+      for (const answers of [[], [{ id: 'value', selected: [] }]]) {
+        const { handler } = ask(() => answers)
+        await expect(handler(form({ value: field }))).resolves.toEqual({ action: 'cancel' })
+      }
+    })
+
+    it('validates the independent text field constraints', async () => {
+      const { handler } = ask(() => [{ id: 'pick_custom', selected: [], custom: 'x' }])
+      const params = single()
+      ;(params as any).requestedSchema.properties.pick_custom.minLength = 3
+      await expect(handler(params)).resolves.toEqual({ action: 'cancel' })
+    })
+  })
+
+  it.each([
+    ['missing', []],
+    ['skipped', [{ id: 'persist', selected: [] }]],
+    ['blank', [{ id: 'persist', selected: [], custom: '  ' }]],
+  ] as const)('cancels an optional permission scope when its answer is %s', async (_name, answers) => {
+    const handler = createAcpNativeElicitationHandler({
+      getAgent: () => ({}),
+      hostToolName: 'bash',
+      userQuestions: { ask: async () => ({ answers }) },
+    })
+    for (const choices of [['once'], ['once', 'session', 'always']]) {
+      const params = {
+        ...form({ persist: { type: 'string', enum: choices } }, []),
+        _meta: { codex_approval_kind: 'mcp_tool_call' },
+      }
+      await expect(handler(params)).resolves.toEqual({ action: 'cancel' })
+    }
+  })
+
+  it('accepts an explicitly selected optional permission scope without answering it on the user behalf', async () => {
+    const handler = createAcpNativeElicitationHandler({
+      getAgent: () => ({}),
+      hostToolName: 'bash',
+      userQuestions: {
+        ask: async ({ questions }) => {
+          expect(questions[0]?.header).toBeUndefined()
+          return { answers: [{ id: 'persist', selected: [questions[0]!.options![1]!.label] }] }
+        },
+      },
+    })
+    await expect(
+      handler({
+        ...form({ persist: { type: 'string', enum: ['once', 'session', 'always'] } }, []),
+        _meta: { codex_approval_kind: 'mcp_tool_call' },
+      }),
+    ).resolves.toEqual({ action: 'accept', content: { persist: 'session' } })
   })
 })

@@ -12,13 +12,24 @@ import type { AcpReportedUsage } from './reported-usage.ts'
  * 形状纪律：全部字段只含 string/number/boolean/字面量联合/null/readonly 数组与
  * `Record<string, string>` 标签——strict 生成已验证保真（readonly/union/literal/
  * null 联合/z.record）。改这里的形状必须重跑 `pnpm gen:typert` 并全绿门禁。
- * @module @zaimokuza/dsh-acp-adapter/contract/remote
+ * @module @feisha20/dsh-acp-adapter/contract/remote
  */
 
 /** Stable ACP diagnostics preserved by the supported DSH typed Remote failure carrier. */
 export interface AcpRemoteErrorDetails {
   readonly kind: string | null
   readonly correlationId: string | null
+}
+
+export type AcpNativeForkRejection =
+  'unavailable' | 'invalid-seed' | 'source-conflict' | 'child-bound' | 'source-unavailable' | 'child-changed'
+
+/** A native child remains intact after registration is refused. */
+export interface AcpNativeForkErrorDetails {
+  readonly sessionId: string
+  readonly sourceSessionId: string
+  readonly atSeq: number
+  readonly reason: AcpNativeForkRejection
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -33,6 +44,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'dsh-acp/user-rejected': AcpRemoteErrorDetails
     'dsh-acp/activity-binding-pending': AcpRemoteErrorDetails
     'dsh-acp/resume-conflict': AcpRemoteErrorDetails
+    'dsh-acp/native-fork-rejected': AcpNativeForkErrorDetails
+    'dsh-acp/native-fork-scope-unavailable': { readonly sessionId: string }
+    'dsh-acp/model-switch-unavailable': { readonly reason: 'existing-session' }
   }
 }
 
@@ -164,6 +178,8 @@ export interface AcpProviderHealth {
   readonly version: string | null
   /** 五态状态（派生规则见 src/domain/session/agent-state.ts）。 */
   readonly state: AcpAgentConfigState
+  /** Configuration refusal is not a protocol probe or process failure. */
+  readonly unavailableReason?: 'agent-retired'
   /**
    * 上次 probe 快照（llm-stub 缓存；首次目录构建前为 'never'）。成功分支携带
    * authMethods（收窄后）、agentInfo/capabilities（initialize 握手实际值）、
@@ -216,12 +232,23 @@ export interface AcpHealthView {
   readonly providers: readonly AcpProviderHealth[]
   /** 活体 ACP 会话的连续性清单（未接线/无活体会话归 null 或空数组，如实区分）。 */
   readonly liveSessions: readonly AcpLiveSessionContinuity[] | null
+  /** Present only when this Host runs a DSH version other than the one the adapter is built for. */
+  readonly hostVersion?: AcpHostVersionMismatchView
 }
 
-/** Exact provider routes currently configured by this plugin or durably
- * referenced by one of its historical bindings. */
+export interface AcpHostVersionMismatchView {
+  readonly required: string
+  readonly running: string
+}
+
+/** Live registration ownership and candidate names for historical session lookup. */
 export interface AcpOwnedRoutesView {
+  /** Live routes registered by this plugin on the Host. */
   readonly providers: readonly string[]
+  /** Opaque registration lifetimes. An existing user choice cannot authorize a replacement Agent. */
+  readonly generations?: Readonly<Record<string, string>>
+  /** Routes referenced by stored bindings. Only a session-specific record proves historical ownership. */
+  readonly historicalProviders: readonly string[]
 }
 
 export interface AcpProjectedSubagentsView {
@@ -384,22 +411,12 @@ export interface AcpHealthRequest {
   readonly agentId?: string
 }
 
-/**
- * `backendOf(sessionId)` 的应答（「backend 不可变」的 host 权威查询）。
- * - `'blank'`：尚无 ACP backend 承诺——无活体 ACP agent、无 sidecar binding、日志无
- *   request/header。若 DSH 已为该会话实例化 native wrapper，`current.provider` 会
- *   暴露该事实；当前 host 没有 live wrapper 替换 seam，跨到 ACP 会自动新建会话。
- * - `'draft'`：空白会话已启动 ACP wrapper、可读取会话级配置，但首条 prompt 尚未
- *   提交 ACP binding；同一 ACP profile 可原地选模型，跨 profile/native 会自动新建会话。
- * - `'established'`：backend 已锁定；`provider` 即路由 id（`acp-<id>` 前缀 =
- *   ACP profile，其余 = native）。executionBackend 的持久化真源：ACP 侧 =
- * sidecar binding（创建时即写）+ 日志 request/header（首 turn 落）；
- *   native 侧 = request/header。backend 创建后不可变，跨 backend 只能新建会话。
- */
+/** A committed ACP binding proves session ownership even after its registration
+ * disappears. A request header alone identifies the provider selected by DSH. */
 export type AcpBackendState =
   | { readonly state: 'blank' }
   | { readonly state: 'draft'; readonly provider: string; readonly model?: string }
-  | { readonly state: 'established'; readonly provider: string }
+  | { readonly state: 'established'; readonly provider: string; readonly acpBinding?: true }
 
 export type AcpRecoveryKind =
   | 'healthy'
@@ -461,6 +478,19 @@ export interface AcpAgentSessionSnapshotView {
   readonly profileId: string
   readonly modeWritable?: boolean
   readonly pendingModeId?: string | null
+  /** Present for an established main session that delegated its model to the Agent. */
+  readonly managedModel?: {
+    readonly optionId: string
+    readonly confirmed: string | null
+    readonly requested?: string
+    readonly recovery?: 'unconfirmed' | 'possibly-delivered'
+    readonly lastSuccessfulModel?: string
+    readonly capacityRisks?: readonly {
+      readonly model: string
+      readonly lastUsed: number
+      readonly targetSize: number
+    }[]
+  }
   readonly freshness: 'live' | 'stale'
   readonly editable: boolean
   readonly configOptions: readonly AcpConfigOption[] | null
@@ -519,10 +549,11 @@ export interface AcpTeamMemberView {
   readonly profileId: string | null
   readonly sessionId: string
   readonly name: string
-  readonly status: 'running' | 'inactive' | 'provisioning' | 'failed'
+  readonly status: 'running' | 'inactive'
   readonly model: string | null
   readonly pendingModel?: string | null
   readonly modelWritable?: boolean
+  readonly modelUnavailableReason?: 'model-switch' | null
   readonly description: string | null
 }
 
@@ -532,6 +563,8 @@ export interface AcpTeamMemberModelsView {
   readonly pendingModel: string | null
   readonly models: readonly { readonly id: string; readonly name: string }[]
   readonly writable: boolean
+  /** Only restoring currentModel is supported after this member has started. */
+  readonly unavailableReason?: 'model-switch'
 }
 
 export type { QuotaView, QuotaBucket } from './quota.ts'

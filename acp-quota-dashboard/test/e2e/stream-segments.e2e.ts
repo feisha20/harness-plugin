@@ -2,6 +2,7 @@ import { required } from './required.ts'
 import type { TestBrowser } from './browser.ts'
 import { launchBrowser, newEnglishPage } from './browser.ts'
 import type { ObservedEvent } from './types.ts'
+import type { AcpRemoteService } from '../../src/remote/service.js'
 import { it, expect, vi } from 'vitest'
 import { join } from 'node:path'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -16,7 +17,7 @@ declare global {
   }
 }
 
-it.each(['claude', 'codex', 'devin', 'kimi'])(
+it.each(['claude', 'codex', 'devin'])(
   'preserves %s reasoning, message and tool boundaries live and after reload',
   async (profile) => {
     const host = await launchAdapterWorld({ renderProbe: true })
@@ -156,9 +157,21 @@ it.each(['claude', 'codex', 'devin', 'kimi'])(
         await control.waitFor()
         expect(await control.getAttribute('aria-expanded')).toBe('false')
         expect(await page.getByText('演示结束。', { exact: true }).isVisible()).toBe(true)
-        expect(await page.getByText('页面骨架已完成。', { exact: true }).isVisible()).toBe(false)
+        // DSH keeps every Assistant reply when work details fold (ui-chat.foldedReplies defaults to all).
+        expect(await page.getByText('页面骨架已完成。', { exact: true }).isVisible()).toBe(true)
         await verifyOrder()
       }
+      // "Final answer only" folds earlier replies with the process and keeps the closing answer.
+      await host.ctx.settings.replace('ui-chat', { foldedReplies: 'final' })
+      const processControl = page.locator('[data-turn-process-tool-calls="4"]')
+      // Changing the preference may reopen the latest process; fold it through its native control.
+      await expect.poll(() => page.getByText('页面骨架已完成。', { exact: true }).getAttribute('hidden')).toBeNull()
+      if ((await processControl.getAttribute('aria-expanded')) === 'true') await processControl.click()
+      await expect.poll(() => processControl.getAttribute('aria-expanded')).toBe('false')
+      await expect.poll(() => page.getByText('页面骨架已完成。', { exact: true }).isVisible()).toBe(false)
+      expect(await page.getByText('演示结束。', { exact: true }).isVisible()).toBe(true)
+      await host.ctx.settings.replace('ui-chat', { foldedReplies: 'all' })
+      await expect.poll(() => page.getByText('页面骨架已完成。', { exact: true }).isVisible()).toBe(true)
       const historicAnswer = page.getByText('页面骨架已完成。', { exact: true }).last()
       const historicKey = required(
         await historicAnswer.locator('xpath=ancestor::*[@data-chat-node-key][1]').getAttribute('data-chat-node-key'),
@@ -296,12 +309,31 @@ it.each(['claude', 'codex', 'devin', 'kimi'])(
         await page.locator('[data-chat-flow-kind=assistant-step]').getByText('Stopped', { exact: true }).count(),
       ).toBe(1)
       expect(await page.getByRole('button', { name: 'Stopped', exact: true }).count()).toBe(1)
+      if (profile === 'claude') {
+        // Reconnect can restore the transcript before the Host confirms the Agent route.
+        const remote = host.ctx.get('dshAcp') as AcpRemoteService
+        const routes = vi.spyOn(remote, 'ownedProviderRoutes').mockResolvedValue({
+          providers: [],
+          historicalProviders: [provider],
+        })
+        try {
+          await page.reload()
+          await page.getByText('演示结束。', { exact: true }).waitFor()
+          await expect.poll(() => routes.mock.calls.length).toBeGreaterThan(0)
+          await page.locator('[data-turn-process-tool-calls="0"]').waitFor()
+        } finally {
+          routes.mockRestore()
+        }
+        host.ctx.emit('llm/adapters-updated')
+        await verifyOrder()
+      }
       expect(errors).toEqual([])
     } catch (error) {
       const page = browser?.contexts()[0]?.pages()[0]
       if (page) {
-        mkdirSync(join(root, '.local/message-order-review'), { recursive: true })
-        await page.screenshot({ path: join(root, '.local/message-order-review/failure.png'), fullPage: true })
+        const dir = join(root, '.local/e2e-failures/stream-segments', profile)
+        mkdirSync(dir, { recursive: true })
+        await page.screenshot({ path: join(dir, 'failure.png'), fullPage: true })
         console.error(await page.locator('body').innerText(), errors)
       }
       throw error

@@ -506,6 +506,27 @@ describe('握手（happy / minimal-caps / no-config-options）', () => {
 })
 
 describe('prompt 流与 typed 方法', () => {
+  it('revalidates the selected model after draining Host work and before either input crosses the wire', async () => {
+    const { conn, logPath } = connectMock('happy', { env: { MOCK_STEERING: 'atomic' } })
+    await conn.initialize()
+    const { sessionId } = await conn.newSession()
+    const mismatch = new Error('model changed since input was admitted')
+    let actual = 'a'
+    const check = () => {
+      if (actual !== 'a') throw mismatch
+    }
+    const input = conn.prompt(sessionId, PROMPT_BLOCKS, undefined, { beforeDispatch: check })
+    actual = 'b'
+    await expect(input).rejects.toBe(mismatch)
+    await expect(conn.steer(sessionId, PROMPT_BLOCKS, check)).rejects.toMatchObject({ remoteRequestSent: false })
+    const rejected = fs.readFileSync(logPath, 'utf8')
+    expect(rejected).not.toContain('--> session/prompt ')
+    expect(rejected).not.toContain('--> _session/steering ')
+    actual = 'a'
+    await conn.prompt(sessionId, PROMPT_BLOCKS, undefined, { beforeDispatch: check })
+    expect(fs.readFileSync(logPath, 'utf8').match(/--> session\/prompt /g)).toHaveLength(1)
+  })
+
   it('happy：prompt 经 onUpdate 回调流出完整 turn 序列，stopReason=end_turn', async () => {
     const { conn } = connectMock('happy')
     await conn.initialize()
@@ -725,7 +746,9 @@ describe('错误分类', () => {
     const acpErr = err as AcpClientError
     expect(acpErr.kind).toBe('crash')
     expect(acpErr.exit?.code).toBe(1)
-    expect(acpErr.message).toContain('session/prompt')
+    expect(acpErr.cause).toBeInstanceOf(Error)
+    expect((acpErr.cause as Error).message).toContain('session/prompt')
+    expect(acpErr.message).toBe('The Agent disconnected. Check its connection in ACP settings.')
     expect(chunks).toEqual(['Partial', ' output'])
     // 已死进程的 close 立即返回
     await conn.close()
@@ -1288,7 +1311,7 @@ describe('stderr 环形缓冲与脱敏', () => {
     await conn.close()
   })
 
-  it('：crash 错误消息内嵌的 stderr 尾部同样脱敏（token 形字符串不落原文进 message）', async () => {
+  it('keeps the executable path and redacted stderr in diagnostics when session creation loses its connection', async () => {
     const conn = connectInline(STDERR_THEN_CRASH_AGENT)
     await conn.initialize()
     const err = await conn.newSession().then(
@@ -1300,10 +1323,13 @@ describe('stderr 环形缓冲与脱敏', () => {
     expect(err).toBeInstanceOf(AcpClientError)
     const acpErr = err as AcpClientError
     expect(acpErr.kind).toBe('crash')
-    // crashMessage 内嵌 stderr 尾部：脱敏发生在环形缓冲入口，message 只带滤后行
-    expect(acpErr.message).toContain('agent stderr')
-    expect(acpErr.message).not.toContain('sk-proj-abcdef1234567890abcdef')
-    expect(acpErr.message).toContain('<redacted')
+    expect(acpErr.message).toBe('The Agent disconnected. Check its connection in ACP settings.')
+    const diagnostic = (acpErr.cause as Error).message
+    expect(diagnostic).toContain(process.execPath)
+    expect(diagnostic).toContain('agent stderr')
+    expect(diagnostic).not.toContain('sk-proj-abcdef1234567890abcdef')
+    expect(diagnostic).toContain('<redacted')
+    expect(acpErr.stderrTail?.join(' ')).toContain('<redacted')
     await conn.close()
   })
 })

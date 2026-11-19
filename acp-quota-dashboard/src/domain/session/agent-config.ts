@@ -1,10 +1,10 @@
 /**
  * Shared ACP profile data: settings shape, `acp-<id>` routes, runtime binding rules and probe cache keys. Profile shapes and binding rules are
  * re-exported from the browser-safe contract. No host composition dependency.
- * @module @zaimokuza/dsh-acp-adapter/domain/session/agent-config
+ * @module @feisha20/dsh-acp-adapter/domain/session/agent-config
  */
 
-import type { AcpAgentConfig, AcpAgentId, AcpStubAgentConfig } from '../../contract/agent-config.ts'
+import type { AcpAgentConfig, AcpConfiguredRuntime, AcpStubAgentConfig } from '../../contract/agent-config.ts'
 export * from '../../contract/agent-config.ts'
 
 /**
@@ -53,7 +53,7 @@ export function acpVersionCompatibility(
  * 组合层会造成不必要的跨层依赖。
  */
 export function acpProbeConfigKey<
-  C extends Pick<AcpStubAgentConfig, 'command' | 'args' | 'env'> & { readonly runtime?: AcpAgentId },
+  C extends Pick<AcpStubAgentConfig, 'command' | 'args' | 'env'> & { readonly runtime?: AcpConfiguredRuntime },
 >(config: C): string {
   const envKeys = Object.keys(config.env).sort()
   const envHashes = Object.entries(config.env)

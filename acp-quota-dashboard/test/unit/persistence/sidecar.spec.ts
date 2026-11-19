@@ -1,27 +1,3 @@
-// sidecar.spec.ts — SQLite WAL 重写后的随附测试（src/persistence/sidecar.ts）。
-//
-// 旧 JSONL 用例 → 新实现语义映射（门槛不降）：
-// - v2 envelope 磁盘格式逐字段钉版 → list 逐行重建 v2 envelope
-//   （schemaVersion/recordId/seq/time/kind/dshSessionId/acp*/payload），list 统一
-//   读取模型不变；
-// - binding 语义门槛（ok/outdated/undefined 三态、outdated 绝不回退）→ bindings
-//   索引表 payload 全字段校验，畸形 binding 经 append（写路径不做语义校验，与 JSONL
-//   时代一致）落索引后判 outdated；
-// - 坏行容错（跳过 + warn）→ 行级校验容错：经第二个连接直插 SQL 的非法 audit 行
-//   （unknown kind / 坏 JSON / seq 0 / 非对象 payload / 空 recordId）跳过 + warn；
-//   JSONL 的「撕裂尾」「.corrupt-* 隔离」概念整体删除（SQLite 要么库损坏要么不损坏）；
-// - 库级损坏（sidecar.sqlite 被覆写为垃圾）→ open 即 fail loud（warn + reject）；
-// - Windows rename 占用重试（platform hooks）→ 随 src/persistence/platform.ts 整体
-//   删除（tmp+rename 发布面被 SQLite commit/WAL 恢复取代）；
-// - 原子写无 .tmp 残留 → 目录只出现 sidecar.sqlite 及其 -wal/-shm；
-// - 并发 append 串行化 seq 独占、文件名安全边界（TypeError）、installAcpSidecar slot
-//   选址——语义原样保留。
-//
-// 新增覆盖：权限位（目录 0700 / 库与 wal/shm 0600）、decided dedupe_key 幂等、
-// 有界审计队列（满丢弃 + warn + flush 落齐；binding/permission/filesystem 同步 durable 不走
-// 队列）、万条 append 快速回归、
-// 旧 JSONL 残留一律忽略（不读不迁不删，warn 一次）。
-
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -32,22 +8,25 @@ import { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { ACP_CONFIG_IDENTIFIER_MAX } from '../../../src/contract/config-options.ts'
 import {
-  ACP_SIDECAR_AUDIT_QUEUE_LIMIT,
-  ACP_SIDECAR_DB_FILENAME,
-  ACP_SIDECAR_SCHEMA_VERSION,
   ACP_SNAPSHOT_FIELD_MAX,
   ACP_SNAPSHOT_MODE_DESCRIPTION_MAX,
   ACP_SNAPSHOT_OPTION_LIMIT,
   ACP_SNAPSHOT_TOTAL_BYTES,
   ACP_SNAPSHOT_VALUES_LIMIT,
   acpOptionsSnapshotOf,
+  toOptionsSnapshotRecord,
+  type AcpOptionsSnapshotRecord,
+} from '../../../src/persistence/options-snapshot.ts'
+import {
+  ACP_SIDECAR_AUDIT_QUEUE_LIMIT,
+  ACP_SIDECAR_DB_FILENAME,
+  ACP_SIDECAR_SCHEMA_VERSION,
   createAcpSidecar,
   installAcpSidecar,
-  toOptionsSnapshotRecord,
+  modeIntentBindingKey,
   type AcpBindingData,
   type AcpBindingRecord,
   type AcpActivityRecord,
-  type AcpOptionsSnapshotRecord,
   type AcpRecoveryState,
   type AcpSidecar,
 } from '../../../src/persistence/sidecar.ts'
@@ -315,6 +294,34 @@ describe('createAcpSidecar 基本读写（v2 envelope 契约）', () => {
     }
   })
 
+  it('bounds the optional actual model before opening a dispatch', async () => {
+    const id = SessionId('managed-provenance')
+    const row = {
+      dshSessionId: id,
+      key: 'step',
+      provider: 'acp-test',
+      model: 'dsh-acp:agent-managed',
+      state: 'dispatch-uncertain' as const,
+      createdAt: TIME_BASE,
+      provenance: {
+        turn: 1,
+        step: 1,
+        startSeq: 1,
+        endSeq: null,
+        anchorMessageId: 'input',
+        acceptedMessageIds: ['input'],
+        confirmedAgentModel: 'm'.repeat(513),
+      },
+    }
+    await expect(store.beginDispatch(row)).rejects.toThrow('confirmed ACP model')
+    expect(await store.readDispatch(id, 'step')).toBeUndefined()
+    await store.beginDispatch({ ...row, provenance: { ...row.provenance, confirmedAgentModel: 'model-a' } })
+    expect(await store.readDispatch(id, 'step')).toMatchObject({
+      state: 'dispatch-uncertain',
+      model: row.model,
+      provenance: { confirmedAgentModel: 'model-a' },
+    })
+  })
   it('dispatch uncertainty is durable across reopen and settles idempotently', async () => {
     await store.beginDispatch({
       key: 'step-1',
@@ -652,6 +659,13 @@ describe(' binding 语义门槛（readLatestBinding 三态）', () => {
       bindingEpoch: 2,
       establishedAt: TIME_BASE + 1,
     })
+    const sourceIntent = {
+      bindingKey: modeIntentBindingKey(BINDING_A),
+      optionId: 'model',
+      target: 'b',
+      confirmed: true,
+    }
+    await store.changeManagedModelIntent(id, sourceIntent)
     await store.append(id, { kind: 'binding', data: BINDING_A })
     await expect(store.append(id, { kind: 'binding', data: next })).rejects.toThrow('continuity anchors')
     await expect(store.commitDirectoryFork(id, BINDING_A, next)).rejects.toThrow('durable intent')
@@ -676,9 +690,44 @@ describe(' binding 语义门槛（readLatestBinding 三态）', () => {
     ])
       await expect(store.commitDirectoryFork(id, BINDING_A, invalid)).rejects.toThrow('parent continuity')
     expect(await store.list(id)).toHaveLength(1)
-    await store.commitDirectoryFork(id, BINDING_A, next)
+    for (const failurePoint of [
+      "audit WHEN NEW.kind = 'session-fork'",
+      "recovery_states WHEN json_extract(NEW.payload, '$.kind') = 'healthy'",
+    ]) {
+      const db = rawDb()
+      try {
+        db.exec(
+          `CREATE TRIGGER fail_fork BEFORE INSERT ON ${failurePoint} BEGIN SELECT RAISE(ABORT, 'fork write failed'); END`,
+        )
+        await expect(store.commitDirectoryFork(id, BINDING_A, next)).rejects.toThrow('fork write failed')
+        // A new reader sees the complete parent generation if either of the later writes failed.
+        const reader = createAcpSidecar({ root })
+        extraStores.push(reader)
+        expect(await reader.readLatestBinding(id)).toMatchObject({ status: 'ok', binding: BINDING_A })
+        expect(await reader.readRecoveryState(id)).toMatchObject({
+          cause: 'fork-intent',
+          acpSessionId: BINDING_A.agentSessionId,
+        })
+        expect((await reader.list(id)).map((entry) => entry.kind)).toEqual(['binding'])
+        db.exec('DROP TRIGGER fail_fork')
+      } finally {
+        db.close()
+      }
+    }
+    expect(await store.readManagedModelIntent(id)).toMatchObject(sourceIntent)
+    await store.commitDirectoryFork(id, BINDING_A, next, { id: 'model', value: 'a' })
+    expect(await store.readManagedModelIntent(id)).toMatchObject({
+      ...sourceIntent,
+      bindingKey: modeIntentBindingKey(next),
+      confirmed: false,
+    })
     expect(await latestBinding(id)).toMatchObject(next)
-    expect(await store.list(id)).toHaveLength(2)
+    expect(await store.readRecoveryState(id)).toMatchObject({
+      kind: 'healthy',
+      acpSessionId: next.agentSessionId,
+      generation: 2,
+    })
+    expect((await store.list(id)).map((entry) => entry.kind)).toEqual(['binding', 'binding', 'session-fork'])
     await expect(store.commitDirectoryFork(id, BINDING_A, next)).rejects.toThrow('parent changed')
   })
 
@@ -1046,6 +1095,7 @@ describe('listBindings 全量 binding 索引（双绑守卫扫描面）', () => 
     // 无 binding 记录的行集（纯 permission）不出现在索引里
     await store.append(SessionId('sess-3'), { kind: 'permission', time: 40, data: permissionData('req-2') })
 
+    expect(await store.listBoundProviders()).toEqual(['acp-devin'])
     const bindings = await store.listBindings()
     expect(bindings.map((entry) => entry.dshSessionId).sort()).toEqual(['sess-1', 'sess-2'])
     // 最新优先：sess-1 的最新 binding 是 BINDING_B（permission 行不干扰）
@@ -1063,12 +1113,21 @@ describe('listBindings 全量 binding 索引（双绑守卫扫描面）', () => 
       time: 20,
       data: { provider: 'acp-devin', agentSessionId: 'agent-session-9' } as unknown as AcpBindingData,
     })
+    await store.append(SessionId('sess-other'), {
+      kind: 'binding',
+      time: 21,
+      data: { provider: 'native-provider' } as AcpBindingData,
+    })
+    // Indexed names are candidates. Only the binding payload proves a session's identity.
+    expect([...(await store.listBoundProviders())].sort()).toEqual(['acp-devin', 'native-provider'])
+    expect(await store.readLatestBinding(SessionId('sess-1'))).toEqual({ status: 'outdated' })
     expect(await store.listBindings()).toEqual([])
     expect(warns.some((message) => message.includes('outdated binding row(s)'))).toBe(true)
   })
 
   it('只读容错：root/库不存在 → []', async () => {
     const missing = createAcpSidecar({ root: path.join(root, 'missing'), warn: (message) => warns.push(message) })
+    expect(await missing.listBoundProviders()).toEqual([])
     expect(await missing.listBindings()).toEqual([])
     expect(fs.existsSync(path.join(root, 'missing'))).toBe(false)
   })
@@ -1344,8 +1403,6 @@ describe(' option 快照（acpOptionsSnapshotOf 有界标准化 + option_snapsho
       TIME_BASE,
     )
     expect(record).toEqual({
-      outputSpeed: null,
-      reportedUsage: null,
       options: [
         { id: 'model', category: 'model', name: 'Model', value: 'm1', values: ['m1', 'm2'] },
         { id: 'fast', category: null, name: 'Fast', value: true, values: null },
@@ -1652,6 +1709,45 @@ describe(' option 快照（acpOptionsSnapshotOf 有界标准化 + option_snapsho
     expect(toOptionsSnapshotRecord(record)).toEqual(record)
     await store.writeOptionSnapshot(SessionId('sess-total-with-modes'), record)
     expect(await store.readOptionSnapshot(SessionId('sess-total-with-modes'))).toEqual(record)
+  })
+})
+
+describe('bound managed model selection', () => {
+  it('clears only an explicitly abandoned binding on a blank rebind', async () => {
+    const id = SessionId('managed-blank')
+    const intent = { bindingKey: 'old', optionId: 'model', target: 'b', confirmed: true }
+    await store.changeManagedModelIntent(id, intent)
+    await store.writeRecoveryState(
+      { dshSessionId: id, kind: 'healthy', lastUserAction: 'retry-original', updatedAt: TIME_BASE },
+      { clearDispatch: true },
+    )
+    expect(await store.readManagedModelIntent(id)).toMatchObject(intent)
+    await store.writeRecoveryState(
+      { dshSessionId: id, kind: 'healthy', lastUserAction: 'rebind-blank', updatedAt: TIME_BASE },
+      { clearDispatch: true },
+    )
+    expect(await store.readManagedModelIntent(id)).toBeUndefined()
+  })
+
+  it('requires the receipt for the same pending choice after restart', async () => {
+    const id = SessionId('managed-model')
+    const a = await store.changeManagedModelIntent(id, {
+      bindingKey: 'original',
+      optionId: 'chosen-model',
+      target: 'a',
+      confirmed: true,
+    })
+    const firstB = await store.changeManagedModelIntent(id, { ...a, target: 'b', confirmed: false }, a)
+    const secondA = await store.changeManagedModelIntent(id, a, firstB)
+    const b = await store.changeManagedModelIntent(id, firstB, secondA)
+    await store.dispose()
+    expect(await store.readManagedModelIntent(id)).toEqual(b)
+    await expect(store.changeManagedModelIntent(id, { ...firstB, confirmed: true }, firstB)).rejects.toThrow()
+    await expect(store.changeManagedModelIntent(id, a, a)).rejects.toThrow()
+    await expect(store.changeManagedModelIntent(id, { ...b, bindingKey: 'another' }, b)).rejects.toThrow()
+    await expect(store.changeManagedModelIntent(id, { ...b, confirmed: true })).rejects.toThrow()
+    await store.changeManagedModelIntent(id, { ...b, confirmed: true }, b)
+    expect((await store.readManagedModelIntent(id))?.confirmed).toBe(true)
   })
 })
 

@@ -4,12 +4,14 @@ import type { AcpActivityPresentation } from '../policy/activity-presentation.ts
 import { acpReplayPayloadOf, acpReplayPayloadSchema } from './acp-replay-payload.ts'
 import type { ModelContextSnapshot } from './model-context-snapshots.ts'
 import { EXTERNAL_SUBAGENT_DESCRIPTOR_PROVIDER } from '../../contract/external-subagent.ts'
+import { unsentModelSwitchRecord, unsentModelSwitchSchema } from './unsent-model-switch.ts'
 
 export interface SessionEventLike {
   readonly type: string
   /** Exact native inherited prefix length; absence must not be inferred as an empty seed. */
   readonly inheritedEventCount?: number
   readonly seq: number
+  readonly ignorable?: boolean
   readonly data: unknown
 }
 
@@ -18,6 +20,7 @@ const stepSchema = z.object({
   step: z.number(),
   startSeq: z.number(),
   messageIds: z.array(z.string()),
+  directInput: z.object({ id: z.string(), seq: z.number() }).nullable().optional(),
 })
 
 /** ACP-only execution facts; the host owns folding, persistence and invalidation. */
@@ -26,10 +29,17 @@ export const sessionFactsSchema = z.object({
   turnSeen: z.boolean(),
   hasSemanticHistory: z.boolean(),
   priorSemanticHistory: z.boolean(),
+  /** A completed local turn carried history before any model request was recorded. */
+  completedWithoutModel: z.boolean(),
   openSteps: z.array(stepSchema),
   inheritedRemaining: z.number().int().nonnegative(),
   externalSubagent: z.boolean(),
   forkReplay: acpReplayPayloadSchema.nullable(),
+  /** This session, not an inherited prefix, committed an ACP-produced answer. */
+  acpReplaySeen: z.boolean(),
+  /** The only provider this session's own requests were routed to; null before any, '' once they differ. */
+  soleRequestProvider: z.string().nullable(),
+  unsentModelSwitch: unsentModelSwitchSchema.extend({ failureSeq: z.number().int().nonnegative() }).optional(),
 })
 export type SessionFacts = z.infer<typeof sessionFactsSchema>
 
@@ -39,25 +49,64 @@ export function initialSessionFacts(inheritedEventCount = 0): SessionFacts {
     turnSeen: false,
     hasSemanticHistory: false,
     priorSemanticHistory: false,
+    completedWithoutModel: false,
     openSteps: [],
     inheritedRemaining: inheritedEventCount,
     externalSubagent: false,
     forkReplay: null,
+    acpReplaySeen: false,
+    soleRequestProvider: null,
   }
 }
 
 /** One committed event; unrelated events retain identity and no transcript is cached. */
 export function applySessionFact(previous: SessionFacts, event: SessionEventLike): SessionFacts {
   let state = previous
+  if (
+    state.unsentModelSwitch !== undefined &&
+    ['turn/start', 'agent/inbox/spliced', 'user/message', 'request/header', 'working-directory/change'].includes(
+      event.type,
+    )
+  )
+    state = { ...state, unsentModelSwitch: undefined }
+  if (event.type === unsentModelSwitchRecord && event.ignorable === true && state.inheritedRemaining === 0) {
+    const data = unsentModelSwitchSchema.safeParse(event.data)
+    if (
+      data.success &&
+      state.turnOpen &&
+      state.openSteps.some(({ turn, step }) => turn === data.data.turn && step === data.data.step)
+    )
+      return { ...state, unsentModelSwitch: { ...data.data, failureSeq: event.seq } }
+  }
   if (state.inheritedRemaining > 0)
     state = {
       ...state,
       inheritedRemaining: state.inheritedRemaining - 1,
       forkReplay: acpReplayPayloadOf(event) ?? state.forkReplay,
     }
+  if (previous.inheritedRemaining === 0 && !state.acpReplaySeen && acpReplayPayloadOf(event) !== undefined)
+    state = { ...state, acpReplaySeen: true }
+  if (event.type === 'request/header' && previous.inheritedRemaining === 0 && state.soleRequestProvider !== '') {
+    const header = (event.data as { header?: { config?: { provider?: unknown } } } | null)?.header
+    const provider = typeof header?.config?.provider === 'string' ? header.config.provider : ''
+    if (state.soleRequestProvider !== provider)
+      state = { ...state, soleRequestProvider: state.soleRequestProvider === null ? provider : '' }
+  }
   if (event.type === 'turn/start')
     return { ...state, turnOpen: true, turnSeen: true, priorSemanticHistory: state.hasSemanticHistory }
-  if (event.type === 'turn/end') return { ...state, turnOpen: false }
+  if (event.type === 'turn/end') {
+    const reason = (event.data as { reason?: { kind?: string } } | null)?.reason
+    return {
+      ...state,
+      turnOpen: false,
+      completedWithoutModel:
+        state.completedWithoutModel ||
+        (previous.inheritedRemaining === 0 &&
+          state.hasSemanticHistory &&
+          state.soleRequestProvider === null &&
+          reason?.kind === 'completed'),
+    }
+  }
   const data = typeof event.data === 'object' && event.data !== null ? (event.data as Record<string, unknown>) : {}
   if (event.type === 'subagent/descriptor' && previous.inheritedRemaining === 0)
     return {
@@ -82,7 +131,15 @@ export function applySessionFact(previous: SessionFacts, event: SessionEventLike
     state = {
       ...state,
       openSteps: state.openSteps.map((step) =>
-        step.messageIds.includes(id) ? step : { ...step, messageIds: [...step.messageIds, id] },
+        step.messageIds.includes(id)
+          ? step
+          : {
+              ...step,
+              messageIds: [...step.messageIds, id],
+              ...((data.source as { kind?: unknown } | undefined)?.kind === 'user'
+                ? { directInput: step.directInput === undefined ? { id, seq: event.seq } : null }
+                : {}),
+            },
       ),
     }
   }
@@ -99,6 +156,19 @@ export function applySessionFact(previous: SessionFacts, event: SessionEventLike
 
 /** Live read face backed by native Session and projection services, not a log copy. */
 export interface SessionLike {
+  readCommittedModelRetry?(
+    failureSeq: number,
+    signal?: AbortSignal,
+  ): Promise<
+    | {
+        input: import('@deepseek-ai/dsh-llm').UserMessage
+        ticket: z.infer<typeof unsentModelSwitchSchema>
+      }
+    | undefined
+  >
+  recordUndispatchedModelInput?(ticket: z.infer<typeof unsentModelSwitchSchema>): void
+  /** Verify both the native selection and the composed stock main-conversation scope. */
+  managedModelRoute?(provider: string): boolean
   /** Observe committed directory changes without treating them as user steering. */
   watchWorkingDirectory?(listener: (cwd: string) => void): () => void
   /** Observe pending next-step user input without claiming or copying the inbox. */
@@ -135,6 +205,5 @@ export interface SessionLike {
   readonly facts: SessionFacts
   /** Current effective DSH model-facing snapshots, without replaying ordinary history. */
   currentModelContextSnapshots?(): readonly ModelContextSnapshot[]
-  readonly permissions: { readonly sandbox: string | null; readonly approval: string | null }
   append?(type: string, data: unknown): unknown
 }

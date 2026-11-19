@@ -1,5 +1,7 @@
 # ACP 会员额度仪表盘
 
+[English](README.en.md)
+
 在 DeepSeek Harness 的模型选择器旁显示 Google AI Pro 会员额度。基于开源 ACP 适配器二次开发，适用于使用官方 Antigravity ACP 的个人开发场景。
 
 ## 功能
@@ -12,11 +14,11 @@
 
 ## 环境与兼容性
 
-当前版本：`0.2.1-rc.4.1+quota.4.20`。需要 macOS／Linux、Python3 和已登录的官方 Antigravity CLI，当前实测 CLI 为 `1.5.2`。
+当前版本为 `0.2.2-rc.5.1+quota.4.21`，包名为 `@feisha20/dsh-acp-adapter`。Antigravity 额度读取支持 macOS／Linux，使用 Python3 和官方 Antigravity CLI。
 
-编译依赖固定在 Harness `0.2.1-rc.4`；运行声明支持 `0.2.1-rc.4` 与 NEXT 2.0.23-next 内置的 `0.2.2-rc.3`。rc.3 已通过隔离插件加载、宿主启动及 ACP 健康服务检查，真实模型对话和界面功能尚待使用后确认。此前 Desktop `0.2.2-rc.1` 的安装与额度验证不代表后续版本自动兼容。
+构建及运行目标均固定为 DSH `0.2.2-rc.5`（DSH NEXT `2.0.24-next` 内置版本），需要 Node.js `>=24.9.0`。
 
-rc.3 已合并原生 Team 与子 Agent 接口；插件仅在旧版成员接口完整可用时启用对应扩展。新版的成员管理与成员模型操作请使用宿主原生入口。
+通过 DSH 原生入口管理团队与子 Agent。可在插件设置中连接 Antigravity、Codex、Devin 和 Claude 等 Agent，随后从宿主模型选择器选择。CLI 宿主包名为 `@deepseek-ai/dsh`。
 
 本插件独立安装在用户 profile，不修改 Harness Desktop 应用文件或更新机制。桌面端升级后需重新核对插件兼容性，精确版本例外不会自动继承。
 
@@ -37,10 +39,10 @@ Node.js 开发固定版本见 `.nvmrc`，包管理器版本见 `package.json`。
 
 安装后配置 Antigravity：可执行命令填写本机 `agy` 的绝对路径，参数填写 `acp`。选择对应 Gemini 模型即可看到额度仪表。账号来源为官方 CLI 当前登录账号。
 
-更多开发、数据来源、权限及回退说明见 [会员额度二次开发](docs/会员额度二次开发.md)。
+更多开发、数据来源、权限及回退说明见 [会员额度二次开发](https://github.com/feisha20/harness-plugin/blob/main/acp-quota-dashboard/docs/会员额度二次开发.md)。
 
 ## 上游与许可
 
-本插件不是从零实现：基于 [zaimokuza-yoshiteru/dsh-acp-adapter](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter)，基准提交 `28ccc6745ec82139c684c3642637e93e00d800f2`。原有 ACP 适配逻辑与历史文档保留，上游 README 见 [上游说明](docs/上游说明.md)。
+本仓库独立维护完整源码，当前基线为上游 [`v0.2.2-rc.5.1`](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases/tag/v0.2.2-rc.5.1)（`2aaabb9426b14ba67fe1b76495fdfe4145b464d2`）。直接使用本目录构建，本地包只依赖 DSH 宿主与声明的 SDK。
 
-使用 MIT 许可，原始版权声明见 [LICENSE](LICENSE)。保留内部包名 `@zaimokuza/dsh-acp-adapter`，以兼容现有模块、配置及历史会话；`private: true` 用于防止误发布到上游同名 npm 包，不影响本地 tgz 打包和安装。
+使用 MIT 许可，原始版权声明见 [LICENSE](LICENSE)。`private: true` 保持本地打包发行。升级旧定制包时，迁移桌面 profile 的包引用，保留 `dsh-acp-adapter` 设置 ID、`acp-*` 模型路由及 `dsh-acp` 会话存储。两个包共用这些宿主标识，安装时只启用一个。

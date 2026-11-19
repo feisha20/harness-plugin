@@ -23,6 +23,7 @@ type Props = {
   readonly align?: 'start' | 'end'
   readonly onOpenChange: (open: boolean) => void
   readonly onSelect: (choice: AgentControlChoice) => void
+  readonly confirmation?: ReactNode
 }
 
 /** One native menu for main sessions, member modes and batch modes.
@@ -40,6 +41,7 @@ export function AgentSessionMenu({
   align = 'start',
   onOpenChange,
   onSelect,
+  confirmation,
 }: Props): ReactNode {
   const [pane, setPane] = useState<string | null>(null)
   const anchor = useRef<HTMLSpanElement>(null)
@@ -117,8 +119,7 @@ export function AgentSessionMenu({
       align,
       items,
       listClassName: css.menuList,
-      // Pane heights differ; let native positioning remeasure on each render.
-      getAnchorRect: () => anchor.current?.getBoundingClientRect() ?? null,
+      anchorRef: anchor,
       selectedId: group?.choices.find((choice) => choice.current)?.id,
       onClose: () => onOpenChange(false),
       onSelect: (id: string) => {
@@ -136,7 +137,7 @@ export function AgentSessionMenu({
         onSelect(choice)
       },
       anchor: h(Tooltip, {
-        label: t('agentControlTooltip'),
+        label: t(groups.some((item) => item.kind === 'model') ? 'agentModelSettings' : 'agentControlTooltip'),
         portal: true,
         side: 'top',
         disabled: open,
@@ -159,5 +160,6 @@ export function AgentSessionMenu({
       }),
       ...(footer === undefined || footer.length === 0 ? {} : { footer }),
     }),
+    confirmation,
   )
 }

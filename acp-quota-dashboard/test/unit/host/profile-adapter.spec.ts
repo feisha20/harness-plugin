@@ -8,12 +8,13 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { AcpProfileAdapter } from '../../../src/host/composition/profile-adapter.ts'
+import { ACP_AGENT_MANAGED_MODEL_ID } from '../../../src/contract/model-selection.ts'
 import { acpProbeConfigKey } from '../../../src/domain/session/agent-config.ts'
 import type { AcpAgentConfig } from '../../../src/domain/session/agent-config.ts'
 import { AcpRemoteService } from '../../../src/remote/service.ts'
 import type { DispatchLedgerStore, DispatchRecord } from '../../../src/runtime/session/dispatch-ledger.ts'
 import type { AcpSidecar } from '../../../src/persistence/sidecar.ts'
-import { acpExecutionProjection, acpSessionView } from '../../../src/host/composition/session-facts.ts'
+import { AcpSessionFacts, acpSessionView } from '../../../src/host/composition/session-facts.ts'
 
 const profile = (command = 'agent', env: Record<string, string> = {}): AcpAgentConfig => ({
   name: 'Test',
@@ -197,7 +198,7 @@ describe('AcpProfileAdapter generation and dispatch boundaries', () => {
       await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(SystemPrompt, {})
       await ctx.plugin(ToolRuntime)
-      ctx.sessionProjections.register(acpExecutionProjection)
+      await ctx.plugin(AcpSessionFacts)
       try {
         const native = ctx.sessions.create(SessionId('native-before-acp'), { meta: { cwd: '/workspace' } })
         ctx.provide('workingDirectory', { get: () => '/workspace' } as never)
@@ -235,7 +236,6 @@ describe('AcpProfileAdapter generation and dispatch boundaries', () => {
         native.append('user/message', current, { surfaceOp: 'append' })
         const nativeView = acpSessionView(ctx, native)!
         const adapterView = Object.create(nativeView) as typeof nativeView
-        Object.defineProperty(adapterView, 'permissions', { value: { sandbox: null, approval: null } })
         const sent: unknown[] = []
         const adapter = new AcpProfileAdapter(
           'test',
@@ -525,6 +525,35 @@ describe('AcpProfileAdapter generation and dispatch boundaries', () => {
     const assembler = new BlockAssembler()
     for await (const chunk of adapter.stream(request('stream-session', [message]))) assembler.push(chunk)
     expect(assembler.blocks()).toEqual(expected.map(([type, text]) => ({ type, text })))
+  })
+
+  it('keeps model-specific reasoning on the named route and leaves managed reasoning to the live Agent', async () => {
+    const adapter = new AcpProfileAdapter(
+      'test',
+      profile,
+      seam(),
+      () => undefined,
+      new Ledger(),
+      () => ({
+        listModels: async () => [],
+        configOptionsForModel: () => [
+          {
+            type: 'select',
+            id: 'reasoning_effort',
+            name: 'Reasoning',
+            currentValue: 'high',
+            options: [{ value: 'high', name: 'High' }],
+          },
+        ],
+      }),
+    )
+    try {
+      expect((await adapter.resolveModel('acp-test', 'model-a')).reasoning).toBeDefined()
+      expect((await adapter.resolveModel('acp-test', ACP_AGENT_MANAGED_MODEL_ID)).reasoning).toBeUndefined()
+      expect((await adapter.prepareCall('acp-test', ACP_AGENT_MANAGED_MODEL_ID)).model.reasoning).toBeUndefined()
+    } finally {
+      await adapter.close()
+    }
   })
 
   it('prepareCall keeps metadata and dispatch on one immutable generation', async () => {

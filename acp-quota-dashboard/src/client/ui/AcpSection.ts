@@ -1,25 +1,8 @@
+/** ACP 智能体配置、连接状态和会员额度。 */
 import type { QuotaView } from '../../contract/quota.ts'
 import { QuotaCard } from './QuotaCard.ts'
-import { catalogIdOf } from '../../contract/agent-config.ts'
-/**
- * The ACP plugin detail panel component tree.
- *
- * Thin presentation only: every decision (validation, parsing, health/login
- * derivation, CRUD semantics) lives in logic.ts, and every side effect
- * (settings writes, dshAcp Remote calls) in controller.ts. Components
- * receive the `t`/`useStore`/`panel` inject face and keep only interactive
- * state (open editor, staged draft text, delete confirmation, busy flags) —
- * the ModelsSection/CustomProviderCard precedent. : state rides the
- * entry's store seat (`useStore` over AcpPanelSnapshot; the PropsStore
- * `actions` share is the glue-only write set, unused here); the wire
- * callbacks arrive as the `panel` member so the reserved PropsStore `actions`
- * seat is never shadowed. Written with createElement because the frozen
- * tsconfig has no `jsx` option (see react.d.ts); classes come from
- * AcpSection.module.css ( CSS Modules).
- * @module @zaimokuza/dsh-acp-adapter/client/AcpSection
- */
 
-import { createElement as h, Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   Button,
@@ -56,8 +39,8 @@ export type UsePanelStore = <S>(selector: (snapshot: AcpPanelSnapshot) => S, equ
 
 /** The controller wire handed to the section (bound in apply; plain callbacks). */
 export interface AcpSectionWire {
-  /** recheck = true 即「重新检查」（收尾：丢弃 probe 缓存并重探）；省略 = 只读缓存视图。 */
   readQuota?(agentId: string): Promise<QuotaView>
+  /** Passing true probes the configured Agents. The default reads their saved health. */
   refreshHealth(recheck?: boolean): void
   refreshAgentHealth(agentId: string): void
   saveAgent(editingId: string | undefined, draft: AgentDraft): Promise<string | undefined>
@@ -81,153 +64,14 @@ export interface AcpSectionProps {
 /** Which editor card is open; the add flow carries its seed draft (empty or a one-click template). */
 type EditorState = { readonly key: number } & ({ mode: 'add'; seed: AgentDraft } | { mode: 'edit'; id: string })
 
-/** The change events our inputs care about (the attribute bag types handlers loosely; see react.d.ts). */
 interface InputEvent {
   target: { value: string }
 }
-/**
- * Render the ACP section content column.
- * @param props - slot-delivered inject face.
- * @returns the section, or null while the shell has not injected yet (ModelsSection precedent).
- */
+/** Wait for the native plugin detail slot to supply its configuration store and actions. */
 export function AcpSection(props: AcpSectionProps): ReactNode {
   const { t, useStore, panel } = props
   if (t === undefined || useStore === undefined || panel === undefined) return null
   return h(Loaded, { t, useStore, panel })
-}
-
-interface CatalogAnchorProps {
-  open: boolean
-  disabled: boolean
-  menuId: string
-  className: string
-  probeClassName: string
-  icon: ReactNode
-  label: string
-  onToggle(): void
-  onMeasure(rect: DOMRect, side: 'bottom' | 'top', sideChanged: boolean): void
-  onClear(): void
-}
-
-/**
- * Owns only the catalog anchor's measurement lifecycle. The actual menu stays
- * the native Menu primitive; this Fragment adds a zero-layout probe so the
- * resolved frame overlay token, rather than a copied host formula, drives its
- * available height.
- */
-function CatalogAnchor({
-  open,
-  disabled,
-  menuId,
-  className,
-  probeClassName,
-  icon,
-  label,
-  onToggle,
-  onMeasure,
-  onClear,
-}: CatalogAnchorProps): ReactNode {
-  const buttonRef = useRef<HTMLButtonElement | null>(null)
-  const probeRef = useRef<HTMLDivElement | null>(null)
-  const lastSide = useRef<'bottom' | 'top' | null>(null)
-
-  useLayoutEffect(() => {
-    if (!open) return
-    const button = buttonRef.current
-    const probe = probeRef.current
-    if (button === null || probe === null) return
-
-    let eventFrame: number | undefined
-    let animationFrame: number | undefined
-    let stopped = false
-    let lastWidth = ''
-    let lastHeight = ''
-    let lastList: HTMLElement | null = null
-    const measure = (): void => {
-      const rect = button.getBoundingClientRect()
-      const resolvedOverlayTop = Number.parseFloat(getComputedStyle(probe).height)
-      const overlayTop = Number.isFinite(resolvedOverlayTop) ? resolvedOverlayTop : 12
-      const below = Math.max(0, window.innerHeight - rect.bottom - 16)
-      const above = Math.max(0, rect.top - overlayTop - 4)
-      // Equal space keeps the menu below the anchor, matching native placement.
-      const side = below >= above ? 'bottom' : 'top'
-      const width = `${rect.width}px`
-      const height = `${side === 'bottom' ? below : above}px`
-      if (lastList !== null && !lastList.isConnected) lastList = null
-      const list = lastList ?? (document.getElementsByClassName(menuId).item(0) as HTMLElement | null)
-      if (list !== null) {
-        if (list !== lastList) {
-          lastWidth = ''
-          lastHeight = ''
-          lastList = list
-        }
-        if (width !== lastWidth) {
-          if (list.style.getPropertyValue('--acp-catalog-menu-width') !== width)
-            list.style.setProperty('--acp-catalog-menu-width', width)
-          lastWidth = width
-        }
-        if (height !== lastHeight) {
-          if (list.style.getPropertyValue('--acp-catalog-menu-max-height') !== height)
-            list.style.setProperty('--acp-catalog-menu-max-height', height)
-          lastHeight = height
-        }
-      }
-      const sideChanged = lastSide.current !== side
-      if (sideChanged) lastSide.current = side
-      onMeasure(rect, side, sideChanged)
-    }
-    const schedule = (): void => {
-      if (eventFrame === undefined)
-        eventFrame = window.requestAnimationFrame(() => {
-          eventFrame = undefined
-          measure()
-        })
-    }
-    const tick = (): void => {
-      if (stopped) return
-      measure()
-      animationFrame = window.requestAnimationFrame(tick)
-    }
-
-    // The child layout effect runs before Menu's placement effect. Seed its
-    // portal sizing and anchor rect synchronously for the first open frame.
-    measure()
-    animationFrame = window.requestAnimationFrame(tick)
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(schedule)
-    observer?.observe(button)
-    observer?.observe(probe)
-    window.addEventListener('scroll', schedule, true)
-    window.addEventListener('resize', schedule)
-    return () => {
-      stopped = true
-      if (eventFrame !== undefined) window.cancelAnimationFrame(eventFrame)
-      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame)
-      observer?.disconnect()
-      window.removeEventListener('scroll', schedule, true)
-      window.removeEventListener('resize', schedule)
-      onClear()
-    }
-  }, [menuId, onClear, onMeasure, open])
-
-  return h(
-    Fragment,
-    null,
-    h('div', { ref: probeRef, className: probeClassName, 'aria-hidden': true }),
-    h(
-      'button',
-      {
-        type: 'button',
-        className,
-        ref: buttonRef,
-        disabled,
-        'aria-haspopup': 'menu',
-        'aria-expanded': open,
-        onClick: onToggle,
-      },
-      icon,
-      label,
-    ),
-  )
 }
 
 function Loaded({
@@ -247,18 +91,33 @@ function Loaded({
   const [approvalMenuOpen, setApprovalMenuOpen] = useState(false)
   // Delegate placement, scrolling, focus and keyboard interaction to the native Menu.
   const [addMenuOpen, setAddMenuOpen] = useState(false)
-  const [addMenuSide, setAddMenuSide] = useState<'bottom' | 'top'>('bottom')
-  const addAnchorRect = useRef<DOMRect | null>(null)
-  const catalogMenuId = `acp-catalog-${useId().replaceAll(':', '')}`
-  const getCatalogAnchorRect = useCallback((): DOMRect | null => addAnchorRect.current, [])
-  const onCatalogMeasure = useCallback((rect: DOMRect, side: 'bottom' | 'top', sideChanged: boolean): void => {
-    addAnchorRect.current = rect
-    if (sideChanged) setAddMenuSide(side)
-  }, [])
-  const clearCatalogAnchor = useCallback((): void => {
-    addAnchorRect.current = null
-  }, [])
-  // Opening the panel reads saved health facts; only an explicit recheck probes.
+  const addTrigger = useRef<HTMLButtonElement>(null)
+  const addFooter = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const trigger = addTrigger.current
+    if (!addMenuOpen || trigger === null) return
+    const close = () => {
+      if (addFooter.current?.closest('[role="menu"]')?.contains(trigger.ownerDocument.activeElement))
+        trigger.focus({ preventScroll: true })
+      setAddMenuOpen(false)
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.intersectionRatio === 0) close()
+    })
+    observer.observe(trigger)
+    // The native portal follows its scrolling anchor even when the card already fills
+    // the window. Dismiss on panel scroll while leaving the menu's own scrollport alone.
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && event.target.contains(trigger)) close()
+    }
+    const doc = trigger.ownerDocument
+    doc.addEventListener('scroll', onScroll, true)
+    return () => {
+      observer.disconnect()
+      doc.removeEventListener('scroll', onScroll, true)
+    }
+  }, [addMenuOpen])
+  // Opening the panel reads saved health. Adding an Agent or choosing Re-check runs a probe.
   useEffect(() => {
     panel.refreshHealth()
   }, [panel])
@@ -318,20 +177,26 @@ function Loaded({
   }
 
   if (readOnly) children.push(h('p', { key: 'ro', className: css.notice }, t('readOnly')))
-  if (snapshot.health.status === 'unreachable') {
-    children.push(h('p', { key: 'unreachable', className: css.notice }, t('healthUnreachable')))
-    if (snapshot.health.message !== undefined) {
-      children.push(
-        h(
-          'p',
-          { key: 'unreachable-detail', className: css.hint },
-          localizedDiagnostic(t, 'healthCheckTransportFailed', snapshot.health.message),
-        ),
-      )
-    }
-  }
+  if (snapshot.health.hostVersion !== undefined)
+    children.push(
+      h(
+        'p',
+        { key: 'host-version', className: css.notice, role: 'alert' },
+        t('hostVersionMismatch', snapshot.health.hostVersion),
+      ),
+    )
+  if (snapshot.health.status === 'unreachable')
+    children.push(
+      h(
+        'p',
+        { key: 'unreachable', className: css.notice },
+        localizedDiagnostic(t, 'healthUnreachable', snapshot.health.message),
+      ),
+    )
   const refreshing = snapshot.health.status === 'loading'
   const checkingAnyAgent = snapshot.health.checkingAgentIds.length > 0
+  const checkAll = ids.length > 1
+  const retryHealth = snapshot.health.status === 'unreachable' || snapshot.health.hostVersion !== undefined
 
   if (ids.length === 0 && editor?.mode !== 'add') {
     children.push(h('p', { key: 'empty', className: css.hint }, t('emptyAgents')))
@@ -356,11 +221,15 @@ function Loaded({
             agents,
             panel,
             editorKey: editor?.mode === 'edit' && editor.id === id ? editor.key : -1,
+            onCheck: () => {
+              if (checkAll) panel.refreshAgentHealth(id)
+              else panel.refreshHealth(true)
+            },
             onEdit: () => {
               openEdit(id)
             },
             onDeleted,
-            onCloseEditor: (changed) => closeEditor(editor?.key ?? -1, changed),
+            onCloseEditor: closeEditor,
             onOpenAgent: openExisting,
           })
         }),
@@ -414,9 +283,7 @@ function Loaded({
         dense: true,
         autoFocus: true,
         className: css.addMenu ?? '',
-        listClassName: `${css.catalogMenu ?? ''} ${catalogMenuId}`,
-        side: addMenuSide,
-        getAnchorRect: getCatalogAnchorRect,
+        minWidthFromAnchor: true,
         items: [
           ...(verified.length === 0
             ? []
@@ -443,8 +310,7 @@ function Loaded({
           ...unverified.map(catalogItem),
         ],
         footer: [
-          { type: 'label', id: 'verification-scope', text: t('catalogVerificationScope') },
-          { id: customAgentItemId, label: h('span', { className: css.catalogEntry }, t('addCustom')) },
+          { id: customAgentItemId, label: h('span', { className: css.catalogEntry, ref: addFooter }, t('addCustom')) },
         ],
         onClose: () => {
           setAddMenuOpen(false)
@@ -458,32 +324,36 @@ function Loaded({
           const seed = draftFromCatalogEntry(id)
           if (seed !== undefined) openAdd(seed)
         },
-        anchor: h(CatalogAnchor, {
-          open: addMenuOpen,
-          disabled: readOnly,
-          menuId: catalogMenuId,
-          className: css.addButton ?? '',
-          probeClassName: css.catalogGeometryProbe ?? '',
-          icon: h(IconPlusOutlineMedium, { size: 14 }),
-          label: t('addAgent'),
-          onToggle: () => setAddMenuOpen((previous) => !previous),
-          onMeasure: onCatalogMeasure,
-          onClear: clearCatalogAnchor,
-        }),
-      }),
-      h(
-        'button',
-        {
-          type: 'button',
-          className: css.addButton,
-          disabled: refreshing || checkingAnyAgent,
-          onClick: () => {
-            panel.refreshHealth(true)
+        anchor: h(
+          'button',
+          {
+            type: 'button',
+            ref: addTrigger,
+            className: css.addButton,
+            disabled: readOnly,
+            'aria-haspopup': 'menu',
+            'aria-expanded': addMenuOpen,
+            onClick: () => setAddMenuOpen((previous) => !previous),
           },
-        },
-        h(IconRefreshOutlineMedium, { size: 14 }),
-        t(refreshing ? 'refreshing' : 'refresh'),
-      ),
+          h(IconPlusOutlineMedium, { size: 14 }),
+          t('addAgent'),
+        ),
+      }),
+      checkAll || retryHealth
+        ? h(
+            'button',
+            {
+              type: 'button',
+              className: css.addButton,
+              disabled: refreshing || checkingAnyAgent,
+              onClick: () => {
+                panel.refreshHealth(checkAll)
+              },
+            },
+            h(IconRefreshOutlineMedium, { size: 14 }),
+            t(refreshing ? 'refreshing' : checkAll ? 'refreshAll' : 'activity.detailRetry'),
+          )
+        : null,
     ),
   )
 
@@ -543,9 +413,10 @@ function AgentCard(props: {
   agents: Record<string, AcpAgentConfig>
   panel: AcpSectionWire
   onEdit(): void
+  onCheck(): void
   onDeleted(id: string): void
   editorKey: number
-  onCloseEditor(changed: boolean): void
+  onCloseEditor(key: number, changed: boolean): void
   onOpenAgent(id: string): void
 }): ReactNode {
   const { t, id, config, panel } = props
@@ -561,7 +432,8 @@ function AgentCard(props: {
     },
     [],
   )
-  const checking = props.health.status === 'loading' || props.health.checkingAgentIds.includes(id)
+  const checkingAgent = props.health.checkingAgentIds.includes(id)
+  const refreshingPanel = props.health.status === 'loading'
   const checkError = props.health.agentErrors[id]
   const confirmDelete = (): void => {
     setDeleting(true)
@@ -571,14 +443,14 @@ function AgentCard(props: {
       .then((message) => {
         if (message !== undefined) {
           panel.notifyOutcome?.('delete-failed')
-          setFailure(localizedDiagnostic(t, 'actionDeleteFailed', message))
+          setFailure(message)
           return
         }
         props.onDeleted(id)
       })
       .catch((error: unknown) => {
         panel.notifyOutcome?.('delete-failed')
-        setFailure(localizedDiagnostic(t, 'actionDeleteFailed', errorMessageOf(error)))
+        setFailure(errorMessageOf(error))
       })
       .finally(() => {
         setDeleting(false)
@@ -587,8 +459,18 @@ function AgentCard(props: {
 
   const healthRow = healthRowOf(props.health.rows, id)
   const state = healthRow?.state
-  const statusText = state === undefined ? t('stateSavedUnverified') : stateText(t, state)
-  const statusTone = state === 'ready' ? 'success' : 'neutral'
+  // A failed check is a fact about that check, shown apart from "never checked".
+  // It does not claim to track the Agent's login or installation afterwards.
+  const lastCheckFailed = state !== 'ready' && (healthRow?.probe.status === 'error' || checkError !== undefined)
+  const retired = healthRow?.unavailableReason === 'agent-retired'
+  const statusText = retired
+    ? t('stateAgentRetired')
+    : lastCheckFailed
+      ? t('stateLastCheckFailed')
+      : state === undefined
+        ? t('stateSavedUnverified')
+        : stateText(t, state)
+  const statusTone = state === 'ready' ? 'success' : retired || lastCheckFailed ? 'warning' : 'neutral'
   const diagnostic = healthDiagnostic(t, config.command, healthRow, checkError)
 
   const children: ReactNode[] = [
@@ -599,7 +481,11 @@ function AgentCard(props: {
         'span',
         { className: css.rowIdentity },
         h('span', { className: css.rowName }, config.name),
-        h(Tag, { tone: statusTone }, statusText),
+        h(
+          'span',
+          { role: 'status' },
+          h(Tag, { tone: checkingAgent ? 'neutral' : statusTone }, checkingAgent ? t('refreshing') : statusText),
+        ),
       ),
       h(
         'span',
@@ -609,12 +495,10 @@ function AgentCard(props: {
           {
             variant: 'outline',
             size: 'sm',
-            disabled: checking,
-            onClick: () => {
-              panel.refreshAgentHealth(id)
-            },
+            disabled: checkingAgent || refreshingPanel || retired,
+            onClick: props.onCheck,
           },
-          t(checking ? 'refreshing' : 'refresh'),
+          t(refreshingPanel ? 'refreshing' : 'refresh'),
         ),
         h(
           Button,
@@ -654,19 +538,6 @@ function AgentCard(props: {
     ),
   ]
 
-  if (healthRow?.probe.status === 'ok' && healthRow.probe.versionCompatibility === 'different') {
-    const reference = catalogEntryOf(catalogIdOf(id, config))?.version
-    children.push(
-      h(
-        'p',
-        { key: 'version-reference', className: css.hint },
-        t('catalogVersionDifferent', {
-          actual: healthRow.probe.agentInfo?.version ?? healthRow.version ?? '—',
-          reference: reference ?? '—',
-        }),
-      ),
-    )
-  }
   if (diagnostic !== undefined) {
     children.push(h('p', { key: 'diagnostic', className: css.error, role: 'alert' }, diagnostic))
   }
@@ -699,7 +570,9 @@ function AgentCard(props: {
         boundCount === undefined || boundCount === 0
           ? null
           : h('p', { className: css.deleteText }, t('removeConfirmBound', { count: boundCount })),
-        failure === undefined ? null : h('p', { className: css.error }, failure),
+        failure === undefined
+          ? null
+          : h('p', { className: css.error }, localizedDiagnostic(t, 'actionDeleteFailed', failure)),
         h(
           Button,
           {
@@ -737,7 +610,7 @@ function AgentCard(props: {
         readOnly: props.readOnly,
         panel,
         editorKey: props.editorKey,
-        onClose: (_key, changed) => props.onCloseEditor(changed),
+        onClose: props.onCloseEditor,
         onOpenAgent: props.onOpenAgent,
       }),
     )
@@ -756,6 +629,7 @@ function healthDiagnostic(
   if (transportError !== undefined) {
     return localizedDiagnostic(t, 'healthCheckTransportFailed', transportError)
   }
+  if (health?.unavailableReason === 'agent-retired') return t('agentRetired')
   if (health?.probe.status !== 'error') return undefined
   const key: AcpLocaleKey =
     health.probe.failureKind === 'spawn-failure'
@@ -775,7 +649,7 @@ function healthDiagnostic(
 }
 
 /**
- * 产品状态只承诺“未探测 / 协议可用”。失败类别仍通过下方诊断和登录
+ * 产品状态只反映上次检查结果，不承诺持续连接。失败类别仍通过下方诊断和登录
  * 指引展示，但不会伪装成可持续跟踪的外部登录状态。
  */
 function stateText(t: AcpTranslate, state: AcpProviderHealth['state']): string {
@@ -798,12 +672,19 @@ function AgentForm(props: {
   const { t } = props
   const [draft, setDraft] = useState<AgentDraft>(() => props.initial)
   const [busy, setBusy] = useState(false)
-  const [attempted, setAttempted] = useState(false)
+  const form = useRef<HTMLDivElement>(null)
+  const [invalidSubmissions, setInvalidSubmissions] = useState(0)
+  useEffect(() => {
+    if (invalidSubmissions > 0) form.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+  }, [invalidSubmissions])
   const [failure, setFailure] = useState<string | undefined>(undefined)
   // Built-in templates work with their tested defaults. Keep implementation
   // details out of the common path, while manual profiles open the same fields
   // immediately because command and route identity are required there.
-  const [advancedOpen, setAdvancedOpen] = useState(() => props.initial.runtime === undefined)
+  // A template without a prefilled command needs that field at once.
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => props.initial.runtime === undefined || props.initial.command.trim() === '',
+  )
   const [optionsOpen, setOptionsOpen] = useState(false)
   const disabled = props.readOnly || busy
   const validation = validateAgentDraft(draft, props.agents, props.editingId)
@@ -814,8 +695,12 @@ function AgentForm(props: {
     setFailure(undefined)
   }
   const save = (): void => {
-    setAttempted(true)
-    if (validation.config === undefined) return
+    if (validation.config === undefined) {
+      setInvalidSubmissions((count) => count + 1)
+      if (validation.id !== undefined || validation.command !== undefined) setAdvancedOpen(true)
+      if (validation.env !== undefined) setOptionsOpen(true)
+      return
+    }
     setBusy(true)
     setFailure(undefined)
     void props.panel
@@ -823,14 +708,14 @@ function AgentForm(props: {
       .then((message) => {
         if (message !== undefined) {
           props.panel.notifyOutcome?.('save-failed')
-          setFailure(localizedDiagnostic(t, 'actionSaveFailed', message))
+          setFailure(message)
           return
         }
         props.onClose(props.editorKey, true)
       })
       .catch((error: unknown) => {
         props.panel.notifyOutcome?.('save-failed')
-        setFailure(localizedDiagnostic(t, 'actionSaveFailed', errorMessageOf(error)))
+        setFailure(errorMessageOf(error))
       })
       .finally(() => {
         setBusy(false)
@@ -841,7 +726,7 @@ function AgentForm(props: {
   // first save attempt; format/uniqueness errors answer actual input at once
   // (the CustomProviderCard route-field precedent).
   const shown = (error: DraftError | undefined, value: string): DraftError | undefined =>
-    error !== undefined && (attempted || value.trim() !== '') ? error : undefined
+    error !== undefined && (invalidSubmissions > 0 || value.trim() !== '') ? error : undefined
 
   // catalog 播种条目的安装指引（来自 registry 分发事实；纯展示，不自动安装）
   const seededEntry = props.editingId === undefined ? catalogEntryOf(draft.catalogId ?? draft.id) : undefined
@@ -851,7 +736,7 @@ function AgentForm(props: {
 
   return h(
     'div',
-    { className: css.editor },
+    { ref: form, className: css.editor },
     h(
       'div',
       { className: css.editorHeader },
@@ -958,14 +843,12 @@ function AgentForm(props: {
         size: 14,
         className: optionsOpen ? `${css.chevron} ${css.chevronFlip}` : css.chevron,
       }),
-      t('advancedOptions'),
+      envCount ? t('advancedOptionsConfigured', { envCount }) : t('advancedOptions'),
     ),
-    envCount === 0 ? null : h('p', { className: css.hint }, t('advancedOptionsConfigured', { envCount })),
     optionsOpen
       ? h(
           'div',
           { className: css.advancedFields },
-          h('p', { className: css.hint }, t('advancedOptionsHint')),
           textField({
             t,
             id: `dsh-acp-${scope}-env`,
@@ -998,7 +881,6 @@ function AgentForm(props: {
                         'li',
                         { key, className: css.maskedEnvRow },
                         h('code', { className: css.maskedEnvKey }, key),
-                        h('span', { className: css.healthMuted }, t('envMaskedConfigured')),
                         h(
                           Button,
                           {
@@ -1038,7 +920,9 @@ function AgentForm(props: {
             t('openExisting'),
           ),
         ),
-    failure === undefined ? null : h('p', { className: css.error }, failure),
+    failure === undefined
+      ? null
+      : h('p', { className: css.error }, localizedDiagnostic(t, 'actionSaveFailed', failure)),
     h(
       'div',
       { className: css.editorActions },
@@ -1057,7 +941,8 @@ function AgentForm(props: {
         Button,
         {
           variant: 'primary',
-          disabled: disabled || validation.config === undefined,
+          // Field errors are reported on click; only the block-level runtime conflict has no field to point at.
+          disabled: disabled || validation.runtime !== undefined,
           onClick: save,
         },
         t(busy ? 'saving' : 'save'),
@@ -1080,10 +965,12 @@ function textField(props: {
   placeholder?: string
 }): ReactNode {
   const invalid = props.error !== undefined
+  const descriptionId = `${props.id}-description`
   const control =
     props.multiline === true
       ? h('textarea', {
           id: props.id,
+          'aria-describedby': descriptionId,
           className: invalid ? `${css.textarea} ${css.textareaInvalid}` : css.textarea,
           value: props.value,
           disabled: props.disabled,
@@ -1096,6 +983,7 @@ function textField(props: {
         })
       : h(Input, {
           id: props.id,
+          'aria-describedby': descriptionId,
           className: invalid ? `${css.input} ${css.inputInvalid}` : css.input!,
           type: 'text',
           value: props.value,
@@ -1113,7 +1001,7 @@ function textField(props: {
     control,
     h(
       'p',
-      { className: invalid ? css.error : css.hint },
+      { id: descriptionId, className: invalid ? css.error : css.hint },
       props.error !== undefined ? props.t(props.error.key, props.error.params) : props.hint,
     ),
   )

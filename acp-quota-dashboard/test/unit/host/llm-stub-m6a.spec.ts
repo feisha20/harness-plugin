@@ -1,16 +1,20 @@
+import { disambiguateModelLabels } from '../../../src/contract/model-labels.ts'
 import { describe, expect, it } from 'vitest'
 import type * as acp from '@agentclientprotocol/sdk'
 import {
   boundedProbeDiagnostic,
-  disambiguateProbeModels,
   probeModels,
   reasoningInfoFromConfigOptions,
 } from '../../../src/host/composition/llm-stub.ts'
 import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
+import { supportsAgentManagedModels } from '../../../src/agents/compatibility.ts'
 import { acpConfigOptionsSnapshot } from '../../../src/domain/session/acp-config-options.ts'
-import type { AcpAgentConfig } from '../../../src/domain/session/agent-config.ts'
+import {
+  ACP_AGENT_MANAGED_MODEL_ID,
+  ACP_CURRENT_CONFIG_MODEL_ID,
+  acpDeclaredModelRoute,
+} from '../../../src/contract/model-selection.ts'
 
-const config: AcpAgentConfig = { name: 'Test', command: 'agent', args: [], env: {} }
 const effortOption = (
   category: string | undefined = 'thought_level',
   currentValue = 'high',
@@ -36,24 +40,22 @@ const effortOption = (
 })
 
 describe('ACP catalog reasoning metadata', () => {
-  it.each(['codex', 'claude', 'kimi', 'devin'])('maps %s thought_level to DSH reasoning metadata', (profileId) => {
-    const info = reasoningInfoFromConfigOptions(profileId, config, [effortOption()])
+  it('maps declared thought levels to DSH reasoning metadata', () => {
+    const info = reasoningInfoFromConfigOptions([effortOption()])
     expect(info?.efforts.map((effort) => effort.id)).toEqual(['low', 'high', 'max'])
     expect(info?.defaultEffort).toBe('high')
     expect(info?.efforts[0]?.name).toBe('Low')
   })
 
   it('maps a proven generic reasoning_effort id without translating Agent labels', () => {
-    const info = reasoningInfoFromConfigOptions('my-agent', config, [
-      effortOption(undefined, 'max', 'reasoning_effort'),
-    ])
+    const info = reasoningInfoFromConfigOptions([effortOption(undefined, 'max', 'reasoning_effort')])
     expect(info?.defaultEffort).toBe('max')
     expect(info?.efforts.map((effort) => effort.name)).toEqual(['Low', 'High', 'Max'])
   })
 
   it('does not invent reasoning controls for legacy Devin model variants', () => {
     expect(
-      reasoningInfoFromConfigOptions('devin', config, [
+      reasoningInfoFromConfigOptions([
         {
           id: 'model',
           name: 'Model',
@@ -71,13 +73,9 @@ describe('ACP catalog reasoning metadata', () => {
 
   it('omits an empty or unknown option and does not invent a default', () => {
     expect(
-      reasoningInfoFromConfigOptions('codex', config, [
-        { id: 'x', name: 'X', type: 'select', currentValue: 'x', options: [] },
-      ]),
+      reasoningInfoFromConfigOptions([{ id: 'x', name: 'X', type: 'select', currentValue: 'x', options: [] }]),
     ).toBeUndefined()
-    expect(reasoningInfoFromConfigOptions('codex', config, [effortOption('other', 'missing', 'other')])).toEqual(
-      undefined,
-    )
+    expect(reasoningInfoFromConfigOptions([effortOption('other', 'missing', 'other')])).toEqual(undefined)
   })
 
   it('keeps probe snapshots bounded and removes metadata/secret text', () => {
@@ -110,7 +108,7 @@ describe('ACP model display labels', () => {
   })
 
   it('only disambiguates duplicate names within one profile and keeps ids/values intact', () => {
-    const result = disambiguateProbeModels([model('a', 'Claude'), model('b', 'Claude'), model('unique', 'Unique')])
+    const result = disambiguateModelLabels([model('a', 'Claude'), model('b', 'Claude'), model('unique', 'Unique')])
     expect(result.map(({ id, name }) => ({ id, name }))).toEqual([
       { id: 'a', name: 'Claude · a' },
       { id: 'b', name: 'Claude · b' },
@@ -119,13 +117,13 @@ describe('ACP model display labels', () => {
   })
 
   it('uses a short description when a duplicate value is itself the display name', () => {
-    const result = disambiguateProbeModels([model('same', 'same', 'Fast mode\nextra detail'), model('other', 'same')])
+    const result = disambiguateModelLabels([model('same', 'same', 'Fast mode\nextra detail'), model('other', 'same')])
     expect(result[0]?.name).toBe('same · Fast mode')
     expect(result[1]?.name).toBe('same · other')
   })
 
   it('does not manufacture a supplier label or drop a duplicate lacking description', () => {
-    const result = disambiguateProbeModels([model('x', 'Model'), model('y', 'Model')])
+    const result = disambiguateModelLabels([model('x', 'Model'), model('y', 'Model')])
     expect(result.map((item) => item.id)).toEqual(['x', 'y'])
     expect(result.map((item) => item.name)).toEqual(['Model · x', 'Model · y'])
   })
@@ -152,6 +150,96 @@ describe('ACP model display labels', () => {
     ])
     expect(models.map((item) => item.id)).toEqual(['one', 'two'])
     expect(models.map((item) => item.name)).toEqual(['Same · one', 'Same · two'])
+  })
+
+  it.each(
+    [
+      undefined,
+      [],
+      [
+        {
+          id: 'model',
+          name: 'Vendor choice',
+          type: 'select' as const,
+          category: 'vendor-choice',
+          currentValue: 'one',
+          options: [{ value: 'one', name: 'One' }],
+        },
+      ],
+      [
+        {
+          id: 'model',
+          name: 'Model',
+          type: 'select' as const,
+          currentValue: 'one',
+          options: [{ value: 'one', name: 'One' }],
+        },
+      ],
+      [{ id: 'model', name: 'Model', type: 'select' as const, category: 'model', currentValue: 'one', options: [] }],
+    ].map((configOptions) => ({ configOptions })),
+  )('keeps a successfully probed Agent selectable without a model catalogue ($configOptions)', ({ configOptions }) => {
+    expect(probeModels('acp-test', configOptions)).toEqual([
+      { provider: 'acp-test', id: ACP_CURRENT_CONFIG_MODEL_ID, name: 'Agent current configuration' },
+    ])
+  })
+
+  it.each([
+    ['OpenCode', true, 'one', true],
+    ['codebuddy-code', true, 'one', true],
+    ['replacement', true, 'one', false],
+    ['OpenCode', false, 'one', false],
+    ['OpenCode', true, 'missing', false],
+  ] as const)(
+    'offers an explicit managed route only for a restorable, verified peer (%s, %s, %s)',
+    (name, loadSession, currentValue, offered) => {
+      const models = probeModels(
+        'acp-test',
+        [
+          {
+            id: 'engine',
+            name: 'Model',
+            type: 'select',
+            category: 'model',
+            currentValue,
+            options: [{ name: 'One', value: 'one' }],
+          },
+        ],
+        { agentInfo: { name, version: '1' }, agentCapabilities: { loadSession } },
+      )
+      expect(models.map((entry) => entry.id)).toEqual(offered ? ['one', ACP_AGENT_MANAGED_MODEL_ID] : ['one'])
+    },
+  )
+
+  it('escapes a real declared model that collides with the host-only current-configuration route', () => {
+    const [entry] = probeModels('acp-test', [
+      {
+        id: 'engine',
+        name: 'Engine',
+        category: 'model',
+        type: 'select',
+        currentValue: ACP_CURRENT_CONFIG_MODEL_ID,
+        options: [{ value: ACP_CURRENT_CONFIG_MODEL_ID, name: 'Actual supplier model' }],
+      },
+    ])
+    expect(entry).toEqual({
+      provider: 'acp-test',
+      id: acpDeclaredModelRoute(ACP_CURRENT_CONFIG_MODEL_ID),
+      name: 'Actual supplier model',
+    })
+  })
+
+  it('recognizes the anonymous CodeBuddy CLI by its launch, while a conflicting peer identity takes precedence', () => {
+    const direct = { command: '/opt/bin/codebuddy', args: ['--acp'] }
+    const registry = {
+      command: 'npx.cmd',
+      args: ['-y', '@tencent-ai/codebuddy-code@2.184.0', '--acp'],
+      runtime: 'codebuddy' as const,
+    }
+    expect(supportsAgentManagedModels(undefined, direct)).toBe(true)
+    expect(supportsAgentManagedModels(undefined, registry)).toBe(true)
+    expect(supportsAgentManagedModels('another-agent', direct)).toBe(false)
+    expect(supportsAgentManagedModels(undefined, { ...registry, args: ['-y', 'another-package', '--acp'] })).toBe(false)
+    expect(supportsAgentManagedModels(undefined, { ...registry, command: 'arbitrary-wrapper' })).toBe(false)
   })
 })
 

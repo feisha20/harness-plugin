@@ -7,7 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { effectiveRuntimeOf } from '../../contract/agent-config.ts'
 import { AcpClientConnection, cleanupAcpSession } from '../../protocol/v1/connection.ts'
 import { isModelConfigOption } from '../../protocol/v1/config-options.ts'
-import type { SubprocessSeamResolution } from '../../runtime/process/subprocess.ts'
+import type { SubprocessSeam, SubprocessSeamResolution } from '../../runtime/process/subprocess.ts'
 import { prepareAgentLaunch } from './agent-launch.ts'
 import type { InstalledProfileRegistry } from './installed-profile-registry.ts'
 
@@ -39,7 +39,7 @@ export function installAcpTextGeneration(
 
 async function generateText(
   config: Parameters<typeof prepareAgentLaunch>[1],
-  subprocess: Parameters<typeof prepareAgentLaunch>[3],
+  subprocess: SubprocessSeam,
   model: string,
   system: string,
   input: string,
@@ -53,7 +53,7 @@ async function generateText(
   const stop = new AbortController()
   const rpc = { signal: AbortSignal.any([signal, stop.signal]) }
   try {
-    const launch = await prepareAgentLaunch('antigravity', config, cwd, subprocess, undefined)
+    const launch = await prepareAgentLaunch('antigravity', config)
     rpc.signal.throwIfAborted()
     connection = new AcpClientConnection(
       { argv: [...launch.argv], cwd, env: launch.env, spawnPlan: launch.spawnPlan, subprocess },

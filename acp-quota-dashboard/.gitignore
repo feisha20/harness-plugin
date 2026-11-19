@@ -22,3 +22,6 @@ reference/
 
 # 本地构建交付包
 dist/
+
+# 本地留存的上游历史兼容性评估
+/docs/assessments/

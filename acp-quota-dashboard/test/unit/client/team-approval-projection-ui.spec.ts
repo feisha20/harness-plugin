@@ -41,7 +41,7 @@ vi.mock('react', () => ({
 
 import { AcpTeamApprovals } from '../../../src/client/ui/AcpTeamApprovals.ts'
 import type { AcpApprovalChildView } from '../../../src/client/data/acp-remote.ts'
-import type { TeamProjection } from '@deepseek-ai/dsh-experimental-agent-team/client'
+import type { TeamProjection } from '@deepseek-ai/dsh-agent-team/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
@@ -67,15 +67,8 @@ function statusSnapshot(entries: readonly (readonly [string, ReturnType<typeof p
     ]),
   ) as never
 }
-function projection(
-  members: readonly { id: string; name: string; role: 'lead' | 'teammate'; phase: 'active' }[],
-  failure?: string,
-): TeamProjection {
-  return {
-    members: members.map((member) => ({ ...member, id: sid(member.id) })),
-    tasks: [],
-    ...(failure === undefined ? {} : { failure }),
-  }
+function projection(failure?: string): TeamProjection {
+  return { enabled: true, tasks: [], ...(failure === undefined ? {} : { failure }) }
 }
 function textContent(node: unknown): string[] {
   if (typeof node === 'string') return [node]
@@ -132,7 +125,6 @@ function renderApprovals(
         : team,
     t: (key: string) => key,
     status: { subscribe: () => () => {}, getSnapshot: () => statuses },
-    ownsRoute: (provider: string | undefined) => provider === 'acp-devin',
     loadChildren: async () => children,
     isCurrent: () => true,
     openMember: options.openMember ?? (async () => {}),
@@ -146,22 +138,34 @@ it('does not hide a managed child request because its parent uses a native model
   expect(textContent(tree)).toContain('teamPendingLoading')
 })
 
-it.each([1, 2])('shows batch actions only for multiple approvals (%i pending)', async (count) => {
+it.each([
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [2, 1],
+])('shows only answerable approvals (%i current, %i settled but still in Host status)', async (current, settled) => {
   hooks.active = true
   const statuses = statusSnapshot(
-    Array.from({ length: count }, (_, index) => {
+    Array.from({ length: current + settled }, (_, index) => {
       const id = `member-${index}`
-      return [id, pending(id)] as const
+      return [id, { ...pending(id), answerable: index < current }] as const
     }),
   )
-  renderApprovals(undefined, statuses, true)
+  const render = () => renderApprovals(undefined, statuses, true)
+  render()
   for (const effect of hooks.effects.splice(0)) effect()
   await vi.waitFor(() => {
-    const content = textContent(renderApprovals(undefined, statuses, true))
-    expect(content.filter((text) => text === 'teamAllowOnce')).toHaveLength(count)
-    expect(content.filter((text) => text === 'teamReject')).toHaveLength(count)
+    const tree = render()
+    if (current === 0) {
+      expect(tree).toBeNull()
+      return
+    }
+    const content = textContent(tree)
+    expect(content.filter((text) => text === 'teamAllowOnce')).toHaveLength(current)
+    expect(content.filter((text) => text === 'teamReject')).toHaveLength(current)
+    expect(content.filter((text) => text === 'teamPendingOpen')).toHaveLength(current)
     for (const batchContent of ['teamAllowAll', 'teamRejectAll', 'teamBatchHint'])
-      expect(content.includes(batchContent)).toBe(count > 1)
+      expect(content.includes(batchContent)).toBe(current > 1)
   })
 })
 
@@ -210,14 +214,8 @@ it('does not show another Team’s pending request on an ordinary ACP session wi
   expect(tree).toBeNull()
 })
 
-it('does not treat a stale Team roster as runtime child ownership', () => {
-  const team = projection(
-    [
-      { id: 'lead', name: 'Lead', role: 'lead', phase: 'active' },
-      { id: 'member', name: 'Member', role: 'teammate', phase: 'active' },
-    ],
-    'invalid persisted team record',
-  )
+it('does not treat a Team selection as runtime child ownership', () => {
+  const team = projection('invalid persisted team record')
   const tree = renderApprovals(team, statusSnapshot([['member', pending('member')]]))
   const content = textContent(tree)
   expect(tree).toBeNull()
@@ -226,10 +224,7 @@ it('does not treat a stale Team roster as runtime child ownership', () => {
 })
 
 it('does not use unrelated pending requests to surface a failed Team projection', () => {
-  const team = projection(
-    [{ id: 'lead', name: 'Lead', role: 'lead', phase: 'active' }],
-    'invalid persisted team record',
-  )
+  const team = projection('invalid persisted team record')
   const tree = renderApprovals(team, statusSnapshot([['other-team-member', pending('other-team-member')]]))
   expect(tree).toBeNull()
 })

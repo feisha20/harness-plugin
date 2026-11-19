@@ -1,4 +1,4 @@
-import { AcpProgressNotice } from '../../../src/client/ui/AcpProgressNotice.ts'
+import type { AcpOwnedRoutesView } from '../../../src/contract/remote.ts'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -17,20 +17,23 @@ vi.mock('react', () => ({
     return [index < hooks.values.length ? hooks.values[index] : initial, () => {}]
   },
   useEffect: () => {},
+  useLayoutEffect: () => {},
   useRef: (current: unknown) => ({ current }),
   useMemo: (factory: () => unknown) => factory(),
   useCallback: (callback: unknown) => callback,
   useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
 }))
 
+import { UnroutedHistoryDock } from '../../../src/client/ui/UnroutedHistoryDock.ts'
+import { UnsentModelSwitchInput } from '../../../src/client/ui/UnsentModelSwitchInput.ts'
 import { AcpAgentControl } from '../../../src/client/ui/AcpAgentControl.ts'
 import { AcpRecoveryDock } from '../../../src/client/ui/AcpRecoveryDock.ts'
+import { ManagedModelRecovery } from '../../../src/client/ui/ManagedModelRecovery.ts'
+import type { IndependentSessionOutcome } from '../../../src/client/coordinator/native-session-navigation.ts'
 import { TeamMemberModelControl } from '../../../src/client/ui/TeamMemberModelControl.ts'
 import type { AcpAgentSessionSnapshotView } from '../../../src/contract/remote.ts'
 
-// Use the installed RC1 grant producer, not a hand-written boolean permission
-// stub. Element-tree tests inspect choices and handlers; browser E2E owns React
-// effects, native menus and the mounted owner experience.
+// Exercise selection handlers with the same grant updates used by a mounted DSH client.
 const require = createRequire(import.meta.url)
 type NativeAccess = {
   global(action: string): HostObservable<boolean>
@@ -49,7 +52,7 @@ function nodes(value: unknown): Tree[] {
   if (Array.isArray(value)) return value.flatMap(nodes)
   if (typeof value !== 'object' || value === null || !('props' in value)) return []
   const node = value as Tree
-  return [node, ...nodes(node.props.children)]
+  return [node, ...nodes(node.props.children), ...nodes(node.props.footer)]
 }
 function seed(values: unknown[]) {
   hooks.values = values
@@ -84,7 +87,37 @@ function setup(owner = false, workspace = true) {
     retryOriginal: vi.fn(async () => ({ ok: true, value: undefined })),
     rebindRecoveryBlank: vi.fn(async () => ({ ok: true, value: undefined })),
   }
-  const createNewSession = vi.fn(async () => {})
+  const createNewSession = vi.fn(async () => 'idle' as const)
+  const managedRecovery = (model: NonNullable<AcpAgentSessionSnapshotView['managedModel']>) => {
+    seed([
+      {
+        ...snapshot,
+        managedModel: model,
+        configOptions: [
+          {
+            type: 'select',
+            id: 'engine',
+            category: 'model',
+            currentValue: 'b',
+            options: [
+              { value: 'a', name: 'Model A' },
+              { value: 'b', name: 'Model B' },
+            ],
+          },
+        ],
+      },
+    ])
+    return ManagedModelRecovery({
+      sessionId: 'lead',
+      remote,
+      t: (key: string) => key,
+      writable: true,
+      running: false,
+      mayCreate: true,
+      createNewSession,
+      sessionAccessSource,
+    } as never)
+  }
   const common = {
     sessionId: 'lead',
     remote,
@@ -99,7 +132,8 @@ function setup(owner = false, workspace = true) {
     useSession: (select: (value: object) => unknown) => select({ running: false, openState: 'ready' }),
     useProjection: () => ({ lastUsed: { provider: 'acp-codex' }, next: { provider: 'acp-codex' } }),
     t: (key: string) => key,
-    ownsRoute: (value: string) => value === 'acp-codex',
+    useRouteOwnership: (select: (value: AcpOwnedRoutesView) => unknown) =>
+      select({ providers: ['acp-codex'], historicalProviders: [] }),
   }
   const control = () => {
     seed([
@@ -123,13 +157,14 @@ function setup(owner = false, workspace = true) {
       feedback: { report: vi.fn() },
     } as never) as Tree
   }
-  const model = (status: 'inactive' | 'running' = 'inactive') => {
+  const model = (status: 'inactive' | 'running' = 'inactive', blocked = false, memberBlocked = false) => {
     seed([
       false,
       {
         currentModel: 'a',
         pendingModel: null,
         writable: true,
+        ...(blocked ? { unavailableReason: 'model-switch' } : {}),
         models: [
           { id: 'a', name: 'A' },
           { id: 'b', name: 'B' },
@@ -149,6 +184,7 @@ function setup(owner = false, workspace = true) {
         name: 'Child',
         model: 'a',
         modelWritable: true,
+        ...(memberBlocked ? { modelUnavailableReason: 'model-switch' } : {}),
         status,
         description: null,
       },
@@ -158,7 +194,7 @@ function setup(owner = false, workspace = true) {
       onMenuOpen: () => {},
     } as never)
   }
-  const recovery = () => {
+  const recovery = (confirmRebind = false, navigation: IndependentSessionOutcome = 'idle') => {
     seed([
       { dshSessionId: 'lead', kind: 'outcome-unknown', cause: null, detail: null },
       true,
@@ -169,23 +205,35 @@ function setup(owner = false, workspace = true) {
       false,
       false,
       0,
+      confirmRebind,
+      navigation,
     ])
     return AcpRecoveryDock({ ...common, createNewSession } as never)
   }
-  const cancelSession = vi.fn(async () => {})
-  const progress = (running = true, idle = 180000, open = true) => {
-    seed([0, idle, idle >= 120000, false, null, null, open])
-    return AcpProgressNotice({
+  const imported = (nativeModels: string[] = ['m']) => {
+    seed([])
+    return UnroutedHistoryDock({
       ...common,
-      cancelSession,
-      createNewSession,
-      useSession: (select: (value: object) => unknown) => select({ running, lastAgentError: null }),
-      useSessionStatus: (select: (value: unknown) => unknown) => select(new Map()),
-      useChat: (select: (value: unknown) => unknown) =>
-        select({ legacy: { turnTimings: new Map([[1, {}]]), nodes: [], partial: null, runningCalls: [] } }),
+      useSessionRetainInfo: (select: (value: object) => unknown) => select({ retainedBy: { mainView: 1 } }),
+      useSession: (select: (value: object) => unknown) =>
+        select({ openState: 'open', blank: false, running: false, removed: false, subagent: null }),
+      useProjection: (id: string, select: (value: object) => unknown) =>
+        select(id === 'acpExecution' ? { completedWithoutModel: true } : { next: null, lastUsed: null }),
+      directory: {
+        subscribe: () => () => {},
+        getSnapshot: () => ({
+          current: { provider: 'acp-codex', model: 'm' },
+          status: 'ready',
+          groups: [
+            { id: 'acp-codex', models: ['m'] },
+            { id: 'native', models: nativeModels },
+          ],
+        }),
+      },
+      openIndependent: createNewSession,
     } as never)
   }
-  return { state, remote, control, model, recovery, createNewSession, progress, cancelSession }
+  return { state, remote, control, model, recovery, managedRecovery, imported, createNewSession }
 }
 function groups(tree: Tree): { choices: { disabled: boolean; write: { kind: string } }[] }[] {
   return tree.props.groups as never
@@ -204,6 +252,37 @@ function recoveryButton(value: unknown, label: string): Tree {
     (node) => typeof node.props.onClick === 'function' && (node.props.children as unknown[])?.includes(label),
   )!
 }
+
+it('recovers a possibly delivered message by changing only the model or opening a separate chat', async () => {
+  const h = setup()
+  const model = {
+    optionId: 'engine',
+    confirmed: 'b',
+    lastSuccessfulModel: 'a',
+    recovery: 'possibly-delivered' as const,
+  }
+  grants(h.state, 'lead', ['dshAcp/setAgentSessionOption', 'session/selectModel'])
+  const view = h.managedRecovery(model)
+  const labels = nodes(view).flatMap((node) => node.props.children ?? [])
+  expect(labels).toContain('managedModelIncomplete')
+  expect(labels).not.toContain('resendUnsentMessage')
+  const switchBack = recoveryButton(view, 'managedModelRestore').props.onClick as () => void
+  grants(h.state, 'lead', ['dshAcp/setAgentSessionOption'])
+  switchBack()
+  expect(h.remote.setAgentSessionOption).not.toHaveBeenCalled()
+  grants(h.state, 'lead', ['dshAcp/setAgentSessionOption', 'session/selectModel'])
+  switchBack()
+  expect(h.remote.setAgentSessionOption).toHaveBeenCalledExactlyOnceWith('lead', {
+    kind: 'config',
+    id: 'engine',
+    value: 'a',
+  })
+  const missing = h.managedRecovery({ ...model, lastSuccessfulModel: 'removed' })
+  expect(nodes(missing).flatMap((node) => node.props.children ?? [])).not.toContain('managedModelRestore')
+  ;(recoveryButton(missing, 'managedModelNew').props.onClick as () => void)()
+  expect(h.createNewSession).toHaveBeenCalledExactlyOnceWith('lead', expect.any(Function), 'create')
+  expect(h.managedRecovery({ optionId: 'engine', confirmed: 'b' })).toBeNull()
+})
 
 it('preserves owner mode and policy writes while read-only grants disable and block both handlers', async () => {
   for (const owner of [false, true]) {
@@ -273,6 +352,36 @@ it('keeps native owner model controls enabled without granting a busy member a w
   expect(h.remote.setTeamMemberModel).not.toHaveBeenCalled()
 })
 
+it('explains member model-switch refusal and permits only restoring the current model', () => {
+  for (const fromMember of [false, true]) {
+    const h = setup(true)
+    const menu = modelMenu(h.model('inactive', !fromMember, fromMember))
+    expect(menu.props.items).toEqual([
+      { id: 'a', label: 'A', disabled: false },
+      { id: 'b', label: 'B', disabled: true },
+    ])
+    expect(menu.props.footer).toEqual([{ type: 'label', id: 'read-only', text: 'teamModelSwitchUnavailable' }])
+    ;(menu.props.onSelect as (id: string) => void)('b')
+    expect(h.remote.setTeamMemberModel).not.toHaveBeenCalled()
+    ;(menu.props.onSelect as (id: string) => void)('a')
+    expect(h.remote.setTeamMemberModel).toHaveBeenCalledExactlyOnceWith('lead', 'child', 'a')
+  }
+})
+
+it('requires confirmation before blank rebind and rechecks grants at the final confirmation', () => {
+  const h = setup()
+  grants(h.state, 'lead', ['dshAcp/rebindRecoveryBlank'])
+  ;(recoveryButton(h.recovery(), 'recoveryRebind').props.onClick as () => void)()
+  expect(h.remote.rebindRecoveryBlank).not.toHaveBeenCalled()
+  const confirmation = recoveryButton(h.recovery(true), 'recoveryRebindConfirm')
+  grants(h.state, 'lead', [])
+  ;(confirmation.props.onClick as () => void)()
+  expect(h.remote.rebindRecoveryBlank).not.toHaveBeenCalled()
+  grants(h.state, 'lead', ['dshAcp/rebindRecoveryBlank'])
+  ;(recoveryButton(h.recovery(true), 'recoveryRebindConfirm').props.onClick as () => void)()
+  expect(h.remote.rebindRecoveryBlank).toHaveBeenCalledExactlyOnceWith('lead')
+})
+
 it('disables ACP recovery writes for a reader and rechecks a previously opened recovery action', async () => {
   const h = setup()
   for (const [label, method] of [
@@ -315,46 +424,75 @@ it('uses the destination workspace or global create grant instead of the source 
     const allowed = recoveryButton(h.recovery(), 'recoveryNew')
     expect(allowed.props.disabled).toBe(false)
     ;(allowed.props.onClick as () => void)()
-    expect(h.createNewSession).toHaveBeenCalledExactlyOnceWith('lead')
+    expect(h.createNewSession).toHaveBeenCalledExactlyOnceWith('lead', expect.any(Function), 'create')
   }
 })
 
-it('无进展操作只显式取消，运行时不提供重连，新建和恢复受授权约束', async () => {
-  const f = setup(true)
-  const active = nodes(f.progress())
-  expect(active.some((n) => n.props.children?.toString() === '重连原会话')).toBe(false)
-  const cancel = active.find((n) => n.props.children?.toString() === '取消本轮')!
-  expect(cancel.props.disabled).toBe(false)
-  ;(cancel.props.onClick as () => void)()
-  ;(cancel.props.onClick as () => void)()
-  expect(f.cancelSession).toHaveBeenCalledTimes(1)
-  expect(f.remote.retryOriginal).not.toHaveBeenCalled()
-  expect(f.createNewSession).not.toHaveBeenCalled()
-  const ended = nodes(f.progress(false))
-  const reconnect = ended.find((n) => n.props.children?.toString() === '重连原会话')!
-  ;(reconnect.props.onClick as () => void)()
-  expect(f.remote.retryOriginal).toHaveBeenCalledWith('lead')
-})
-it('无授权的无进展提示不允许取消或重连', () => {
-  const f = setup(false)
-  for (const running of [true, false]) {
-    const tree = nodes(f.progress(running))
-    const button = tree.find((n) => n.props.children?.toString() === (running ? '取消本轮' : '重连原会话'))!
-    expect(button.props.disabled).toBe(true)
-    ;(button.props.onClick as () => void)()
-  }
-  expect(f.cancelSession).not.toHaveBeenCalled()
-  expect(f.remote.retryOriginal).not.toHaveBeenCalled()
+it('offers opening the existing ungrouped session after a recovery attachment failure', () => {
+  const h = setup(true)
+  const view = h.recovery(false, 'ungrouped')
+  const labels = nodes(view).flatMap((node) => node.props.children ?? [])
+  expect(labels).toContain('unroutedHistoryUngrouped')
+  expect(labels).not.toContain('recoveryNew')
+  ;(recoveryButton(view, 'unroutedHistoryOpen').props.onClick as () => void)()
+  expect(h.createNewSession).toHaveBeenCalledExactlyOnceWith('lead', expect.any(Function), 'open-existing')
 })
 
-it('正常等待不渲染提示，超时仅保留可点击入口', () => {
-  const f = setup(true)
-  expect(f.progress(true, 45000, false)).toBeNull()
-  const closed = nodes(f.progress(true, 180000, false))
-  const trigger = closed.find((n) => n.props.children?.toString() === '⚠ 暂无新进展')!
-  expect(trigger.props['aria-haspopup']).toBe('dialog')
-  expect(trigger.props['aria-expanded']).toBe(false)
-  expect(closed.some((n) => n.props.children?.toString() === '取消本轮')).toBe(false)
-  expect(f.cancelSession).not.toHaveBeenCalled()
-  expect(f.remote.retryOriginal).not.toHaveBeenCalled()
+it('offers the default mode as an explicit alternate recovery action when the original mode is unavailable', () => {
+  const h = setup(true)
+  const view = h.recovery(false, 'preset-unavailable')
+  const button = recoveryButton(view, 'independentUseDefault')
+  expect(nodes(view).flatMap((node) => node.props.children ?? [])).toContain('independentPresetUnavailable')
+  ;(button.props.onClick as () => void)()
+  expect(h.createNewSession).toHaveBeenCalledExactlyOnceWith('lead', expect.any(Function), 'use-default')
+})
+
+it('offers only available model and creation actions in an imported history', () => {
+  const h = setup()
+  const keys = (view: unknown) => nodes(view).flatMap((node) => node.props.children ?? [])
+  expect(h.imported()).toBeNull()
+  grants(h.state, 'lead', ['session/selectModel'])
+  expect(keys(h.imported())).toContain('unroutedHistoryHint')
+  expect(keys(h.imported())).not.toContain('crossBackendContinue')
+  expect(h.imported([])).toBeNull()
+  h.state.update({
+    type: 'upsert',
+    grant: {
+      resource: { kind: 'workspace', id: 'workspace' as never },
+      actions: ['session/create'],
+    },
+  })
+  expect(keys(h.imported())).toContain('crossBackendContinue')
+  expect(keys(h.imported([]))).toContain('unroutedHistoryCreateOnly')
+  grants(h.state, 'lead', [])
+  expect(keys(h.imported())).toContain('unroutedHistoryCreateOnly')
+  expect(keys(h.imported())).toContain('crossBackendContinue')
+})
+
+it('shows a resend action only for a failed switch with permission to send, and submits its ticket once', async () => {
+  const { state } = setup()
+  const remote = { retryModelSwitchInput: vi.fn(async () => ({ ok: true })) }
+  const render = (failureSeq?: number) => {
+    seed([])
+    return UnsentModelSwitchInput({
+      sessionId: 'lead',
+      useAccess: (action: string) => state.resource('session', 'lead', action).getSnapshot(),
+      useProjection: (_key: string, select: (value: object) => unknown) =>
+        select(failureSeq === undefined ? {} : { unsentModelSwitch: { failureSeq } }),
+      useSession: (select: (value: object) => unknown) => select({ running: false }),
+      remote,
+      t: (key: string) => key,
+    } as never)
+  }
+  for (const action of ['session/prompt', 'dshAcp/retryModelSwitchInput']) {
+    grants(state, 'lead', [action])
+    expect(render(42)).toBeNull()
+  }
+  grants(state, 'lead', ['session/prompt', 'dshAcp/retryModelSwitchInput'])
+  expect(render()).toBeNull()
+  const element = render(42) as Tree
+  const button = recoveryButton((element.type as (props: object) => unknown)(element.props), 'resendUnsentMessage')
+  const retry = button.props.onClick as () => Promise<void>
+  await Promise.all([retry(), retry()])
+  expect(remote.retryModelSwitchInput).toHaveBeenCalledExactlyOnceWith('lead', 42)
 })

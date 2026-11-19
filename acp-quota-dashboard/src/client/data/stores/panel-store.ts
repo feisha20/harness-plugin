@@ -9,7 +9,7 @@
  * (scope guards and revision fencing read it) and mirrors every transition
  * through these actions, resyncing wholesale on attach so a re-created entry
  * store catches up in one publish.
- * @module @zaimokuza/dsh-acp-adapter/client/stores/panel-store
+ * @module @feisha20/dsh-acp-adapter/client/stores/panel-store
  */
 
 import type { AcpProviderHealth, PanelSettingsState } from '../logic.ts'
@@ -27,6 +27,8 @@ export interface HealthState {
   checkingAgentIds: string[]
   /** 卡片级检查的传输/载荷错误；成功重检或全量刷新会清除对应错误。 */
   agentErrors: Record<string, string>
+  /** The Host runs another DSH version than this adapter is built for. */
+  hostVersion?: { required: string; running: string }
 }
 
 /** The panel store's published snapshot. */
@@ -69,7 +71,12 @@ const panelActions = {
     draft.health.agentErrors = {}
   },
   /** A refresh landed: rows replace wholesale, the error clears. */
-  healthReady(draft: AcpPanelSnapshot, rows: readonly AcpProviderHealth[], fetchedAt: number): void {
+  healthReady(
+    draft: AcpPanelSnapshot,
+    rows: readonly AcpProviderHealth[],
+    fetchedAt: number,
+    hostVersion?: { required: string; running: string },
+  ): void {
     draft.health = {
       status: 'ready',
       rows,
@@ -77,6 +84,7 @@ const panelActions = {
       message: undefined,
       checkingAgentIds: [],
       agentErrors: {},
+      ...(hostVersion === undefined ? {} : { hostVersion }),
     }
   },
   /** A refresh failed (network/HTTP/malformed): keep the last good rows, surface the message. */

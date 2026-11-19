@@ -39,7 +39,7 @@ describe('npm release contract', () => {
         },
       })
       expect(readFileSync(output, 'utf8')).toContain(`dist-tag=${distTag}\n`)
-      expect(readFileSync(output, 'utf8')).toContain(`tarball=zaimokuza-dsh-acp-adapter-${version}.tgz`)
+      expect(readFileSync(output, 'utf8')).toContain(`tarball=feisha20-dsh-acp-adapter-${version}.tgz`)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

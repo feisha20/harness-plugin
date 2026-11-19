@@ -101,11 +101,12 @@ it('reuses a live session without restore capability but rejects restoring it af
 })
 
 it.each([
-  { refresh: true, expectedRestore: 'loaded', expectedProcesses: 2 },
-  { refresh: false, expectedRestore: 'reused', expectedProcesses: 1 },
+  { refresh: true, verifyModel: false, expectedRestore: 'loaded', expectedProcesses: 2 },
+  { refresh: true, verifyModel: true, expectedRestore: 'loaded', expectedProcesses: 2 },
+  { refresh: false, verifyModel: false, expectedRestore: 'reused', expectedProcesses: 1 },
 ] as const)(
-  'refreshes a confirmed-cancelled session only for the opted-in runtime (refresh=$refresh)',
-  async ({ refresh, expectedRestore, expectedProcesses }) => {
+  'restores a confirmed-cancelled session (refresh=$refresh, verifyModel=$verifyModel)',
+  async ({ refresh, verifyModel, expectedRestore, expectedProcesses }) => {
     const cwd = mkdtempSync(join(tmpdir(), 'acp-cancel-refresh-'))
     const callsFile = join(cwd, 'rpc-methods.jsonl')
     const source = `
@@ -126,7 +127,7 @@ it.each([
         else if (request.method === 'session/prompt') send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'cancelled' }});
         else if (request.method === 'session/load') send({ jsonrpc: '2.0', id: request.id, result: {
           modes: { currentModeId: 'review', availableModes: [{ id: 'review', name: 'Review' }] },
-          configOptions: [{ id: 'model', name: 'Model', type: 'select', category: 'model', currentValue: 'minimax-m2.7', options: [{ value: 'minimax-m2.7', name: 'MiniMax M2.7' }] }]
+          configOptions: ${verifyModel} ? undefined : [{ id: 'model', name: 'Model', type: 'select', category: 'model', currentValue: 'minimax-m2.7', options: [{ value: 'minimax-m2.7', name: 'MiniMax M2.7' }] }]
         }});
         else if (request.id !== undefined) send({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'unexpected RPC' } });
       });
@@ -158,14 +159,17 @@ it.each([
           currentValue: 'minimax-m2.7',
         })
       }
-      await expect(runtime.restore({ agentSessionId: 'saved' })).resolves.toBe(expectedRestore)
+      const restored = await runtime.restore({
+        agentSessionId: 'saved',
+        ...(verifyModel ? { requireFreshConfig: true, protocolVersion: 1 } : {}),
+      })
+      expect(restored).toBe(expectedRestore)
       expect(runtime.lastRestoreRefreshedCancelledSession).toBe(refresh)
       if (refresh) {
         expect(runtime.acpSessionId).toBe('saved')
         expect(runtime.currentModeId).toBe('review')
-        expect(runtime.configOptions?.find((option) => option.id === 'model')).toMatchObject({
-          currentValue: 'minimax-m2.7',
-        })
+        if (verifyModel) expect(runtime.configOptions).toBeUndefined()
+        else expect(runtime.configOptions?.find((option) => option.id === 'model')?.currentValue).toBe('minimax-m2.7')
       }
       const calls = readFileSync(callsFile, 'utf8')
         .trim()
@@ -381,6 +385,55 @@ it('does not respawn after close cancels a cancelled-session refresh backoff', a
     await expect(restoring).rejects.toBeInstanceOf(AcpSessionRefreshAbortedError)
     expect(launchCount).toBe(2)
     expect(readFileSync(callsFile, 'utf8').trim().split('\n')).toEqual(['initialize', 'session/new', 'session/prompt'])
+  } finally {
+    await runtime.close()
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+it('restores the saved session in a new process after the Agent exited while idle', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'acp-idle-exit-'))
+  const callsFile = join(cwd, 'rpc-methods.log')
+  const source = `
+    const fs = require('node:fs');
+    const readline = require('node:readline');
+    const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+    readline.createInterface({ input: process.stdin }).on('line', line => {
+      const request = JSON.parse(line);
+      fs.appendFileSync(process.env.CALLS_FILE, process.pid + ' ' + request.method + '\\n');
+      if (request.method === 'initialize') send({ jsonrpc: '2.0', id: request.id, result: {
+        protocolVersion: 1, agentCapabilities: { loadSession: true }
+      }});
+      else if (request.method === 'session/new') {
+        send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'live' }});
+        // The Agent goes away between turns: an upgrade, an expired login, a kill.
+        setTimeout(() => process.exit(0), 50);
+      }
+      else if (request.method === 'session/load') send({ jsonrpc: '2.0', id: request.id, result: {} });
+      else if (request.id !== undefined) send({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'unexpected RPC' } });
+    });
+  `
+  const argv = [process.execPath, '-e', source]
+  const env = { CALLS_FILE: callsFile }
+  const runtime = new AcpSessionRuntime({
+    profileId: 'test',
+    config: { command: process.execPath, args: argv.slice(1), env },
+    cwd,
+    subprocess: (await sharedTestSubprocess()).seam,
+    prepareLaunch: async () => ({ argv, env, spawnPlan: { argv, env } }),
+  })
+  try {
+    await runtime.start()
+    expect(runtime.acpSessionId).toBe('live')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await runtime.initialize()
+    await expect(runtime.restore({ agentSessionId: 'live' })).resolves.toBe('loaded')
+    const calls = readFileSync(callsFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => line.split(' '))
+    expect(calls.map(([, method]) => method)).toEqual(['initialize', 'session/new', 'initialize', 'session/load'])
+    expect(calls[0]![0]).not.toBe(calls[2]![0])
   } finally {
     await runtime.close()
     rmSync(cwd, { recursive: true, force: true })

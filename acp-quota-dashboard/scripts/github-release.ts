@@ -33,8 +33,8 @@ export interface ReleaseAssetIO {
   download(tag: string, asset: ReleaseAsset): Promise<Uint8Array>
   upload(tag: string, tarballPath: string): Promise<void>
 }
-const packageName = '@zaimokuza/dsh-acp-adapter'
-const repository = 'zaimokuza-yoshiteru/dsh-acp-adapter'
+const packageName = '@feisha20/dsh-acp-adapter'
+const repository = 'feisha20/harness-plugin'
 const versionPattern = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/
 
 export function validatePublished(

@@ -6,14 +6,19 @@ import type * as acp from '@agentclientprotocol/sdk'
 import { AcpSessionRuntime, type AcpSessionRuntimeOptions } from '../../../src/runtime/session/session-runtime.ts'
 import type { SubprocessSeam } from '../../../src/runtime/process/subprocess.ts'
 import { sharedTestSubprocess } from '../../fixtures/subprocess-seam-testing.ts'
+import { createAcpNativePermissionHandler } from '../../../src/domain/policy/permissions.ts'
 import { createPermissionCheckAudit } from '../../../src/domain/policy/events.ts'
 import type { AcpMcpLease } from '../../../src/runtime/session/mcp-lease.ts'
+import { Context } from '@deepseek-ai/cordis'
+import { createDshToolBridge } from '../../../src/host/tools/bridge.ts'
+import { fakeToolBatch } from '../../fixtures/tool-batch-testing.ts'
 
 const PROMPT: acp.ContentBlock[] = [{ type: 'text', text: 'permission snapshot test' }]
 
 let subprocess: SubprocessSeam
 const runtimes: AcpSessionRuntime[] = []
 const roots: string[] = []
+const bridgeCleanups: Array<() => Promise<unknown>> = []
 
 beforeAll(async () => {
   subprocess = (await sharedTestSubprocess()).seam
@@ -21,6 +26,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await Promise.allSettled(runtimes.splice(0).map(async (runtime) => await runtime.close()))
+  for (const close of bridgeCleanups.splice(0).reverse()) await close()
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
 
@@ -32,17 +38,18 @@ function createRuntime(
     | 'content-json-prefixed'
     | 'content-json-unrelated'
     | 'content-json-late'
-    | 'devin-mcp-bare-name' = 'raw-input',
+    | 'devin-mcp-bare-name'
+    | 'bridge-tool' = 'raw-input',
   previousStatus: 'in_progress' | 'completed' = 'in_progress',
   mcpLease?: AcpMcpLease,
   onPermissionCheck?: AcpSessionRuntimeOptions['onPermissionCheck'],
   cancelGraceMs = 5_000,
-  echoPermissionResult = false,
+  echoPermissionResult: boolean | 'capture-prompts' = false,
 ): AcpSessionRuntime {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-acp-runtime-permission-snapshot-'))
   roots.push(root)
   const initialInput =
-    mode === 'raw-input'
+    mode === 'raw-input' || mode === 'devin-mcp-bare-name' || mode === 'bridge-tool'
       ? `rawInput:{command:'printf SNAPSHOT_OK'},`
       : `content:[{type:'content',content:{type:'text',text:'{\\"command\\":\\"printf SNAPSHOT_OK\\"}'}}],`
   const permissionCallId =
@@ -54,7 +61,12 @@ function createRuntime(
   const permissionKind = mode === 'raw-input' ? '' : `,kind:'execute'`
   const updateSessionId = 'permission-snapshot-session'
   const updateTitle = mode === 'devin-mcp-bare-name' ? 'Calling jira_get_issue from dsh' : 'Run visible command'
-  const updateName = mode === 'devin-mcp-bare-name' ? 'jira_get_issue' : 'terminal'
+  const updateName =
+    mode === 'devin-mcp-bare-name'
+      ? 'jira_get_issue'
+      : mode === 'bridge-tool'
+        ? `mcp__${mcpLease!.servers[0]!.name}__present`
+        : 'terminal'
   const updates = `send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'${updateSessionId}',update:{sessionUpdate:'tool_call',toolCallId:'shared-call',title:'${updateTitle}',name:'${updateName}',kind:'execute',status:'pending',${initialInput}locations:[{path:'/tmp/snapshot'}]}}});send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'${updateSessionId}',update:{sessionUpdate:'tool_call_update',toolCallId:'shared-call',title:null,status:'${previousStatus}',rawOutput:{phase:'awaiting-permission'}}}});`
   const firstPrompt =
     mode === 'content-json-late'
@@ -64,10 +76,15 @@ function createRuntime(
     mode === 'raw-input'
       ? ''
       : `,content:[{type:'content',content:{type:'text',text:'Requesting approval to run the visible command'}}]`
-  const permissionEcho = echoPermissionResult
-    ? `send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'${updateSessionId}',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(m.result)}}}});`
-    : ''
-  const script = `let b='';let promptSeq=0;const promptIds=new Map();const send=(m)=>process.stdout.write(JSON.stringify(m)+'\\n');const permission=(id)=>send({jsonrpc:'2.0',id,method:'session/request_permission',params:{sessionId:'permission-snapshot-session',toolCall:{toolCallId:'${permissionCallId}'${permissionKind}${requestContent}},options:[{optionId:'allow',name:'Allow',kind:'allow_once'}]}});process.stdin.on('data',d=>{b+=d;let i;while((i=b.indexOf('\\n'))>=0){const l=b.slice(0,i);b=b.slice(i+1);if(!l.trim())continue;const m=JSON.parse(l);if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentInfo:{name:'permission-snapshot',version:'1'},agentCapabilities:{}}});else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'permission-snapshot-session'}});else if(m.method==='session/prompt'){promptSeq+=1;const permissionId=100+promptSeq;promptIds.set(permissionId,m.id);if(promptSeq===1){${firstPrompt}}else permission(permissionId)}else if(promptIds.has(m.id)){${permissionEcho}send({jsonrpc:'2.0',id:promptIds.get(m.id),result:{stopReason:'end_turn'}})}}});process.stdin.on('end',()=>process.exit(0));setInterval(()=>{},1<<30);`
+  const capturePrompt =
+    echoPermissionResult === 'capture-prompts'
+      ? `require('node:fs').appendFileSync('prompts.jsonl',JSON.stringify(m.params.prompt)+'\\n');`
+      : ''
+  const permissionEcho =
+    echoPermissionResult === true
+      ? `send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'${updateSessionId}',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(m.result)}}}});`
+      : ''
+  const script = `let b='';let promptSeq=0;const promptIds=new Map();const send=(m)=>process.stdout.write(JSON.stringify(m)+'\\n');const permission=(id)=>send({jsonrpc:'2.0',id,method:'session/request_permission',params:{sessionId:'permission-snapshot-session',toolCall:{toolCallId:'${permissionCallId}'${permissionKind}${requestContent}},options:[{optionId:'allow',name:'Allow',kind:'allow_once'}]}});process.stdin.on('data',d=>{b+=d;let i;while((i=b.indexOf('\\n'))>=0){const l=b.slice(0,i);b=b.slice(i+1);if(!l.trim())continue;const m=JSON.parse(l);if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentInfo:{name:'permission-snapshot',version:'1'},agentCapabilities:{}}});else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'permission-snapshot-session'}});else if(m.method==='session/prompt'){${capturePrompt}promptSeq+=1;const permissionId=100+promptSeq;promptIds.set(permissionId,m.id);if(promptSeq===1){${firstPrompt}}else permission(permissionId)}else if(promptIds.has(m.id)){${permissionEcho}send({jsonrpc:'2.0',id:promptIds.get(m.id),result:{stopReason:'end_turn'}})}}});process.stdin.on('end',()=>process.exit(0));setInterval(()=>{},1<<30);`
   const argv = [process.execPath, '-e', script]
   const env: Record<string, string> = {}
   const runtime = new AcpSessionRuntime({
@@ -80,8 +97,8 @@ function createRuntime(
       argv,
       env,
       spawnPlan: { argv, env },
-      ...(mcpLease === undefined ? {} : { mcpLease }),
     }),
+    createMcpLease: async () => mcpLease,
     onPermissionRequest,
     ...(onPermissionCheck === undefined ? {} : { onPermissionCheck }),
   })
@@ -89,7 +106,207 @@ function createRuntime(
   return runtime
 }
 
+async function permissionBridge(policy: () => Promise<'ask' | 'auto'>) {
+  const agent = { id: 'permission-snapshot-session', inbox: { nextStep: [], nextTurn: [] }, inject: vi.fn() }
+  const definitions = new Map(
+    ['present', 'todo_write'].map((name) => [
+      name,
+      {
+        name,
+        description: name,
+        parameters: { type: 'object', properties: {} },
+      },
+    ]),
+  )
+  const hidden = new Set<string>()
+  const tools = {
+    schemas: () => [...definitions.values()].filter((definition) => !hidden.has(definition.name)),
+    get: (name: string) => (hidden.has(name) ? undefined : definitions.get(name)),
+    executable: (name: string) => (hidden.has(name) ? undefined : definitions.get(name)),
+    execute: fakeToolBatch(async () => ({ content: [{ type: 'text', text: 'done' }] })),
+  }
+  const services: Record<string, unknown> = { tools, agents: { get: () => agent } }
+  const listeners = new Map<string, (...args: any[]) => void>()
+  const owner = new Context()
+  owner.provide('tools', tools as never)
+  bridgeCleanups.push(() => owner.fiber.dispose())
+  const ctx = {
+    get: (name: string) => services[name],
+    tools,
+    inject: owner.inject.bind(owner),
+    on: (name: string, listener: (...args: any[]) => void) => {
+      listeners.set(name, listener)
+      return () => listeners.delete(name)
+    },
+  } as unknown as Context
+  const lease = (await createDshToolBridge(
+    ctx,
+    agent.id,
+    { mcpCapabilities: { http: true } },
+    undefined,
+    policy,
+    undefined,
+    [...definitions.values()],
+  ))!
+  bridgeCleanups.push(() => lease.close())
+  return {
+    lease,
+    withdraw(name: string, notify = true) {
+      hidden.add(name)
+      if (notify) listeners.get('tools/change')!()
+    },
+  }
+}
+
 describe('AcpSessionRuntime prompt-scoped permission snapshots', () => {
+  it.each(['same', 'replace', 'reconnect', 'stop'] as const)(
+    'delivers a policy reason only on the next admitted prompt for the same owner (%s)',
+    async (lifecycle) => {
+      const controller = new AbortController()
+      let owner = {}
+      const reason = 'Use the shared cache directory.'
+      const policy = vi.fn().mockResolvedValueOnce({ decision: 'deny-once', reason }).mockResolvedValue('cancelled')
+      const runtime = createRuntime(
+        async (params, signal, onPolicyDenial) => {
+          const answer = await createAcpNativePermissionHandler({
+            getAgent: () => owner,
+            approval: { evaluateBinary: policy, request: vi.fn() },
+            ...(onPolicyDenial === undefined ? {} : { onPolicyDenial }),
+          })(params, signal)
+          if (lifecycle === 'stop' && policy.mock.calls.length === 1) controller.abort()
+          return answer
+        },
+        'raw-input',
+        'in_progress',
+        undefined,
+        undefined,
+        5000,
+        'capture-prompts',
+      )
+      const readPrompts = () =>
+        fs
+          .readFileSync(path.join(roots.at(-1)!, 'prompts.jsonl'), 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line) as acp.ContentBlock[])
+      await runtime.prompt(PROMPT, () => {}, controller.signal)
+      expect(readPrompts()).toEqual([PROMPT])
+      if (lifecycle === 'replace') owner = {}
+      if (lifecycle === 'reconnect') await runtime.close()
+      await runtime.prompt(PROMPT, () => {})
+      await runtime.prompt(PROMPT, () => {})
+      const prompts = readPrompts()
+      expect(prompts).toHaveLength(3)
+      expect(prompts[1]).toEqual(
+        lifecycle === 'same' ? [{ type: 'text', text: expect.stringContaining(reason) }, ...PROMPT] : PROMPT,
+      )
+      expect(prompts[2]).toEqual(PROMPT)
+      expect(policy).toHaveBeenCalledTimes(3)
+    },
+  )
+  it.each(['before-answer', 'after-answer', 'unrelated-tool', 'before-answer-without-event'] as const)(
+    'keeps a displayed Ask bound to its exact tool when withdrawn %s',
+    async (timing) => {
+      const bridge = await permissionBridge(async () => 'ask')
+      const shown = Promise.withResolvers<AbortSignal | undefined>()
+      const answer = Promise.withResolvers<acp.RequestPermissionResponse>()
+      const runtime = createRuntime(
+        (_request, signal) => {
+          shown.resolve(signal)
+          return answer.promise
+        },
+        'bridge-tool',
+        'in_progress',
+        bridge.lease,
+        undefined,
+        5000,
+        true,
+      )
+      const received: string[] = []
+      const prompting = runtime.prompt(PROMPT, ({ update }) => {
+        if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text')
+          received.push(update.content.text)
+      })
+      const signal = await shown.promise
+      const allow: acp.RequestPermissionResponse = { outcome: { outcome: 'selected', optionId: 'allow' } }
+      if (timing === 'after-answer') answer.resolve(allow)
+      bridge.withdraw(timing === 'unrelated-tool' ? 'todo_write' : 'present', timing !== 'before-answer-without-event')
+      expect(bridge.lease.signal.aborted).toBe(false)
+      expect(signal?.aborted).toBe(timing === 'before-answer' || timing === 'after-answer')
+      answer.resolve(allow)
+      await prompting
+      expect(JSON.parse(received.join(''))).toEqual(
+        timing === 'unrelated-tool' ? allow : { outcome: { outcome: 'cancelled' } },
+      )
+    },
+  )
+
+  it.each(['ask', 'auto'] as const)(
+    'settles withdrawal during a pending %s policy read before that read returns',
+    async (policy) => {
+      let armed = false
+      const entered = Promise.withResolvers<void>()
+      const resolved = Promise.withResolvers<'ask' | 'auto'>()
+      const bridge = await permissionBridge(async () => {
+        if (!armed) return policy
+        entered.resolve()
+        return resolved.promise
+      })
+      const shown = vi.fn(async (): Promise<acp.RequestPermissionResponse> => ({
+        outcome: { outcome: 'selected', optionId: 'allow' },
+      }))
+      const runtime = createRuntime(shown, 'bridge-tool', 'in_progress', bridge.lease, undefined, 5000, true)
+      const received: string[] = []
+      armed = true
+      const prompting = runtime.prompt(PROMPT, ({ update }) => {
+        if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text')
+          received.push(update.content.text)
+      })
+      await entered.promise
+      bridge.withdraw('present')
+      try {
+        await prompting
+        expect(shown).not.toHaveBeenCalled()
+        expect(JSON.parse(received.join(''))).toEqual({ outcome: { outcome: 'cancelled' } })
+      } finally {
+        resolved.resolve(policy)
+      }
+    },
+  )
+
+  it('revalidates an automatic target after asynchronous audit even without a directory event', async () => {
+    const bridge = await permissionBridge(async () => 'auto')
+    const audited = Promise.withResolvers<void>()
+    const completed = Promise.withResolvers<void>()
+    const shown = vi.fn(async (): Promise<acp.RequestPermissionResponse> => ({
+      outcome: { outcome: 'selected', optionId: 'allow' },
+    }))
+    const runtime = createRuntime(
+      shown,
+      'bridge-tool',
+      'in_progress',
+      bridge.lease,
+      async (check) => {
+        expect(check.reason).toBe('auto-approved')
+        audited.resolve()
+        await completed.promise
+      },
+      5000,
+      true,
+    )
+    const received: string[] = []
+    const prompting = runtime.prompt(PROMPT, ({ update }) => {
+      if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text')
+        received.push(update.content.text)
+    })
+    await audited.promise
+    bridge.withdraw('present', false)
+    completed.resolve()
+    await prompting
+    expect(shown).not.toHaveBeenCalled()
+    expect(JSON.parse(received.join(''))).toEqual({ outcome: { outcome: 'cancelled' } })
+  })
+
   it('keeps the stream claimed past the local drain grace and admits a new prompt only after settlement', async () => {
     let pending = true
     let releaseDrain!: () => void
@@ -550,7 +767,7 @@ describe('AcpSessionRuntime prompt-scoped permission snapshots', () => {
     expect(requests[1]?.toolCall).toEqual({ toolCallId: 'shared-call' })
   })
 
-  it('recovers a complete execute command from streamed JSON content for an id-only permission request', async () => {
+  it('does not turn content text into executable permission input', async () => {
     const requests: acp.RequestPermissionRequest[] = []
     const runtime = createRuntime(async (params) => {
       requests.push(structuredClone(params))
@@ -560,10 +777,10 @@ describe('AcpSessionRuntime prompt-scoped permission snapshots', () => {
     await expect(runtime.prompt(PROMPT, () => undefined)).resolves.toMatchObject({ stopReason: 'end_turn' })
 
     expect(requests).toHaveLength(1)
-    expect(requests[0]?.toolCall.rawInput).toEqual({ command: 'printf SNAPSHOT_OK' })
+    expect(requests[0]?.toolCall.rawInput).toBeUndefined()
   })
 
-  it('joins Kimi numeric permission namespaces to the preceding unprefixed tool update', async () => {
+  it('treats numeric prefixes as part of an opaque permission id', async () => {
     const requests: acp.RequestPermissionRequest[] = []
     const runtime = createRuntime(async (params) => {
       requests.push(structuredClone(params))
@@ -574,9 +791,10 @@ describe('AcpSessionRuntime prompt-scoped permission snapshots', () => {
 
     expect(requests[0]?.toolCall).toMatchObject({
       toolCallId: '0:shared-call',
-      title: 'Run visible command',
-      rawInput: { command: 'printf SNAPSHOT_OK' },
+      kind: 'execute',
     })
+    expect(requests[0]?.toolCall.rawInput).toBeUndefined()
+    expect(requests[0]?.toolCall.title).toBeUndefined()
   })
 
   it.each(['in_progress', 'completed'] as const)(
@@ -604,7 +822,7 @@ describe('AcpSessionRuntime prompt-scoped permission snapshots', () => {
     },
   )
 
-  it('waits briefly for Kimi tool JSON that arrives after the permission request', async () => {
+  it('does not wait for late content text to become permission input', async () => {
     const requests: acp.RequestPermissionRequest[] = []
     const runtime = createRuntime(async (params) => {
       requests.push(structuredClone(params))
@@ -613,6 +831,6 @@ describe('AcpSessionRuntime prompt-scoped permission snapshots', () => {
 
     await expect(runtime.prompt(PROMPT, () => undefined)).resolves.toMatchObject({ stopReason: 'end_turn' })
 
-    expect(requests[0]?.toolCall.rawInput).toEqual({ command: 'printf SNAPSHOT_OK' })
+    expect(requests[0]?.toolCall.rawInput).toBeUndefined()
   })
 })

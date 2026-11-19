@@ -212,7 +212,10 @@ function fieldViewOf(name: string, item: unknown, required: boolean): AcpElicita
     if (!boundedPair(item, 'minItems', 'maxItems', true) || !plain(item.items)) return undefined
     const items = item.items
     if (items.type !== undefined && items.type !== 'string') return undefined
-    const parsed = optionsOf({ enum: items.enum, oneOf: items.oneOf })
+    // ACP's titled multi-select lists its choices under `anyOf`; `oneOf` is accepted for older Agents.
+    const titled = [items.oneOf, items.anyOf].filter((list) => list !== undefined && list !== null)
+    if (titled.length > 1) return undefined
+    const parsed = optionsOf({ enum: items.enum, oneOf: titled[0] })
     if (parsed === undefined || parsed.length === 0) return undefined
     options = parsed
   } else return undefined
@@ -322,8 +325,8 @@ function validateValues(
       const allowed =
         items !== undefined && Array.isArray(items.enum)
           ? items.enum
-          : items !== undefined && Array.isArray(items.oneOf)
-            ? items.oneOf.map((value) =>
+          : items !== undefined && Array.isArray(items.oneOf ?? items.anyOf)
+            ? ((items.oneOf ?? items.anyOf) as unknown[]).map((value) =>
                 typeof value === 'object' && value !== null ? (value as Record<string, unknown>).const : undefined,
               )
             : undefined
@@ -389,6 +392,8 @@ export interface AcpNativeQuestionUnavailable {
 
 export interface AcpNativeElicitationDeps {
   readonly userQuestions?: AcpNativeUserQuestionService
+  /** The live OpenCode question call and its full wire schema matched. */
+  readonly openCodeQuestion?: true
   /** Available only for verified external permission forms, never arbitrary questions. */
   readonly permissionQuestions?: AcpPermissionQuestionService
   readonly getAgent: () => unknown
@@ -432,7 +437,10 @@ export function createAcpNativeElicitationHandler(
     const scopeTitles: Record<string, string> = zh
       ? { once: '仅允许一次', session: '在本次会话中允许', always: '始终允许，不再询问' }
       : { once: 'Allow once', session: 'Allow for this session', always: "Always allow, don't ask again" }
-    const fields = schema.fields.map((field) => {
+    const presented = deps.openCodeQuestion
+      ? schema.fields.filter((field) => !field.name.endsWith('_custom'))
+      : schema.fields
+    const fields = presented.map((field) => {
       const scope =
         params._meta?.codex_approval_kind === 'mcp_tool_call' &&
         field.name === 'persist' &&
@@ -450,6 +458,7 @@ export function createAcpNativeElicitationHandler(
       )
       return {
         ...field,
+        scope,
         question: scope ? (zh ? '授权范围' : 'Approval scope') : field.title?.trim() || field.name,
         options,
       }
@@ -478,6 +487,8 @@ export function createAcpNativeElicitationHandler(
         id: field.name,
         question: field.question,
         ...(detail.length === 0 ? {} : { detail }),
+        // DSH questions cannot be declared optional; say that Skip is a valid answer.
+        ...(field.required || field.scope ? {} : { header: zh ? '可选' : 'Optional' }),
         ...(field.options.length === 0
           ? {}
           : {
@@ -509,12 +520,24 @@ export function createAcpNativeElicitationHandler(
       const values: { name: string; value: string | number | boolean | readonly string[] }[] = []
       for (const field of fields) {
         const item = answer.answers.find((candidate) => candidate.id === field.name)
-        if (item === undefined) continue
+        const custom = item?.custom?.trim() ? item.custom : undefined
+        if (item === undefined || (item.selected.length === 0 && custom === undefined)) {
+          // Permission scope always needs an explicit choice, even when the
+          // Agent's schema calls it optional. Skip must never become approval.
+          if (field.required || (params._meta?.codex_approval_kind === 'mcp_tool_call' && field.name === 'persist'))
+            return { action: 'cancel' }
+          // Omit ordinary optional fields instead of fabricating an empty value.
+          continue
+        }
+        if (deps.openCodeQuestion && custom !== undefined) {
+          values.push({ name: `${field.name}_custom`, value: custom })
+          if (item.selected.length === 0) continue
+        }
         // Enum answers must be explicit displayed choices; never interpret free
         // text as a permission scope or guess from a protocol identifier.
         if (
           field.options.length > 0 &&
-          (item.custom?.trim() ||
+          ((custom !== undefined && !deps.openCodeQuestion) ||
             item.selected.some((label) => !field.options.some((option) => option.label === label)))
         )
           return { action: 'cancel' }
