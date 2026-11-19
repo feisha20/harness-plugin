@@ -9,7 +9,7 @@
 | ACP 会员额度仪表盘 | [acp-quota-dashboard](acp-quota-dashboard/) | 在模型旁显示 Google AI Pro 额度、重置时间和所属账号；保留 ACP Agent 适配能力 |
 | 个人工作台 | [dsh-workbench](dsh-workbench/) | 在左侧主菜单提供工作台入口，支持多通道会话采集、事项待办、日报、周报与月报自动生成 |
 | 侧栏紧凑布局 | [sidebar-compact-layout](sidebar-compact-layout/) | 系统菜单整行、自定义菜单双列；停用后恢复原布局 |
-| 冰火对话 | [conversation-elements](conversation-elements/) | 运行时输入框边缘显示火焰，空闲一分钟后点击破冰 |
+| 冰火对话 | [conversation-elements](conversation-elements/) | 运行时输入框上沿显示火焰，空闲一分钟后点击破冰 |
 
 ## 开发约定
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "任务执行时发送消息输入框四周持续燃起火焰，空闲一分钟后点击破冰。",
+  "description": "任务执行时发送消息输入框上沿持续燃起火焰，空闲一分钟后点击破冰。",
   "icon": "./icon.svg",
   "exports": {
     ".": "./index.js",

@@ -13,13 +13,13 @@ function harness(t, running = false, reduced = false) {
     children: [], attrs: new Set(), style: { setProperty() {} },
     append(child) { this.children.push(child); child.parent = this; },
     remove() { this.parent.children = this.parent.children.filter(child => child !== this); },
-    setAttribute(name) { this.attrs.add(name); }, hasAttribute(name) { return this.attrs.has(name); },
+    setAttribute(name, value) { if (name === "d") this.d = value; this.attrs.add(name); }, hasAttribute(name) { return this.attrs.has(name); },
     showModal() { this.open = true; }, close() { this.open = false; },
   });
   const pane = Object.assign(element(), { dataset: { conversationSession: 'a' } });
   const card = element();
   const dock = { parentElement: { querySelector: selector => selector === '[data-composer-card]' ? card : null } };
-  const document = { head: element(), body: element(), createElement: element,
+  const document = { head: element(), body: element(), createElement: element, createElementNS: element,
     addEventListener() {}, removeEventListener() {} };
   let component, cleanup, visibility;
   const react = { createElement() {}, useRef: () => ({ current: { closest: selector => selector === '[data-composer-dock]' ? dock : pane } }),
@@ -49,10 +49,10 @@ function harness(t, running = false, reduced = false) {
   return { document, pane, card, listeners, render, visibility, tick: ms => t.mock.timers.tick(ms) };
 }
 
-test('运行中四边显示火焰，结束后重新计时', t => {
+test('运行中输入框上沿显示火焰，结束后重新计时', t => {
   const h = harness(t, true);
   assert.equal(h.pane.children.length, 0);
-  assert.equal(h.card.children[0].children.length, 4);
+  assert.equal(h.card.children.length, 1);
   h.tick(120000);
   assert.equal(h.document.body.children.length, 0);
   h.render('a', false);
@@ -75,9 +75,9 @@ test('页面活动重置时限，单击在落点破冰并重新计时', t => {
   let consumed = false;
   ice.onclick({ detail: 1, clientX: 120, clientY: 90, preventDefault() {}, stopPropagation() { consumed = true; } });
   assert.ok(consumed);
-  assert.equal(ice.children.length, 9);
-  assert.match(ice.children[1].style.clipPath, /120px 90px/);
-  h.tick(390);
+  assert.ok(ice.children.length > 9);
+  assert.ok(ice.children.at(-1).children[0].d.startsWith('M120,90 L'));
+  h.tick(850);
   assert.equal(h.document.body.children.length, 0);
   h.tick(60000);
   assert.ok(h.document.body.children[0].open);
