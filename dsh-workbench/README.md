@@ -2,7 +2,7 @@
 
 原生集成至 **DeepSeek Harness (DSH)** 左侧主导航栏的工作日志插件，具备多通道会话采集、事项看板管理、工作日报增量整理、周报/月报自动归档等全流程功能。
 
-`0.1.43` 支持 DSH 宿主 `0.2.2-rc.1` 和 `0.2.2-rc.3`，插件管理页显示名称为「工作日志」。
+`0.1.44` 支持 DSH 宿主 `0.2.2-rc.1`、`0.2.2-rc.3` 和 `0.2.2-rc.5`，插件管理页显示名称为「工作日志」。
 
 ---
 
@@ -100,7 +100,7 @@ npm run build:client
 npm run pack
 ```
 
-打包产物位于 `dist/mywork-dsh-workbench-0.1.30.tgz`。
+打包产物位于 `dist/mywork-dsh-workbench-0.1.44.tgz`。
 
 ---
 
@@ -109,10 +109,10 @@ npm run pack
 ### 方式一：通过 Harness 界面安装（推荐）
 1. 打开 DeepSeek Harness 桌面端 / Web 端。
 2. 点击左侧主菜单的 **插件**（Plugins）图标。
-3. 选择 **从本地文件安装**（Install from file...），选中 `dist/mywork-dsh-workbench-0.1.43.tgz`。
+3. 选择 **从本地文件安装**（Install from file...），选中 `dist/mywork-dsh-workbench-0.1.44.tgz`。
 4. 重启或刷新页面，左侧主菜单将出现 **工作日志** 入口。
 
 ### 方式二：通过 DSH 命令行添加
 ```bash
-dsh plugin add ./dist/mywork-dsh-workbench-0.1.43.tgz
+dsh plugin add ./dist/mywork-dsh-workbench-0.1.44.tgz
 ```

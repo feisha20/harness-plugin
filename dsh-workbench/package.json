@@ -1,6 +1,6 @@
 {
   "name": "@mywork/dsh-workbench",
-  "version": "0.1.43",
+  "version": "0.1.44",
   "description": "DeepSeek Harness 工作日志插件：采集源、待办、日报、周报与月报",
   "keywords": [
     "dsh",
@@ -49,7 +49,7 @@
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
-    "dsh": "0.2.2-rc.1 || 0.2.2-rc.3"
+    "dsh": "0.2.2-rc.1 || 0.2.2-rc.3 || 0.2.2-rc.5"
   },
   "scripts": {
     "build:client": "node scripts/build-client.mjs",
