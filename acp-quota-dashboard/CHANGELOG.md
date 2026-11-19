@@ -4,6 +4,11 @@
 
 Find installation commands, release dates, and package checksums on [GitHub Releases](https://github.com/zaimokuza-yoshiteru/dsh-acp-adapter/releases).
 
+## 0.2.2-rc.5.1+quota.4.22
+
+- Codex 与 Antigravity 的侧栏额度右侧增加 Clash Verge 同线路出口地区。
+- 支持 Ping0 免费自查、Cloudflare Trace 与 IPWhois 探测。显示地区或 IP 变化，并标记失效后的旧结果。
+
 ## 0.2.2-rc.5.1+quota.4.21
 
 - 以 ACP 上游 `0.2.2-rc.5.1` 为源码基线，适配 DSH NEXT `2.0.24-next` 内置的 DSH `0.2.2-rc.5`。

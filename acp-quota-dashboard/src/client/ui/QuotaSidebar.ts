@@ -1,12 +1,14 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { QuotaView, QuotaBucket } from '../../contract/quota.ts'
+import type { ExitRegionView } from '../../contract/exit-region.ts'
 import css from './QuotaSidebar.module.css'
 
 export interface QuotaSidebarWire {
   agents(): { id: string; runtime: string; name: string }[]
   subscribeConfig(changed: () => void): () => void
   read(id: string, force?: boolean): Promise<QuotaView>
+  readRegion(id: string, force: boolean): Promise<ExitRegionView>
 }
 
 /** 缺报与停用保留未知状态，不把它们当作零额度。 */
@@ -37,6 +39,8 @@ export function QuotaSidebar({ wire }: { wire: QuotaSidebarWire }): ReactNode {
   )
 }
 
+const countries = new Intl.DisplayNames(['zh-CN'], { type: 'region' })
+
 function ProviderRow({
   agent,
   wire,
@@ -47,6 +51,43 @@ function ProviderRow({
   const [value, setValue] = useState<QuotaView | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [region, setRegion] = useState<ExitRegionView | null>(null)
+  const refreshRegion = useRef<(force: boolean) => void>(() => {})
+  useEffect(() => {
+    let alive = true
+    let pending = false
+    const read = async (force = false) => {
+      if (pending) return
+      pending = true
+      try {
+        const current = await wire.readRegion(agent.id, force)
+        if (alive) setRegion(current)
+      } catch {
+        if (alive)
+          setRegion((previous) => ({
+            status: 'unavailable',
+            sample: previous?.sample ?? null,
+            change: previous?.change ?? null,
+          }))
+      } finally {
+        pending = false
+      }
+    }
+    refreshRegion.current = (force) => {
+      void read(force)
+    }
+    const visible = () => {
+      if (document.visibilityState === 'visible') void read()
+    }
+    visible()
+    const timer = setInterval(visible, 180_000)
+    document.addEventListener('visibilitychange', visible)
+    return () => {
+      alive = false
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', visible)
+    }
+  }, [agent.id, wire])
   const refresh = useRef<(force?: boolean) => void>(() => {})
   useEffect(() => {
     let alive = true
@@ -95,6 +136,24 @@ function ProviderRow({
   const plan = rawPlan
     ?.replace(/^Google AI\s+/i, '')
     .replace(/\b(ultra|plus|pro|free)\b/gi, (word) => word[0]!.toUpperCase() + word.slice(1).toLowerCase())
+  const sample = region?.sample
+  const country = sample ? (countries.of(sample.country) ?? sample.country) : '—'
+  const current = region?.status === 'confirmed'
+  const changed = region?.change
+  const badge = sample ? `${country}${!current ? '·旧' : changed ? ' ↔' : ''}` : '—'
+  const regionDetail = [
+    sample ? `${current ? '同线路探测' : '上次同线路探测'}：${country} ${sample.ip}` : '出口地区未确认',
+    sample?.location ? `IP 归属：${sample.location}` : null,
+    sample ? `探测来源：${{ cloudflare: 'Cloudflare', ping0: 'Ping0', ipwhois: 'IPWhois' }[sample.source]}` : null,
+    sample ? `探测时间：${new Date(sample.checkedAt).toLocaleString('zh-CN')}` : null,
+    changed && sample
+      ? `${new Date(changed.at).toLocaleString('zh-CN')} 检测到${changed.country === sample.country ? '出口 IP 变化' : `地区从 ${countries.of(changed.country) ?? changed.country} 变更`}`
+      : null,
+    region?.status === 'unmatched' ? '服务域名与探测站点的线路未能核对' : null,
+    region?.status === 'unavailable' ? 'Clash Verge 或地区探测暂不可用' : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
   const detail = [
     agent.name,
     value?.account,
@@ -106,7 +165,8 @@ function ProviderRow({
       return `${i ? '周额度' : '五小时'}：${amount}；重置：${reset}`
     }),
     value ? `更新于 ${new Date(value.fetchedAt).toLocaleString('zh-CN')}` : '尚未读取额度',
-    failed ? '刷新失败，显示上次结果；点击重试' : '点击刷新额度',
+    regionDetail,
+    failed ? '额度刷新失败，显示上次结果；点击重试' : '点击刷新额度和出口地区',
   ]
     .filter(Boolean)
     .join('\n')
@@ -116,10 +176,13 @@ function ProviderRow({
       type: 'button',
       className: css.row,
       title: detail,
-      'aria-disabled': busy,
-      'aria-label': detail,
+      'aria-label': `刷新 ${name} 额度和出口地区`,
+      'aria-description': detail,
       'aria-busy': busy,
-      onClick: () => refresh.current(true),
+      onClick: () => {
+        refresh.current(true)
+        refreshRegion.current(true)
+      },
       'data-provider': codex ? 'codex' : 'google',
     },
     h(
@@ -151,6 +214,15 @@ function ProviderRow({
           ),
         )
       }),
+      h(
+        'span',
+        {
+          className: css.region,
+          'data-state': !current ? 'stale' : changed ? 'changed' : 'current',
+          title: regionDetail,
+        },
+        badge,
+      ),
     ),
   )
 }

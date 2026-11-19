@@ -12,9 +12,17 @@
 - 使用官方 CLI 状态行读取额度，不发送模型请求、不提取 OAuth 凭据、不聚合或自动轮换账号。
 - 保留上游 ACP Agent 接入、模型选择和工具交互能力。
 
+## 侧栏出口地区
+
+额度右侧显示 Codex 与 Antigravity 各自的同线路探测地区。光标悬停可查看 IP、数据来源和时间。可见时约每三分钟检查一次，点击额度行可手动刷新。符号 ↔ 表示最近一次检测到地区或 IP 变化，带「旧」的结果来自上次成功探测。
+
+当前支持 macOS 上的 Clash Verge。插件通过本地 Unix socket 只读核对 `chatgpt.com` 和 `daily-cloudcode-pa.googleapis.com` 所走的 Mihomo 线路。探测使用 Cloudflare Trace、[Ping0 免费自查接口](https://ping0.cc/ip/api) 或 [IPWhois](https://ipwhois.io/documentation)。只有探测站点和对应服务域名的线路一致时才读取地区结果。没有匹配时显示未确认。如果 Antigravity 使用独立策略组，可在 Clash Verge 让 `ipv4.ping0.cc` 使用与反重力相同的策略；插件本身只读，不会切换节点或改写分流规则。
+
+这个结果是经本地代理做的抽样，代理服务商可能按目的地或连接分配不同公网 IP。插件不发送提示词或账号凭据，出口样本仅保存在运行内存。
+
 ## 环境与兼容性
 
-当前版本为 `0.2.2-rc.5.1+quota.4.21`，包名为 `@feisha20/dsh-acp-adapter`。Antigravity 额度读取支持 macOS／Linux，使用 Python3 和官方 Antigravity CLI。
+当前版本为 `0.2.2-rc.5.1+quota.4.22`，包名为 `@feisha20/dsh-acp-adapter`。Antigravity 额度读取支持 macOS／Linux，使用 Python3 和官方 Antigravity CLI。
 
 构建及运行目标均固定为 DSH `0.2.2-rc.5`（DSH NEXT `2.0.24-next` 内置版本），需要 Node.js `>=24.9.0`。
 

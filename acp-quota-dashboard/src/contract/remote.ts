@@ -568,3 +568,5 @@ export interface AcpTeamMemberModelsView {
 }
 
 export type { QuotaView, QuotaBucket } from './quota.ts'
+
+export type { ExitRegionView, ExitRegionSample } from './exit-region.ts'

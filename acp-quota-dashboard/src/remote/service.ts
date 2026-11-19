@@ -40,6 +40,8 @@
 import os from 'node:os'
 import { readCodexQuota } from '../runtime/codex-quota.ts'
 import { readOfficialQuota } from '../runtime/quota.ts'
+import { ExitRegionMonitor } from '../runtime/exit-region.ts'
+import type { ExitRegionView } from '../contract/exit-region.ts'
 import type { QuotaView } from '../contract/quota.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
@@ -566,6 +568,7 @@ interface ResolvedDeps {
  * 不再经过 HTTP req/res 假件。
  */
 export class AcpRemoteService extends TypertRemoteService {
+  private readonly exitRegionMonitor = new ExitRegionMonitor()
   private readonly quotaSubprocess: SubprocessSeamResolution
   private readonly quotaStates = new Map<string, { pending?: Promise<QuotaView>; lastStarted: number }>()
 
@@ -591,6 +594,15 @@ export class AcpRemoteService extends TypertRemoteService {
       delete quotaState.pending
     })
     return quotaState.pending
+  }
+
+  /** 单独探测代理出口，额度读取和刷新不依赖网络探测。 */
+  @Remote
+  async exitRegion(agentId: string, force: boolean): Promise<ExitRegionView> {
+    if (principalOf(this.ctx.invocation) !== undefined) throw badRequest('出口地区仅允许设备所有者查看')
+    const runtime = this.resolved.registry.agents().get(agentId)?.runtime
+    if (runtime !== 'codex' && runtime !== 'antigravity') throw badRequest('这个 Agent 不支持出口地区探测')
+    return this.exitRegionMonitor.read(runtime, force)
   }
 
   private readonly resolved: ResolvedDeps

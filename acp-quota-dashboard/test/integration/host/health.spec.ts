@@ -407,6 +407,7 @@ describe('AcpRemoteService current public surface', () => {
       'auditTimeline',
       'backendOf',
       'boundSessions',
+      'exitRegion',
       'health',
       'nativeForkScope',
       'ownedProviderRoutes',

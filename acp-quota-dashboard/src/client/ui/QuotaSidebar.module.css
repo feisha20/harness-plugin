@@ -97,8 +97,23 @@
 }
 .metrics {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
   gap: 8px;
+}
+.region {
+  max-width: 4em;
+  align-self: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+}
+.region[data-state='stale'] {
+  color: var(--dsw-alias-label-secondary, #777);
+}
+.region[data-state='changed'] {
+  color: var(--dsw-alias-label-warning, #a55e20);
 }
 .metric {
   min-width: 0;
@@ -163,7 +178,7 @@
 .panel:is(:hover, :focus-within) .shortLabel {
   display: none;
 }
-@container (max-width: 195px) {
+@container (max-width: 225px) {
   .panel:not(:hover, :focus-within) .plan {
     display: none;
   }

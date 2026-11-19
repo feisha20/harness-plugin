@@ -226,6 +226,11 @@ async function registerUi(ctx: ClientContext): Promise<void> {
   )
   const sidebarQuotaWire = {
     ...quotaWire,
+    readRegion: async (agentId: string, force: boolean) => {
+      const result = await acpRemote.exitRegion(agentId, force)
+      if (!result.ok) throw new Error('出口地区查询失败')
+      return result.value
+    },
     agents: () => {
       const settings = panelSettingsOf(settingsScope.getSnapshot())
       if (settings.status !== 'ready') return []
