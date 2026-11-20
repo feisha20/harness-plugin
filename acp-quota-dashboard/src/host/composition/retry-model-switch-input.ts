@@ -1,3 +1,4 @@
+import { supportsAntigravityPreset } from '../../contract/model-transition.ts'
 import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
@@ -93,6 +94,7 @@ export async function retryModelSwitchInput(
       ctx.get('agents', false)?.get(id) !== agent ||
       ctx.get('sessions', false)?.get(id) !== agent.session ||
       (ctx.get('agentPresets', false)?.composedPreset(agent.ctx) !== 'acp-adapter' &&
+        !supportsAntigravityPreset(current.provider, ctx.get('agentPresets', false)?.composedPreset(agent.ctx)) &&
         !permitsManagedModelScope(ctx, agent, current.model)) ||
       ctx.get('workspaceRegistry', false)?.archivedSessionIds.includes(id) ||
       agent.inbox.nextTurn.length > 0 ||

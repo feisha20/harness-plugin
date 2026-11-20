@@ -2,6 +2,11 @@ import { acpModelSelection, isAcpModelRouteWithinBounds } from './model-selectio
 
 type ModelRoute = { readonly provider: string; readonly model: string }
 
+export function supportsAntigravityPreset(provider: string, preset: unknown): boolean {
+  return provider === 'acp-antigravity-acp' &&
+    (preset === 'standard' || preset === 'ptc' || preset === 'minimal' || preset === 'cordis')
+}
+
 /** Only two explicit model choices can be confirmed against the live ACP session. */
 export function isAcpPresetModelSwitch(
   previous: ModelRoute | null | undefined,
@@ -9,7 +14,7 @@ export function isAcpPresetModelSwitch(
   preset: unknown,
 ): boolean {
   return (
-    preset === 'acp-adapter' &&
+    (preset === 'acp-adapter' || supportsAntigravityPreset(next.provider, preset)) &&
     previous != null &&
     previous.provider === next.provider &&
     previous.model !== next.model &&

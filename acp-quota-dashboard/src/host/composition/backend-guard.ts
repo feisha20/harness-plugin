@@ -129,15 +129,17 @@ export function installAcpBackendGuard(ctx: Context, options: AcpBackendGuardOpt
       const stableManaged = managed && previous?.provider === resolved.provider && previous.model === resolved.model
       if (stableManaged || requiresAcpModelSwitchExit(previous, resolved, options.ownsProvider)) {
         const presets = projectionCtx.get('agentPresets', false)
+        const preset = presets?.presetForSession(session)
         if (
           targetProfile === undefined ||
           options.confirmModelSwitch === undefined ||
           presets === undefined ||
           (!stableManaged &&
-            (!isAcpPresetModelSwitch(previous, resolved, presets.presetForSession(session)) ||
-              presets.composedPreset(payload.agent.ctx) !== 'acp-adapter' ||
-              presets.serviceFor(payload.agent, 'compaction') !== undefined ||
-              payload.agent.ctx.get('compaction', false) !== undefined))
+            (!isAcpPresetModelSwitch(previous, resolved, preset) ||
+              presets.composedPreset(payload.agent.ctx) !== preset ||
+              (preset === 'acp-adapter'
+                ? presets.serviceFor(payload.agent, 'compaction') !== undefined || payload.agent.ctx.get('compaction', false) !== undefined
+                : session.header.origin === 'subagent')))
         )
           throw transitionError(
             'ACP_MODEL_SWITCH_UNAVAILABLE',

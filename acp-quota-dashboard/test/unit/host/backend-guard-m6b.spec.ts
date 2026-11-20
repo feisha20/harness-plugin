@@ -65,6 +65,7 @@ function install(
   acpSidecar: AcpSidecar,
   ownsProvider: (provider: string) => boolean = (provider) =>
     ['acp-codex', 'acp-generic', 'acp-devin'].includes(provider),
+  confirmModelSwitch?: NonNullable<Parameters<typeof installAcpBackendGuard>[1]['confirmModelSwitch']>,
 ): { listener: RequestListener; reads: ReturnType<typeof vi.fn> } {
   let listener: RequestListener | undefined
   const reads = vi.fn(() => selection)
@@ -72,6 +73,7 @@ function install(
     inject: (_keys: readonly string[], callback: (ctx: unknown) => void) =>
       callback({
         get: (name: string) =>
+          name === 'agentPresets' && confirmModelSwitch ? { presetForSession: () => 'ptc', composedPreset: () => 'ptc' } :
           name === 'acpSessionFacts' ? { read: (session: { facts: unknown }) => session.facts } : undefined,
         on: (_event: string, handler: RequestListener) => {
           listener = handler
@@ -79,7 +81,7 @@ function install(
         },
       }),
   }
-  installAcpBackendGuard(context as unknown as Context, { sidecar: acpSidecar, ownsProvider })
+  installAcpBackendGuard(context as unknown as Context, { sidecar: acpSidecar, ownsProvider, ...(confirmModelSwitch ? { confirmModelSwitch } : {}) })
   if (listener === undefined) throw new Error('guard listener was not installed')
   const installed = listener
   return {
@@ -112,6 +114,19 @@ const validBinding = (profileId: string): AcpBindingLookup => ({
 })
 
 describe('ACP backend guard', () => {
+  it('PTC 在原 Antigravity 绑定上确认 Neon 后才返回目标配置', async () => {
+    const provider = 'acp-antigravity-acp'
+    const previous = { provider, model: 'gemini-4-hydrogen' }
+    const target = { provider, model: 'gemini-4-neon' }
+    const binding = validBinding('antigravity-acp')
+    const confirm = vi.fn(async () => {})
+    const { listener } = install({ lastUsed: previous, pending: target }, sidecar(binding), route => route === provider, confirm)
+    const owner = session(['turn/start', 'assistant/message', 'turn/end'])
+    await expect(listener({ agent: { session: owner }, signal: new AbortController().signal }, async () => target)).resolves.toBe(target)
+    expect(confirm).toHaveBeenCalledWith('antigravity-acp', String(owner.id), owner,
+      expect.objectContaining({ agentSessionId: 'agent-session' }), target, expect.anything())
+  })
+
   it('continues a headless ACP session using its native committed request header', async () => {
     const acpSidecar = sidecar(validBinding('codex'))
     const { listener } = install(undefined, acpSidecar)

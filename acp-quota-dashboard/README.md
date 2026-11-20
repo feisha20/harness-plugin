@@ -22,7 +22,7 @@
 
 ## 环境与兼容性
 
-当前版本为 `0.2.2-rc.5.1+quota.4.22`，包名为 `@feisha20/dsh-acp-adapter`。Antigravity 额度读取支持 macOS／Linux，使用 Python3 和官方 Antigravity CLI。
+当前版本为 `0.2.2-rc.5.1+quota.4.25`，包名为 `@feisha20/dsh-acp-adapter`。Antigravity 额度读取支持 macOS／Linux，使用 Python3 和官方 Antigravity CLI。
 
 构建及运行目标均固定为 DSH `0.2.2-rc.5`（DSH NEXT `2.0.24-next` 内置版本），需要 Node.js `>=24.9.0`。
 

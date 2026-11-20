@@ -10,7 +10,9 @@ import {
 import { sharedTestSubprocess } from '../../fixtures/subprocess-seam-testing.ts'
 import { AcpClientError } from '../../../src/protocol/v1/errors.ts'
 
-it.each(['resume', 'load'] as const)('records an actual %s RPC once, then reuses the live session', async (method) => {
+it.each(['resume', 'load', 'slow-resume'] as const)('records an actual %s RPC once, then reuses the live session', async (scenario) => {
+  const slow = scenario === 'slow-resume'
+  const method = slow ? 'resume' : scenario
   const cwd = mkdtempSync(join(tmpdir(), 'acp-restore-'))
   const source = `
     const readline = require('node:readline');
@@ -24,13 +26,13 @@ it.each(['resume', 'load'] as const)('records an actual %s RPC once, then reuses
       else if (request.method === 'session/${method}' && !restored) {
         restored = true;
         send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'saved', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'staged' } } } });
-        send({ jsonrpc: '2.0', id: request.id, result: {} });
+        setTimeout(() => send({ jsonrpc: '2.0', id: request.id, result: {} }), ${slow ? 31_000 : 0});
       } else if (request.id !== undefined) send({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'unexpected RPC' } });
     });
   `
   const argv = [process.execPath, '-e', source]
   const runtime = new AcpSessionRuntime({
-    profileId: 'test',
+    profileId: slow ? 'antigravity-acp' : 'test',
     config: { command: process.execPath, args: argv.slice(1), env: {} },
     cwd,
     subprocess: (await sharedTestSubprocess()).seam,
@@ -38,7 +40,7 @@ it.each(['resume', 'load'] as const)('records an actual %s RPC once, then reuses
   })
   try {
     const replay: unknown[] = []
-    expect(await runtime.restore({ agentSessionId: 'saved' }, undefined, (value) => replay.push(value))).toBe(
+    expect(await runtime.restore({ agentSessionId: 'saved', requireFreshConfig: slow }, undefined, (value) => replay.push(value))).toBe(
       method === 'resume' ? 'resumed' : 'loaded',
     )
     expect(replay).toHaveLength(1)
@@ -49,7 +51,7 @@ it.each(['resume', 'load'] as const)('records an actual %s RPC once, then reuses
     await runtime.close()
     rmSync(cwd, { recursive: true, force: true })
   }
-})
+}, 45_000)
 
 it('reuses a live session without restore capability but rejects restoring it after close', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'acp-live-reuse-'))

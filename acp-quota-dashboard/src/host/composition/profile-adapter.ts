@@ -1276,7 +1276,16 @@ export class AcpProfileAdapter extends LlmAdapter {
             (error.cause instanceof AcpClientError && error.cause.cause instanceof RequestError))
         if (!knownRejection || signal.aborted) await this.releaseRuntime(runtimeKey, runtime)
         signal.throwIfAborted()
-        if (!restored) throw unavailable()
+        if (!restored) {
+          if (error instanceof AcpClientError && error.kind === 'timeout')
+            throw LlmError.fromFailure({
+              code: 'ACP_MODEL_SWITCH_UNAVAILABLE',
+              message: zh
+                ? '恢复原 ACP 会话时等待 Agent 响应超时，消息尚未发送。可重新发送未送达的消息。'
+                : 'The Agent timed out while restoring the original ACP session. You can retry the unsent message.',
+            }, { cause: error })
+          throw unavailable()
+        }
         throw LlmError.fromFailure(
           {
             code: error instanceof LlmError ? error.code : 'ACP_CONFIG_SYNC_FAILED',

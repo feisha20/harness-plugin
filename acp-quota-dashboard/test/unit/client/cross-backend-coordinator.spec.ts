@@ -549,6 +549,15 @@ describe('cross-backend coordinator', () => {
     stop()
   })
 
+  it('在 PTC 原会话切换 Antigravity 的两个 Gemini 模型', () => {
+    const provider = 'acp-antigravity-acp'
+    expect(shouldConfirmBackendTransition({
+      lastUsed: { provider, model: 'gemini-4-hydrogen' },
+      next: { provider, model: 'gemini-4-neon' },
+      blank: false, preset: 'ptc',
+    }, (route) => route === provider)).toBe(false)
+  })
+
   it('retains the independent-session handoff for non-ACP presets and unconfirmed model identities', () => {
     const route = { provider: 'acp-codex', model: 'a' }
     const next = { ...route, model: 'b' }

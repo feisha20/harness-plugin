@@ -39,6 +39,7 @@ import type { DispatchLedgerStore } from '../../runtime/session/dispatch-ledger.
 import { resolveSubprocessSeam } from './subprocess.ts'
 import { AcpRemoteService } from '../../remote/service.ts'
 import { auditTimelineRowOf } from './audit-row.ts'
+import { installAcpModelSwitchCompatibility } from './model-switch-compatibility.ts'
 import { installAcpBackendGuard } from './backend-guard.ts'
 import { retryModelSwitchInput } from './retry-model-switch-input.ts'
 import { createNativeForkRegistrar } from './native-fork.ts'
@@ -280,6 +281,7 @@ export async function installInstalledProfileRegistry(
         await adapter.confirmModelSwitch(sessionId, owner, binding, target, signal)
       },
     })
+  if (sidecar !== undefined) installAcpModelSwitchCompatibility(ctx, ownsProvider)
   // The additive composition has no AgentLoop constructor to hand this seam
   // down. Resolve the host-owned service at the composition boundary instead;
   // keeping the explicit option is useful for isolated tests and embedders.

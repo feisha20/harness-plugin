@@ -806,7 +806,10 @@ export class AcpSessionRuntime {
     assertBoundAgent(binding, connection.agentInfo, connection.protocolVersion)
     const caps = connection.agentCapabilities
     const mcpServers = this.mcpLease?.servers ?? []
-    const rpcOptions = signal === undefined ? {} : { signal }
+    const rpcOptions = {
+      ...(signal === undefined ? {} : { signal }),
+      ...(binding.requireFreshConfig && this.options.profileId === 'antigravity-acp' ? { timeoutMs: 120_000 } : {}),
+    }
     this.replayHandler = onReplay
     this.restoringSessionId = binding.agentSessionId
     // A cancelled runtime may retain its last controls for passive display.
