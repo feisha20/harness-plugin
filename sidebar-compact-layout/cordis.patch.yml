@@ -1,4 +1,0 @@
-- insert:
-    - id: sidebar-compact-layout
-      name: '@local/sidebar-compact-layout'
-      config: {}
