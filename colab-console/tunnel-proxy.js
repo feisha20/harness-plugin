@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +29,7 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function readRequestBody(req, maxBytes = 16 * 1024 * 1024) {
+function readRequestBody(req, maxBytes = 128 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let total = 0;
     const chunks = [];
@@ -46,14 +47,14 @@ function readRequestBody(req, maxBytes = 16 * 1024 * 1024) {
   });
 }
 
-function probeUpstream(upstreamPort, timeoutMs = 3500) {
+function probeUpstream(upstreamPort, probePath = '/v1/models', timeoutMs = 3500) {
   return new Promise((resolve) => {
     const t0 = performance.now();
     const req = http.request(
       {
         hostname: '127.0.0.1',
         port: upstreamPort,
-        path: '/v1/models',
+        path: probePath || '/v1/models',
         method: 'GET',
         agent: false,
         headers: { Connection: 'close' },
@@ -86,6 +87,7 @@ export class ResilientTunnelProxy {
     localPort = 8000,
     remotePort = 8000,
     upstreamPort,
+    probePath = '/v1/models',
     sshKey,
     colabBin,
     probeIntervalMs = 15000,
@@ -94,6 +96,7 @@ export class ResilientTunnelProxy {
     this.localPort = Number(localPort);
     this.remotePort = Number(remotePort);
     this.upstreamPort = Number(upstreamPort || this.localPort + 10000);
+    this.probePath = probePath || '/v1/models';
     this.sshKey = sshKey || resolveDefaultSshKey();
     this.colabBin = colabBin || resolveColabBin();
     this.probeIntervalMs = probeIntervalMs;
@@ -114,6 +117,7 @@ export class ResilientTunnelProxy {
     this.probeTimer = null;
     this.reconnectTimer = null;
     this.readyWaiters = [];
+    this.activeUpgradeSockets = new Set();
   }
 
   getStatus() {
@@ -126,6 +130,7 @@ export class ResilientTunnelProxy {
       localPort: this.localPort,
       upstreamPort: this.upstreamPort,
       remotePort: this.remotePort,
+      probePath: this.probePath,
       state: this.state,
       reconnectCount: this.reconnectCount,
       inFlightRequests: this.inFlightRequests,
@@ -163,6 +168,7 @@ export class ResilientTunnelProxy {
 
     await new Promise((resolve, reject) => {
       const srv = http.createServer((req, res) => this._handleHttp(req, res));
+      srv.on('upgrade', (req, socket, head) => this._handleUpgrade(req, socket, head));
       srv.keepAliveTimeout = 65000;
       srv.headersTimeout = 70000;
       srv.on('error', reject);
@@ -192,9 +198,22 @@ export class ResilientTunnelProxy {
       this.reconnectTimer = null;
     }
     this._killSsh();
+    for (const sock of this.activeUpgradeSockets) {
+      try {
+        sock.destroy();
+      } catch {
+        // ignore
+      }
+    }
+    this.activeUpgradeSockets.clear();
     if (this.server) {
-      await new Promise((resolve) => this.server.close(() => resolve()));
+      const srv = this.server;
       this.server = null;
+      await new Promise((resolve) => {
+        srv.close(() => resolve());
+        srv.closeIdleConnections?.();
+        srv.closeAllConnections?.();
+      });
     }
   }
 
@@ -299,7 +318,7 @@ export class ResilientTunnelProxy {
   async _waitForSpawnReady(child) {
     for (let i = 0; i < 30; i += 1) {
       if (this.stopped || this.sshChild !== child) return;
-      const res = await probeUpstream(this.upstreamPort, 2000);
+      const res = await probeUpstream(this.upstreamPort, this.probePath, 2000);
       if (this.stopped || this.sshChild !== child) return;
       if (res.ok) {
         this.state = 'connected';
@@ -318,7 +337,7 @@ export class ResilientTunnelProxy {
   async _runHealthProbe() {
     if (this.stopped || !this.sshChild) return;
     if (this.state !== 'connected') return;
-    const res = await probeUpstream(this.upstreamPort, 3500);
+    const res = await probeUpstream(this.upstreamPort, this.probePath, 3500);
     if (this.stopped) return;
     if (res.ok) {
       this.consecutiveProbeFailures = 0;
@@ -333,6 +352,78 @@ export class ResilientTunnelProxy {
         this.kickReconnect('连续保活失败，主动重连隧道');
       }
     }
+  }
+
+  async _handleUpgrade(clientReq, clientSocket, head) {
+    clientSocket.on('error', () => {});
+    if (this.stopped) {
+      if (!clientSocket.destroyed) clientSocket.destroy();
+      return;
+    }
+
+    if (this.state !== 'connected') {
+      await this.waitForReady(5000);
+    }
+    if (this.stopped || clientSocket.destroyed) return;
+
+    const headerLines = [`${clientReq.method || 'GET'} ${clientReq.url || '/'} HTTP/1.1`];
+    let hasHost = false;
+    const raw = clientReq.rawHeaders || [];
+    for (let i = 0; i < raw.length; i += 2) {
+      const k = raw[i];
+      const v = raw[i + 1] ?? '';
+      if (k.toLowerCase() === 'host') {
+        headerLines.push(`${k}: ${v || `127.0.0.1:${this.localPort}`}`);
+        hasHost = true;
+      } else {
+        headerLines.push(`${k}: ${v}`);
+      }
+    }
+    if (!hasHost) {
+      headerLines.push(`Host: 127.0.0.1:${this.localPort}`);
+    }
+    const wire = `${headerLines.join('\r\n')}\r\n\r\n`;
+
+    const upstream = net.connect({ host: '127.0.0.1', port: this.upstreamPort });
+    this.activeUpgradeSockets.add(clientSocket);
+    this.activeUpgradeSockets.add(upstream);
+    let connected = false;
+    let closed = false;
+
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      this.activeUpgradeSockets.delete(clientSocket);
+      this.activeUpgradeSockets.delete(upstream);
+      if (!upstream.destroyed) upstream.destroy();
+      if (!clientSocket.destroyed) clientSocket.destroy();
+    };
+
+    upstream.on('connect', () => {
+      connected = true;
+      upstream.write(wire);
+      if (head && head.length > 0) upstream.write(head);
+      clientSocket.pipe(upstream);
+      upstream.pipe(clientSocket);
+    });
+
+    upstream.on('error', (err) => {
+      if (!connected) {
+        this.kickReconnect(`WebSocket 转发失败: ${err.message}`);
+        if (!clientSocket.destroyed) {
+          try {
+            clientSocket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+          } catch {
+            // Ignore write errors on closing socket
+          }
+        }
+      }
+      cleanup();
+    });
+
+    upstream.on('close', cleanup);
+    clientSocket.on('error', cleanup);
+    clientSocket.on('close', cleanup);
   }
 
   async _handleHttp(req, res) {
@@ -402,7 +493,9 @@ export class ResilientTunnelProxy {
       };
 
       const headers = { ...clientReq.headers };
-      delete headers.host;
+      if (!headers.host) {
+        headers.host = `127.0.0.1:${this.localPort}`;
+      }
       headers.connection = 'close';
       if (body.length > 0) {
         headers['content-length'] = String(body.length);
@@ -421,6 +514,7 @@ export class ResilientTunnelProxy {
           clientRes.writeHead(upstreamRes.statusCode || 200, upstreamRes.headers);
           upstreamRes.pipe(clientRes);
           upstreamRes.on('end', () => finish({ completed: true }));
+          upstreamRes.on('close', () => finish({ completed: true }));
           upstreamRes.on('error', (err) => finish({ completed: false, error: err.message }));
         },
       );
@@ -437,7 +531,7 @@ export class ResilientTunnelProxy {
         finish({ completed: false, error: err.message });
       });
 
-      clientReq.on('close', () => {
+      clientRes.on('close', () => {
         clearTimeout(headerTimer);
         if (!clientRes.writableEnded) {
           upstreamReq.destroy();
@@ -462,9 +556,10 @@ if (isMain) {
   const sessionName = getArg('--session', 'g4');
   const localPort = Number(getArg('--port', '8000'));
   const remotePort = Number(getArg('--remote-port', '8000'));
+  const probePath = getArg('--probe-path', '/v1/models');
   const sshKey = getArg('--ssh-key', '');
 
-  const proxy = new ResilientTunnelProxy({ sessionName, localPort, remotePort, sshKey });
+  const proxy = new ResilientTunnelProxy({ sessionName, localPort, remotePort, probePath, sshKey });
   const shutdown = async () => {
     await proxy.stop();
     process.exit(0);

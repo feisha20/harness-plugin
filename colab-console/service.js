@@ -58,6 +58,96 @@ const DEFAULT_SERVED_NAME = 'qwen3.8-27b-abliterated qwen38-27b-nb';
 const STEP_ORDER = ['session', 'bootstrap', 'waiting_api', 'tunnel'];
 const READ_ONLY_COLAB_SUBCOMMANDS = new Set(['whoami', 'usage', 'sessions', 'status', 'url']);
 
+export const DEFAULT_H3_LOCAL_PORT = 8188;
+export const DEFAULT_H3_REMOTE_PORT = 8188;
+
+const H3_TEXT_ENCODER = {
+  repo: 'pottokao/MiniMax-H3-TextEncoder-16GB-abliterated-GGUF',
+  file: 'MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-13.6G_vis.gguf',
+  destName: 'MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-13.6G_vis.gguf',
+  loader: 'CLIPLoaderGGUF',
+};
+
+const H3_VAES = [
+  {
+    repo: 'Comfy-Org/MiniMax-H3',
+    file: 'vae/minimax_h3_video_vae_fp16.safetensors',
+    destName: 'minimax_h3_video_vae_fp16.safetensors',
+  },
+  {
+    repo: 'Comfy-Org/MiniMax-H3',
+    file: 'vae/minimax_h3_audio_vae_fp32.safetensors',
+    destName: 'minimax_h3_audio_vae_fp32.safetensors',
+  },
+];
+
+const H3_FL2V_TURBO_LORAS = [
+  {
+    repo: 'Comfy-Org/MiniMax-H3',
+    file: 'loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+    destName: 'minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
+  },
+  {
+    repo: 'Comfy-Org/MiniMax-H3',
+    file: 'loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors',
+    destName: 'minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors',
+  },
+];
+
+export const MINIMAX_H3_PRESETS = {
+  'uncensored-fp8-turbo': {
+    key: 'uncensored-fp8-turbo',
+    label: '无审核版 FP8 + 4/8步 Turbo LoRA（推荐 L4 / G4）',
+    mode: 'fl2va',
+    dit: {
+      repo: 'Comfy-Org/MiniMax-H3',
+      file: 'diffusion_models/minimax_h3_fl2va_pruned_fp8_scaled.safetensors',
+      destName: 'minimax_h3_fl2va_pruned_fp8_scaled.safetensors',
+      loader: 'UNETLoader',
+    },
+    textEncoder: H3_TEXT_ENCODER,
+    loras: H3_FL2V_TURBO_LORAS,
+    vaes: H3_VAES,
+  },
+  'uncensored-prism-8step': {
+    key: 'uncensored-prism-8step',
+    label: '无审核版 PRISM 融合 + 内置 8步 Turbo（Ref2VA INT8）',
+    mode: 'ref2va',
+    dit: {
+      repo: 'OliviaRossi/Minimax-h3_Singularity-x-10Eros-Max_PRISM',
+      file: 'PRISM_DMAD_PDMD_int8.safetensors',
+      destName: 'PRISM_DMAD_PDMD_int8.safetensors',
+      loader: 'UNETLoader',
+    },
+    textEncoder: H3_TEXT_ENCODER,
+    loras: [],
+    vaes: H3_VAES,
+  },
+  'uncensored-gguf-q5-turbo': {
+    key: 'uncensored-gguf-q5-turbo',
+    label: '无审核版 GGUF Q5_K_M + 4/8步 Turbo LoRA（最省显存）',
+    mode: 'fl2va',
+    dit: {
+      repo: 'Abiray/MiniMax-H3-Pruned-GGUF',
+      file: 'MiniMax-H3-FL2VA-Pruned-Q5_K_M.gguf',
+      destName: 'MiniMax-H3-FL2VA-Pruned-Q5_K_M.gguf',
+      loader: 'UnetLoaderGGUF',
+    },
+    textEncoder: H3_TEXT_ENCODER,
+    loras: H3_FL2V_TURBO_LORAS,
+    vaes: H3_VAES,
+  },
+};
+
+export function resolveH3Preset(presetKey = 'uncensored-fp8-turbo') {
+  const key = String(presetKey ?? '').trim() || 'uncensored-fp8-turbo';
+  const preset = MINIMAX_H3_PRESETS[key];
+  if (!preset) {
+    throw new Error(`不支持的 MiniMax-H3 预设: ${key}`);
+  }
+  return preset;
+}
+
 class DeployCancelledError extends Error {
   constructor(message = '已手动终止拉起任务') {
     super(message);
@@ -326,6 +416,219 @@ exec /content/start_vllm.sh > /content/vllm_nvfp4.log 2>&1
 `;
 }
 
+export function buildStartComfyScript({
+  remotePort = DEFAULT_H3_REMOTE_PORT,
+  useSageAttention = true,
+  lowVram = false,
+} = {}) {
+  const rPort = validatePort(remotePort, DEFAULT_H3_REMOTE_PORT);
+  return `#!/bin/bash
+if [ -d /content/comfy-env/bin ]; then export PATH="/content/comfy-env/bin:$PATH"; fi
+export HF_XET_HIGH_PERFORMANCE=1
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export PYTORCH_CUDA_ALLOC_CONF="${'${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}'}"
+EXTRA_ARGS=""
+if [ "${useSageAttention ? '1' : '0'}" = "1" ] && python3 -c "import sageattention" 2>/dev/null; then
+  EXTRA_ARGS="$EXTRA_ARGS --use-sage-attention"
+fi
+if [ "${lowVram ? '1' : '0'}" = "1" ]; then
+  EXTRA_ARGS="$EXTRA_ARGS --lowvram"
+fi
+exec python3 /content/ComfyUI/main.py \\
+  --listen 0.0.0.0 \\
+  --port ${rPort} \\
+  --preview-method auto \\
+  $EXTRA_ARGS
+`;
+}
+
+export function buildDeployH3Script({
+  preset = 'uncensored-fp8-turbo',
+  remotePort = DEFAULT_H3_REMOTE_PORT,
+  useSageAttention = true,
+  lowVram = false,
+  forceReinstall = false,
+} = {}) {
+  const presetObj = resolveH3Preset(preset);
+  const startComfyScript = buildStartComfyScript({ remotePort, useSageAttention, lowVram });
+  const downloads = [
+    { subdir: 'diffusion_models', repo: presetObj.dit.repo, file: presetObj.dit.file, destName: presetObj.dit.destName },
+    { subdir: 'text_encoders', repo: presetObj.textEncoder.repo, file: presetObj.textEncoder.file, destName: presetObj.textEncoder.destName },
+    ...presetObj.loras.map((l) => ({ subdir: 'loras', repo: l.repo, file: l.file, destName: l.destName })),
+    ...presetObj.vaes.map((v) => ({ subdir: 'vae', repo: v.repo, file: v.file, destName: v.destName })),
+  ];
+  const downloadsJson = JSON.stringify(downloads);
+  const templateFile = presetObj.mode === 'ref2va' ? 'video_minimax_h3_r2v.json' : 'video_minimax_h3_t2v.json';
+  const primaryLora = presetObj.loras[0]?.destName || '';
+
+  return `#!/bin/bash
+set -euo pipefail
+mkdir -p /content
+echo "checking_env" > /content/.deploy_h3_stage
+trap 'echo "failed" > /content/.deploy_h3_stage' ERR
+
+{
+  echo "[deploy-h3] $(date -u +%FT%TZ) preset=${presetObj.key} starting..."
+  if [ -d /content/comfy-env/bin ]; then export PATH="/content/comfy-env/bin:$PATH"; fi
+  export HF_XET_HIGH_PERFORMANCE=1
+  export HF_HUB_ENABLE_HF_TRANSFER=1
+
+  PIP_INSTALL="python3 -m pip install"
+  if command -v uv >/dev/null 2>&1; then
+    PIP_INSTALL="uv pip install --system --break-system-packages"
+  fi
+
+  if [ ! -f /content/ComfyUI/main.py ] || [ "${forceReinstall ? '1' : '0'}" = "1" ]; then
+    echo "installing_comfyui" > /content/.deploy_h3_stage
+    echo "[deploy-h3] cloning/updating ComfyUI + custom_nodes..."
+    if [ ! -d /content/ComfyUI/.git ]; then
+      rm -rf /content/ComfyUI
+      git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /content/ComfyUI
+    else
+      git -C /content/ComfyUI pull --ff-only || true
+    fi
+
+    mkdir -p /content/ComfyUI/custom_nodes
+    if [ ! -d /content/ComfyUI/custom_nodes/ComfyUI-GGUF/.git ]; then
+      git clone --depth 1 https://github.com/city96/ComfyUI-GGUF.git /content/ComfyUI/custom_nodes/ComfyUI-GGUF
+    else
+      git -C /content/ComfyUI/custom_nodes/ComfyUI-GGUF pull --ff-only || true
+    fi
+    if [ ! -d /content/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/.git ]; then
+      git clone --depth 1 https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git /content/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite
+    else
+      git -C /content/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite pull --ff-only || true
+    fi
+
+    echo "[deploy-h3] installing Python dependencies..."
+    $PIP_INSTALL -r /content/ComfyUI/requirements.txt
+    $PIP_INSTALL -r /content/ComfyUI/custom_nodes/ComfyUI-GGUF/requirements.txt || true
+    $PIP_INSTALL -r /content/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt || true
+    $PIP_INSTALL -U huggingface_hub hf-xet hf_transfer gguf comfy-kitchen comfyui-workflow-templates || true
+    if [ "${useSageAttention ? '1' : '0'}" = "1" ]; then
+      python3 -c "import sageattention" 2>/dev/null || $PIP_INSTALL sageattention || true
+    fi
+  else
+    echo "[deploy-h3] ComfyUI already present, verifying helper packages..."
+    python3 -c "import huggingface_hub, hf_transfer, gguf" 2>/dev/null || \
+      $PIP_INSTALL -U huggingface_hub hf-xet hf_transfer gguf comfy-kitchen || true
+  fi
+
+  echo "downloading_models" > /content/.deploy_h3_stage
+  echo "[deploy-h3] downloading MiniMax-H3 (${presetObj.key}) weights..."
+  python3 - << 'H3_DL_EOF'
+import json
+import os
+import shutil
+from huggingface_hub import hf_hub_download
+
+downloads = json.loads(${JSON.stringify(downloadsJson)})
+models_root = "/content/ComfyUI/models"
+cache_root = "/content/.hf_h3_cache"
+os.makedirs(cache_root, exist_ok=True)
+
+for item in downloads:
+    dest = os.path.join(models_root, item["subdir"], item["destName"])
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    if os.path.exists(dest) and os.path.getsize(dest) > 1048576:
+        print(f"[h3-dl] skip existing: {dest} ({os.path.getsize(dest)} bytes)")
+        continue
+    print(f"[h3-dl] fetching {item['repo']} :: {item['file']} -> {dest}", flush=True)
+    cached_path = hf_hub_download(repo_id=item["repo"], filename=item["file"], cache_dir=cache_root)
+    real_path = os.path.realpath(cached_path)
+    shutil.move(real_path, dest)
+    shutil.rmtree(cache_root, ignore_errors=True)
+    os.makedirs(cache_root, exist_ok=True)
+H3_DL_EOF
+
+  echo "writing_workflow" > /content/.deploy_h3_stage
+  echo "[deploy-h3] generating preconfigured uncensored MiniMax-H3 workflow..."
+  python3 - << 'H3_WF_EOF'
+import glob
+import json
+import os
+import urllib.request
+
+wf_dir = "/content/ComfyUI/user/default/workflows"
+os.makedirs(wf_dir, exist_ok=True)
+wf_out = os.path.join(wf_dir, "minimax_h3_uncensored_l4.json")
+
+wf_data = None
+template_name = ${JSON.stringify(templateFile)}
+try:
+    import comfyui_workflow_templates
+    pkg_dir = os.path.dirname(comfyui_workflow_templates.__file__)
+    matches = glob.glob(os.path.join(pkg_dir, "**", template_name), recursive=True)
+    if matches:
+        with open(matches[0], "r", encoding="utf-8") as f:
+            wf_data = json.load(f)
+except Exception:
+    pass
+
+if wf_data is None:
+    url = f"https://raw.githubusercontent.com/Comfy-Org/workflow_templates/main/templates/{template_name}"
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        wf_data = json.loads(resp.read().decode("utf-8"))
+
+dit_loader = ${JSON.stringify(presetObj.dit.loader)}
+dit_name = ${JSON.stringify(presetObj.dit.destName)}
+te_name = ${JSON.stringify(presetObj.textEncoder.destName)}
+primary_lora = ${JSON.stringify(primaryLora)}
+
+node_lists = [wf_data.get("nodes", [])]
+for sg in wf_data.get("definitions", {}).get("subgraphs", []):
+    node_lists.append(sg.get("nodes", []))
+
+for nodes in node_lists:
+    for node in nodes:
+        ntype = node.get("type", "")
+        if ntype in ("CLIPLoader", "CLIPLoaderGGUF"):
+            node["type"] = "CLIPLoaderGGUF"
+            node["widgets_values"] = [te_name, "minimax"]
+            if isinstance(node.get("properties"), dict):
+                node["properties"]["Node name for S&R"] = "CLIPLoaderGGUF"
+        elif ntype in ("UNETLoader", "UnetLoaderGGUF"):
+            node["type"] = dit_loader
+            node["widgets_values"] = [dit_name] if dit_loader == "UnetLoaderGGUF" else [dit_name, "default"]
+            if isinstance(node.get("properties"), dict):
+                node["properties"]["Node name for S&R"] = dit_loader
+        elif ntype == "VAELoader":
+            vals = node.get("widgets_values") or []
+            if vals and "audio" in str(vals[0]).lower():
+                vals[0] = "minimax_h3_audio_vae_fp32.safetensors"
+            elif vals and ("video" in str(vals[0]).lower() or "vae" in str(vals[0]).lower()):
+                vals[0] = "minimax_h3_video_vae_fp16.safetensors"
+            node["widgets_values"] = vals
+        elif ntype == "LoraLoaderModelOnly":
+            if primary_lora:
+                vals = node.get("widgets_values") or [primary_lora, 1]
+                vals[0] = primary_lora
+                node["widgets_values"] = vals
+                node["mode"] = 0
+            else:
+                node["mode"] = 4
+
+with open(wf_out, "w", encoding="utf-8") as f:
+    json.dump(wf_data, f, ensure_ascii=False, indent=2)
+print(f"[h3-wf] wrote {wf_out}")
+H3_WF_EOF
+
+  cat << 'START_COMFY_EOF' > /content/start_comfyui.sh
+${startComfyScript}
+START_COMFY_EOF
+  chmod +x /content/start_comfyui.sh
+
+  pkill -f "ComfyUI/main.py" || true
+  sleep 2
+  echo "starting_comfyui" > /content/.deploy_h3_stage
+  echo "[deploy-h3] launching ComfyUI..."
+} > /content/deploy_minimax_h3.log 2>&1
+
+trap - ERR
+exec /content/start_comfyui.sh > /content/comfyui_h3.log 2>&1
+`;
+}
+
 export function parseWhoamiOutput(text) {
   const raw = String(text || '');
   const email = raw.match(/^Email:\s*(.+)$/m)?.[1]?.trim() || '';
@@ -404,6 +707,9 @@ export class ColabConsoleService {
     this.deployJob = null;
     this._deployAbortController = null;
     this._lastDeployOpts = null;
+    this.h3DeployJob = null;
+    this._h3AbortController = null;
+    this._lastH3DeployOpts = null;
     this.transientRetryBaseMs = 1200;
   }
 
@@ -630,8 +936,9 @@ export class ColabConsoleService {
     throw new Error('远端命令执行失败');
   }
 
-  async checkLocalTunnel(localPort = 8000) {
+  async checkLocalTunnel(localPort = 8000, { probePath } = {}) {
     const port = validatePort(localPort);
+    const resolvedProbePath = probePath || (port === DEFAULT_H3_LOCAL_PORT ? '/system_stats' : '/v1/models');
     let listeningPid = null;
     let listeningCmd = '';
     try {
@@ -648,11 +955,13 @@ export class ColabConsoleService {
 
     let apiReady = false;
     let models = [];
+    let comfySystem = null;
+    let comfyDevices = [];
     let apiError = '';
     let proxyHealth = null;
     if (listeningPid) {
-      const [modelsRes, healthRes] = await Promise.allSettled([
-        localHttpJson(port, '/v1/models', 3500),
+      const [probeRes, healthRes] = await Promise.allSettled([
+        localHttpJson(port, resolvedProbePath, 3500),
         localHttpJson(port, '/__tunnel_health', 1500),
       ]);
 
@@ -660,20 +969,30 @@ export class ColabConsoleService {
         proxyHealth = healthRes.value.data;
       }
 
-      if (modelsRes.status === 'fulfilled') {
-        const resp = modelsRes.value;
+      if (probeRes.status === 'fulfilled') {
+        const resp = probeRes.value;
         if (resp.ok) {
-          apiReady = true;
-          models = (resp.data?.data || []).map((m) => ({
-            id: m.id,
-            root: m.root || '',
-            maxModelLen: m.max_model_len || null,
-          }));
+          if (resolvedProbePath === '/system_stats') {
+            if (resp.data?.system || resp.data?.devices) {
+              apiReady = true;
+              comfySystem = resp.data?.system || null;
+              comfyDevices = resp.data?.devices || [];
+            } else {
+              apiError = '响应结构不是 ComfyUI /system_stats';
+            }
+          } else {
+            apiReady = true;
+            models = (resp.data?.data || []).map((m) => ({
+              id: m.id,
+              root: m.root || '',
+              maxModelLen: m.max_model_len || null,
+            }));
+          }
         } else {
           apiError = resp.error || `HTTP ${resp.status}`;
         }
       } else {
-        apiError = modelsRes.reason?.message || '连接超时';
+        apiError = probeRes.reason?.message || '连接超时';
       }
     }
 
@@ -684,6 +1003,7 @@ export class ColabConsoleService {
       command: listeningCmd,
       mode: proxyHealth ? 'resilient-proxy' : listeningPid ? 'raw-ssh' : 'stopped',
       state: proxyHealth?.state || (listeningPid ? 'connected' : 'stopped'),
+      probePath: resolvedProbePath,
       reconnectCount: proxyHealth?.reconnectCount ?? 0,
       lastProbeAt: proxyHealth?.lastProbeAt || null,
       lastProbeMs: proxyHealth?.lastProbeMs ?? null,
@@ -693,18 +1013,21 @@ export class ColabConsoleService {
       managedByPlugin: this.tunnelChildren.has(port) || Boolean(proxyHealth),
       apiReady,
       models,
+      comfySystem,
+      comfyDevices,
       apiError,
-      endpoint: `http://127.0.0.1:${port}/v1`,
+      endpoint: resolvedProbePath === '/system_stats' ? `http://127.0.0.1:${port}` : `http://127.0.0.1:${port}/v1`,
       defaultSshKey: resolveDefaultSshKey(),
     };
   }
 
-  async getOverview({ localPort = 8000 } = {}) {
-    const [whoamiRes, usageRes, sessionsRes, tunnel] = await Promise.all([
+  async getOverview({ localPort = 8000, h3LocalPort = DEFAULT_H3_LOCAL_PORT } = {}) {
+    const [whoamiRes, usageRes, sessionsRes, tunnel, h3Tunnel] = await Promise.all([
       this.runColab(['whoami']).catch((e) => ({ stdout: '', error: e.message })),
       this.runColab(['usage']).catch((e) => ({ stdout: '', error: e.message })),
       this.runColab(['sessions']).catch((e) => ({ stdout: '', error: e.message })),
-      this.checkLocalTunnel(localPort),
+      this.checkLocalTunnel(localPort, { probePath: '/v1/models' }),
+      this.checkLocalTunnel(h3LocalPort, { probePath: '/system_stats' }),
     ]);
 
     const auth = parseWhoamiOutput(whoamiRes.stdout);
@@ -729,6 +1052,7 @@ export class ColabConsoleService {
       quota,
       sessions: enrichedSessions,
       tunnel,
+      h3Tunnel,
       errors: [whoamiRes.error, usageRes.error, sessionsRes.error].filter(Boolean),
     };
   }
@@ -1007,15 +1331,15 @@ echo "STARTED_PID=$!"
     job.updatedAt = new Date().toISOString();
   }
 
-  cancelDeploy() {
-    const job = this.deployJob;
+  _cancelDeployJob(jobProp, ctrlProp) {
+    const job = this[jobProp];
     if (!job) {
       return { ok: true, cancelled: false, job: null };
     }
     if (job.status === 'running') {
-      if (this._deployAbortController) {
-        this._deployAbortController.abort();
-        this._deployAbortController = null;
+      if (this[ctrlProp]) {
+        this[ctrlProp].abort();
+        this[ctrlProp] = null;
       }
       for (const st of job.steps) {
         if (st.status === 'running') {
@@ -1033,26 +1357,141 @@ echo "STARTED_PID=$!"
     return { ok: true, cancelled: true, job: this._serializeDeployJob(job) };
   }
 
-  retryDeploy({ fromStep } = {}) {
-    if (this.deployJob?.status === 'running') {
+  _resolveRetryOpts(job, lastOpts, fromStep) {
+    if (job?.status === 'running') {
       throw new Error('当前已有正在运行的拉起任务，请先终止后再重试');
     }
-    if (!this.deployJob || !this._lastDeployOpts) {
+    if (!job || !lastOpts) {
       throw new Error('没有可重试的历史拉起任务');
     }
 
     let targetStep = fromStep && STEP_ORDER.includes(fromStep) ? fromStep : '';
     if (!targetStep) {
-      const stoppedStep = this.deployJob.steps.find((s) => s.status === 'error' || s.status === 'cancelled');
+      const stoppedStep = job.steps.find((s) => s.status === 'error' || s.status === 'cancelled');
       targetStep = stoppedStep?.key || 'session';
     }
 
-    const baseOpts = { ...this._lastDeployOpts };
+    const baseOpts = { ...lastOpts };
     if (targetStep !== 'session') {
-      baseOpts.sessionName = this.deployJob.sessionName || baseOpts.sessionName;
-      baseOpts.gpu = this.deployJob.gpu || baseOpts.gpu;
+      baseOpts.sessionName = job.sessionName || baseOpts.sessionName;
+      baseOpts.gpu = job.gpu || baseOpts.gpu;
     }
-    return this.startDeploy({ ...baseOpts, startFromStep: targetStep });
+    return { ...baseOpts, startFromStep: targetStep };
+  }
+
+  async _ensureDeploySession(job, { name, gpuSpec, fallbackGpus, highMem, lPort, signal, lastOpts } = {}) {
+    const sessionsRes = await this.runColab(['sessions'], { timeoutMs: 20000, signal });
+    if (signal?.aborted) throw new DeployCancelledError();
+
+    const active = parseSessionsOutput(sessionsRes.stdout);
+    const existingPrimary = active.find((s) => s.name === name);
+    let actualSessionName = name;
+    let actualGpu = gpuSpec;
+
+    if (existingPrimary) {
+      actualGpu = existingPrimary.hardware || gpuSpec;
+      job.gpu = actualGpu;
+      this._updateDeployStep(job, 'session', 'done', `复用活跃会话 ${actualSessionName} (${actualGpu})`);
+    } else {
+      const candidates = [gpuSpec, ...fallbackGpus];
+      const triedGpus = [];
+      let provisioned = false;
+      let lastProvisionErr = null;
+
+      for (let i = 0; i < candidates.length; i += 1) {
+        if (signal?.aborted) throw new DeployCancelledError();
+        const candidateGpu = candidates[i];
+        triedGpus.push(candidateGpu);
+        const isFallback = i > 0;
+        const candidateName =
+          isFallback && name.toLowerCase() === gpuSpec.toLowerCase()
+            ? candidateGpu.toLowerCase()
+            : name;
+
+        const existingCandidate = active.find((s) => s.name === candidateName);
+        if (existingCandidate) {
+          actualSessionName = existingCandidate.name;
+          actualGpu = existingCandidate.hardware || candidateGpu;
+          provisioned = true;
+          job.sessionName = actualSessionName;
+          job.gpu = actualGpu;
+          this._updateDeployStep(job, 'session', 'done', `复用备选活跃会话 ${actualSessionName} (${actualGpu})`);
+          break;
+        }
+
+        job.stage = 'session';
+        job.stageLabel = `${isFallback ? '切换备选 ' : '检查/创建 '}${candidateGpu} 实例 (${candidateName})`;
+        this._updateDeployStep(
+          job,
+          'session',
+          'running',
+          `正在向 Google 申请 ${candidateGpu} 实例 (${candidateName})，若遇节点繁忙将自动重试…`,
+        );
+
+        try {
+          // Clear any stale tunnel bound to an old released VM before provisioning/SSH.
+          await this.stopTunnel({ localPort: lPort }).catch(() => {});
+          await this._provisionSession({ name: candidateName, gpu: candidateGpu, highMem, signal });
+          actualSessionName = candidateName;
+          actualGpu = candidateGpu;
+          job.sessionName = actualSessionName;
+          job.gpu = actualGpu;
+          job.createdNewSession = true;
+          provisioned = true;
+          this._updateDeployStep(
+            job,
+            'session',
+            'done',
+            isFallback
+              ? `主选 ${gpuSpec} 暂不可用，已自动切换并创建 ${candidateGpu} 会话 (${candidateName})`
+              : `已新建 ${candidateGpu} 会话 (${candidateName})`,
+          );
+          break;
+        } catch (err) {
+          if (err?.cancelled || signal?.aborted) throw new DeployCancelledError();
+          lastProvisionErr = err;
+          const nextGpu = candidates[i + 1];
+          if (nextGpu) {
+            this._updateDeployStep(
+              job,
+              'session',
+              'running',
+              `${candidateGpu} 暂不可用，正在自动切换备选 ${nextGpu}…`,
+            );
+          }
+        }
+      }
+
+      if (!provisioned) {
+        if (lastProvisionErr?.rawDetail && !job.logTail) {
+          job.logTail = lastProvisionErr.rawDetail.slice(-4000);
+        }
+        const finalMsg =
+          triedGpus.length > 1
+            ? `已尝试 ${triedGpus.join(' → ')} 均失败：${lastProvisionErr?.message || '无法创建实例'}`
+            : lastProvisionErr?.message || `无法创建 ${gpuSpec} 会话`;
+        const finalErr = new Error(finalMsg);
+        if (lastProvisionErr?.rawDetail) finalErr.rawDetail = lastProvisionErr.rawDetail;
+        throw finalErr;
+      }
+    }
+
+    if (lastOpts) {
+      lastOpts.sessionName = actualSessionName;
+      lastOpts.gpu = actualGpu;
+    }
+
+    const sessionStep = job.steps.find((s) => s.key === 'session');
+    if (sessionStep) sessionStep.label = `检查 / 新建 ${actualGpu} 实例`;
+    return { actualSessionName, actualGpu };
+  }
+
+  cancelDeploy() {
+    return this._cancelDeployJob('deployJob', '_deployAbortController');
+  }
+
+  retryDeploy({ fromStep } = {}) {
+    return this.startDeploy(this._resolveRetryOpts(this.deployJob, this._lastDeployOpts, fromStep));
   }
 
   async startDeploy({
@@ -1251,107 +1690,15 @@ echo "STARTED_PID=$!"
 
     try {
       // 1. Ensure target Colab session exists (with optional fallback GPUs)
-      const sessionsRes = await this.runColab(['sessions'], { timeoutMs: 20000, signal });
-      if (signal?.aborted) throw new DeployCancelledError();
-
-      const active = parseSessionsOutput(sessionsRes.stdout);
-      const existingPrimary = active.find((s) => s.name === name);
-      let actualSessionName = name;
-      let actualGpu = gpuSpec;
-
-      if (existingPrimary) {
-        actualGpu = existingPrimary.hardware || gpuSpec;
-        job.gpu = actualGpu;
-        this._updateDeployStep(job, 'session', 'done', `复用活跃会话 ${actualSessionName} (${actualGpu})`);
-      } else {
-        const candidates = [gpuSpec, ...fallbackGpus];
-        const triedGpus = [];
-        let provisioned = false;
-        let lastProvisionErr = null;
-
-        for (let i = 0; i < candidates.length; i += 1) {
-          if (signal?.aborted) throw new DeployCancelledError();
-          const candidateGpu = candidates[i];
-          triedGpus.push(candidateGpu);
-          const isFallback = i > 0;
-          const candidateName =
-            isFallback && name.toLowerCase() === gpuSpec.toLowerCase()
-              ? candidateGpu.toLowerCase()
-              : name;
-
-          const existingCandidate = active.find((s) => s.name === candidateName);
-          if (existingCandidate) {
-            actualSessionName = existingCandidate.name;
-            actualGpu = existingCandidate.hardware || candidateGpu;
-            provisioned = true;
-            job.sessionName = actualSessionName;
-            job.gpu = actualGpu;
-            this._updateDeployStep(job, 'session', 'done', `复用备选活跃会话 ${actualSessionName} (${actualGpu})`);
-            break;
-          }
-
-          job.stage = 'session';
-          job.stageLabel = `${isFallback ? '切换备选 ' : '检查/创建 '}${candidateGpu} 实例 (${candidateName})`;
-          this._updateDeployStep(
-            job,
-            'session',
-            'running',
-            `正在向 Google 申请 ${candidateGpu} 实例 (${candidateName})，若遇节点繁忙将自动重试…`,
-          );
-
-          try {
-            // Clear any stale tunnel bound to an old released VM before provisioning/SSH.
-            await this.stopTunnel({ localPort: lPort }).catch(() => {});
-            await this._provisionSession({ name: candidateName, gpu: candidateGpu, highMem, signal });
-            actualSessionName = candidateName;
-            actualGpu = candidateGpu;
-            job.sessionName = actualSessionName;
-            job.gpu = actualGpu;
-            job.createdNewSession = true;
-            provisioned = true;
-            this._updateDeployStep(
-              job,
-              'session',
-              'done',
-              isFallback ? `主选 ${gpuSpec} 暂不可用，已自动切换并创建 ${candidateGpu} 会话 (${candidateName})` : `已新建 ${candidateGpu} 会话 (${candidateName})`,
-            );
-            break;
-          } catch (err) {
-            if (err?.cancelled || signal?.aborted) throw new DeployCancelledError();
-            lastProvisionErr = err;
-            const nextGpu = candidates[i + 1];
-            if (nextGpu) {
-              this._updateDeployStep(
-                job,
-                'session',
-                'running',
-                `${candidateGpu} 暂不可用，正在自动切换备选 ${nextGpu}…`,
-              );
-            }
-          }
-        }
-
-        if (!provisioned) {
-          if (lastProvisionErr?.rawDetail && !job.logTail) {
-            job.logTail = lastProvisionErr.rawDetail.slice(-4000);
-          }
-          const finalMsg =
-            triedGpus.length > 1
-              ? `已尝试 ${triedGpus.join(' → ')} 均失败：${lastProvisionErr?.message || '无法创建实例'}`
-              : lastProvisionErr?.message || `无法创建 ${gpuSpec} 会话`;
-          const finalErr = new Error(finalMsg);
-          if (lastProvisionErr?.rawDetail) finalErr.rawDetail = lastProvisionErr.rawDetail;
-          throw finalErr;
-        }
-      }
-
-      if (this._lastDeployOpts) {
-        this._lastDeployOpts.sessionName = actualSessionName;
-        this._lastDeployOpts.gpu = actualGpu;
-      }
-
-      const sessionStep = job.steps.find((s) => s.key === 'session');
-      if (sessionStep) sessionStep.label = `检查 / 新建 ${actualGpu} 实例`;
+      const { actualSessionName, actualGpu } = await this._ensureDeploySession(job, {
+        name,
+        gpuSpec,
+        fallbackGpus,
+        highMem,
+        lPort,
+        signal,
+        lastOpts: this._lastDeployOpts,
+      });
 
       // 2. Probe remote GPU hardware + running vLLM status, then adapt vLLM flags
       let alreadyServing = false;
@@ -1614,16 +1961,17 @@ fi
     return { ok: true, sessionName: name, output: stdout.trim() };
   }
 
-  async startTunnel({ sessionName, localPort = 8000, remotePort = 8000, sshKey } = {}) {
+  async startTunnel({ sessionName, localPort = 8000, remotePort, probePath, sshKey } = {}) {
     const name = validateSessionName(sessionName);
     const lPort = validatePort(localPort, 8000);
-    const rPort = validatePort(remotePort, 8000);
+    const rPort = validatePort(remotePort ?? lPort, lPort);
+    const resolvedProbePath = probePath || (lPort === DEFAULT_H3_LOCAL_PORT ? '/system_stats' : '/v1/models');
     const key = sshKey || resolveDefaultSshKey();
     if (!key || !fs.existsSync(key)) {
       throw new Error('本机未找到可用的 SSH 私钥（~/.ssh/id_ed25519 或 id_ed25519_github 等）');
     }
 
-    const existing = await this.checkLocalTunnel(lPort);
+    const existing = await this.checkLocalTunnel(lPort, { probePath: resolvedProbePath });
     if (existing.listening) {
       return { ok: true, alreadyRunning: true, tunnel: existing };
     }
@@ -1635,6 +1983,7 @@ fi
         '--session', name,
         '--port', String(lPort),
         '--remote-port', String(rPort),
+        '--probe-path', resolvedProbePath,
         '--ssh-key', key,
       ],
       {
@@ -1659,7 +2008,7 @@ fi
     // Wait up to 12s for local reverse proxy and upstream SSH handshake
     for (let i = 0; i < 24; i += 1) {
       await new Promise((r) => setTimeout(r, 500));
-      const status = await this.checkLocalTunnel(lPort);
+      const status = await this.checkLocalTunnel(lPort, { probePath: resolvedProbePath });
       if (status.apiReady || (status.mode === 'resilient-proxy' && status.listening && status.state === 'connected')) {
         return { ok: true, alreadyRunning: false, tunnel: status };
       }
@@ -1668,7 +2017,7 @@ fi
     return {
       ok: true,
       alreadyRunning: false,
-      tunnel: await this.checkLocalTunnel(lPort),
+      tunnel: await this.checkLocalTunnel(lPort, { probePath: resolvedProbePath }),
     };
   }
 
@@ -1709,11 +2058,634 @@ fi
     return { ok: true, tunnel: await this.checkLocalTunnel(lPort) };
   }
 
-  async restartTunnel({ sessionName, localPort = 8000, remotePort = 8000, sshKey } = {}) {
+  async restartTunnel({ sessionName, localPort = 8000, remotePort, probePath, sshKey } = {}) {
     await this.stopTunnel({ localPort });
     // Allow Colab time to release the single SSH session slot before reconnecting.
     await new Promise((r) => setTimeout(r, 1500));
-    return this.startTunnel({ sessionName, localPort, remotePort, sshKey });
+    return this.startTunnel({ sessionName, localPort, remotePort, probePath, sshKey });
+  }
+
+  async inspectH3Service({
+    sessionName,
+    remotePort = DEFAULT_H3_REMOTE_PORT,
+    localPort = DEFAULT_H3_LOCAL_PORT,
+    logLines = 35,
+  } = {}) {
+    const name = validateSessionName(sessionName);
+    const rPort = validatePort(remotePort, DEFAULT_H3_REMOTE_PORT);
+    const lPort = validatePort(localPort, DEFAULT_H3_LOCAL_PORT);
+    const lines = Math.min(Math.max(Number(logLines) || 35, 10), 200);
+
+    const script = `
+echo "===GPU==="
+nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>&1 || echo "ERR_NVIDIA"
+echo "===DISK==="
+df -h /content 2>/dev/null | tail -n 1 || echo "UNKNOWN"
+echo "===RAM==="
+free -m 2>/dev/null | awk '/^Mem:/ {print $3","$2}' || echo "UNKNOWN"
+echo "===COMFY_PS==="
+pgrep -af "ComfyUI/main.py" 2>&1 || echo "NOT_RUNNING"
+echo "===REMOTE_STATS==="
+curl -sf http://127.0.0.1:${rPort}/system_stats 2>&1 || echo "NOT_READY"
+echo "===MODELS==="
+if [ -d /content/ComfyUI/models ]; then
+  find /content/ComfyUI/models -maxdepth 2 \\( -type f -o -type l \\) \\( -name "*.safetensors" -o -name "*.gguf" \\) -printf "%s %P\\n" 2>/dev/null | sort
+else
+  echo "NONE"
+fi
+echo "===WORKFLOWS==="
+ls -1 /content/ComfyUI/user/default/workflows 2>/dev/null || echo "NONE"
+echo "===LOG_TAIL==="
+LOG_FILE="/content/comfyui_h3.log"
+if [ ! -f "$LOG_FILE" ] && [ -f /content/deploy_minimax_h3.log ]; then LOG_FILE="/content/deploy_minimax_h3.log"; fi
+if [ -f "$LOG_FILE" ]; then tail -n ${lines} "$LOG_FILE"; else echo "NO_LOG"; fi
+`;
+
+    const [{ via, stdout }, tunnel] = await Promise.all([
+      this.runRemoteBash(name, script, { timeoutMs: 25000, localPort: lPort }),
+      this.checkLocalTunnel(lPort, { probePath: '/system_stats' }),
+    ]);
+
+    const gpuRaw = this._extractTaggedSection(stdout, 'GPU', 'DISK');
+    const diskRaw = this._extractTaggedSection(stdout, 'DISK', 'RAM');
+    const ramRaw = this._extractTaggedSection(stdout, 'RAM', 'COMFY_PS');
+    const comfyPsRaw = this._extractTaggedSection(stdout, 'COMFY_PS', 'REMOTE_STATS');
+    const statsRaw = this._extractTaggedSection(stdout, 'REMOTE_STATS', 'MODELS');
+    const modelsRaw = this._extractTaggedSection(stdout, 'MODELS', 'WORKFLOWS');
+    const workflowsRaw = this._extractTaggedSection(stdout, 'WORKFLOWS', 'LOG_TAIL');
+    const logTail = this._extractTaggedSection(stdout, 'LOG_TAIL', null);
+
+    let systemStats = null;
+    let remoteApiReady = false;
+    if (statsRaw && statsRaw.startsWith('{')) {
+      try {
+        systemStats = JSON.parse(statsRaw);
+        remoteApiReady = Boolean(systemStats?.system || systemStats?.devices);
+      } catch {
+        // Ignore parse error
+      }
+    }
+
+    const installedModels = modelsRaw && modelsRaw !== 'NONE'
+      ? modelsRaw
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .map((l) => {
+            const sp = l.indexOf(' ');
+            if (sp === -1) return { path: l, sizeGiB: null };
+            const bytes = Number(l.slice(0, sp));
+            return {
+              path: l.slice(sp + 1).trim(),
+              sizeGiB: Number.isFinite(bytes) ? Number((bytes / (1024 ** 3)).toFixed(2)) : null,
+            };
+          })
+      : [];
+
+    const workflows = workflowsRaw && workflowsRaw !== 'NONE'
+      ? workflowsRaw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    const ramParts = ramRaw.split(',').map((n) => Number(n.trim()));
+    const ram = ramParts.length === 2 && ramParts.every(Number.isFinite)
+      ? { usedMiB: ramParts[0], totalMiB: ramParts[1] }
+      : null;
+
+    const comfyRunning = Boolean(comfyPsRaw && !comfyPsRaw.includes('NOT_RUNNING'));
+    return {
+      sessionName: name,
+      inspectedVia: via,
+      fetchedAt: new Date().toISOString(),
+      gpu: parseNvidiaSmiCsv(gpuRaw),
+      disk: diskRaw && diskRaw !== 'UNKNOWN' ? diskRaw : '',
+      ram,
+      comfyui: {
+        running: comfyRunning,
+        processLine: comfyRunning ? comfyPsRaw : '',
+        remoteApiReady,
+        systemStats,
+        installedModels,
+        workflows,
+        logTail: logTail === 'NO_LOG' ? '' : logTail,
+      },
+      tunnel,
+    };
+  }
+
+  async startComfyui({
+    sessionName,
+    remotePort = DEFAULT_H3_REMOTE_PORT,
+    localPort = DEFAULT_H3_LOCAL_PORT,
+    useSageAttention = true,
+    lowVram = false,
+    useExistingScript = false,
+  } = {}) {
+    const name = validateSessionName(sessionName);
+    const rPort = validatePort(remotePort, DEFAULT_H3_REMOTE_PORT);
+    const lPort = validatePort(localPort, DEFAULT_H3_LOCAL_PORT);
+    const startScript = buildStartComfyScript({ remotePort: rPort, useSageAttention, lowVram });
+
+    const scriptBody = useExistingScript
+      ? `
+pkill -f "ComfyUI/main.py" || true
+sleep 2
+if [ ! -x /content/start_comfyui.sh ]; then
+  echo "NO_EXISTING_SCRIPT"
+  exit 1
+fi
+nohup /content/start_comfyui.sh > /content/comfyui_h3.log 2>&1 < /dev/null &
+echo "STARTED_PID=$!"
+`
+      : `
+pkill -f "ComfyUI/main.py" || true
+sleep 2
+cat << 'EOF' > /content/start_comfyui.sh
+${startScript}
+EOF
+chmod +x /content/start_comfyui.sh
+nohup /content/start_comfyui.sh > /content/comfyui_h3.log 2>&1 < /dev/null &
+echo "STARTED_PID=$!"
+`;
+
+    const { stdout } = await this.runRemoteBash(name, scriptBody, { timeoutMs: 25000, localPort: lPort });
+    return { ok: true, sessionName: name, output: stdout.trim() };
+  }
+
+  async stopComfyui({ sessionName, localPort = DEFAULT_H3_LOCAL_PORT } = {}) {
+    const name = validateSessionName(sessionName);
+    const lPort = validatePort(localPort, DEFAULT_H3_LOCAL_PORT);
+    const { stdout } = await this.runRemoteBash(
+      name,
+      `pkill -f "ComfyUI/main.py" || true\nsleep 2\npgrep -af "ComfyUI/main.py" || echo "STOPPED"`,
+      { timeoutMs: 20000, localPort: lPort },
+    );
+    return { ok: true, sessionName: name, output: stdout.trim() };
+  }
+
+  getH3DeployStatus() {
+    return {
+      active: this.h3DeployJob?.status === 'running',
+      job: this._serializeDeployJob(this.h3DeployJob),
+    };
+  }
+
+  cancelH3Deploy() {
+    return this._cancelDeployJob('h3DeployJob', '_h3AbortController');
+  }
+
+  retryH3Deploy({ fromStep } = {}) {
+    return this.startH3Deploy(this._resolveRetryOpts(this.h3DeployJob, this._lastH3DeployOpts, fromStep));
+  }
+
+  async startH3Deploy({
+    sessionName = 'l4',
+    gpu = 'L4',
+    fallbackGpus = ['G4', 'A100'],
+    highMem = false,
+    preset = 'uncensored-fp8-turbo',
+    localPort = DEFAULT_H3_LOCAL_PORT,
+    remotePort = DEFAULT_H3_REMOTE_PORT,
+    useSageAttention = true,
+    lowVram = false,
+    forceReinstall = false,
+    forceRestart = false,
+    startFromStep = 'session',
+  } = {}) {
+    if (this.h3DeployJob?.status === 'running') {
+      return { ok: true, alreadyRunning: true, job: this._serializeDeployJob(this.h3DeployJob) };
+    }
+
+    const name = validateSessionName(sessionName);
+    const lPort = validatePort(localPort, DEFAULT_H3_LOCAL_PORT);
+    const rPort = validatePort(remotePort, DEFAULT_H3_REMOTE_PORT);
+    const gpuSpec = gpu ? validateSafeArg(gpu, 'GPU 规格', 'L4').toUpperCase() : 'L4';
+    const normalizedFallbacks = normalizeFallbackGpus(fallbackGpus, gpuSpec);
+    const presetObj = resolveH3Preset(preset);
+    const startStep = STEP_ORDER.includes(startFromStep) ? startFromStep : 'session';
+    const startIdx = STEP_ORDER.indexOf(startStep);
+
+    buildDeployH3Script({
+      preset: presetObj.key,
+      remotePort: rPort,
+      useSageAttention: Boolean(useSageAttention),
+      lowVram: Boolean(lowVram),
+      forceReinstall: Boolean(forceReinstall),
+    });
+
+    this._lastH3DeployOpts = {
+      sessionName: name,
+      gpu: gpuSpec,
+      fallbackGpus: normalizedFallbacks,
+      highMem: Boolean(highMem),
+      preset: presetObj.key,
+      localPort: lPort,
+      remotePort: rPort,
+      useSageAttention: Boolean(useSageAttention),
+      lowVram: Boolean(lowVram),
+      forceReinstall: Boolean(forceReinstall),
+      forceRestart: Boolean(forceRestart),
+    };
+
+    const now = new Date().toISOString();
+    const job = {
+      id: `deploy-h3-${Date.now()}`,
+      kind: 'minimax-h3',
+      status: 'running',
+      stage: startStep,
+      stageLabel:
+        startStep === 'session'
+          ? `检查/创建 ${gpuSpec} 实例 (${name})`
+          : startStep === 'bootstrap'
+            ? `检测环境并拉起 ComfyUI + MiniMax-H3 (${name})`
+            : startStep === 'waiting_api'
+              ? `恢复轮询 ComfyUI 下载与加载状态 (${name})`
+              : `重建本机 :${lPort} ComfyUI 高可用隧道 (${name})`,
+      sessionName: name,
+      gpu: gpuSpec,
+      requestedGpu: gpuSpec,
+      fallbackGpus: normalizedFallbacks,
+      localPort: lPort,
+      remotePort: rPort,
+      preset: presetObj.key,
+      presetLabel: presetObj.label,
+      effectiveConfig: startStep !== 'session' ? this.h3DeployJob?.effectiveConfig || null : null,
+      createdNewSession: false,
+      startedAt: now,
+      updatedAt: now,
+      finishedAt: null,
+      remoteStage: '',
+      logTail: startStep !== 'session' ? this.h3DeployJob?.logTail || '' : '',
+      error: '',
+      tunnel: null,
+      overview: null,
+      steps: [
+        {
+          key: 'session',
+          label: `检查 / 新建 ${gpuSpec} 实例`,
+          status: startIdx > 0 ? 'done' : 'running',
+          detail: startIdx > 0 ? `复用已有会话 ${name} (${gpuSpec})` : '正在查询活跃会话',
+        },
+        {
+          key: 'bootstrap',
+          label: '安装 ComfyUI 与定制节点并拉起下载',
+          status: startIdx > 1 ? 'done' : startIdx === 1 ? 'running' : 'pending',
+          detail: startIdx > 1 ? '跳过重装，直接恢复后续步骤' : '',
+        },
+        {
+          key: 'waiting_api',
+          label: '下载 MiniMax-H3 无审核权重并启动服务',
+          status: startIdx > 2 ? 'done' : startIdx === 2 ? 'running' : 'pending',
+          detail: startIdx > 2 ? '跳过等待，直接重建隧道' : '',
+        },
+        {
+          key: 'tunnel',
+          label: `建立本机 :${lPort} WebSocket 隧道`,
+          status: startIdx === 3 ? 'running' : 'pending',
+          detail: '',
+        },
+      ],
+    };
+    this.h3DeployJob = job;
+
+    const abortController = new AbortController();
+    this._h3AbortController = abortController;
+
+    this._executeH3DeployJob(job, {
+      name,
+      gpuSpec,
+      fallbackGpus: normalizedFallbacks,
+      highMem: Boolean(highMem),
+      presetObj,
+      lPort,
+      rPort,
+      useSageAttention: Boolean(useSageAttention),
+      lowVram: Boolean(lowVram),
+      forceReinstall: Boolean(forceReinstall),
+      forceRestart: Boolean(forceRestart),
+      startFromStep: startStep,
+      abortController,
+    }).catch((err) => {
+      if (job.status === 'running') {
+        if (err?.cancelled || abortController.signal.aborted) {
+          job.status = 'cancelled';
+          job.stage = 'cancelled';
+          job.stageLabel = '已手动终止';
+          job.error = '';
+        } else {
+          job.status = 'failed';
+          job.stage = 'failed';
+          job.stageLabel = '一键拉起 MiniMax-H3 失败';
+          job.error = err?.message || '部署过程出现未知异常';
+        }
+        job.finishedAt = new Date().toISOString();
+      }
+    });
+
+    return { ok: true, alreadyRunning: false, job: this._serializeDeployJob(job) };
+  }
+
+  async _executeH3DeployJob(job, opts) {
+    const {
+      name,
+      gpuSpec,
+      fallbackGpus,
+      highMem,
+      presetObj,
+      lPort,
+      rPort,
+      useSageAttention,
+      lowVram,
+      forceReinstall,
+      forceRestart,
+      startFromStep = 'session',
+      abortController,
+    } = opts;
+    const signal = abortController?.signal;
+    const startIdx = STEP_ORDER.indexOf(startFromStep);
+    const pollIntervalMs = this.h3DeployPollIntervalMs ?? 5000;
+    const pollTimeoutMs = this.h3DeployTimeoutMs ?? 25 * 60 * 1000;
+
+    try {
+      // 1. Ensure target Colab session exists
+      const { actualSessionName, actualGpu } = await this._ensureDeploySession(job, {
+        name,
+        gpuSpec,
+        fallbackGpus,
+        highMem,
+        lPort,
+        signal,
+        lastOpts: this._lastH3DeployOpts,
+      });
+
+      // 2. Probe remote GPU / disk / RAM / existing ComfyUI & weights, then launch deploy script
+      let alreadyServing = false;
+      if (startIdx <= STEP_ORDER.indexOf('bootstrap')) {
+        if (signal?.aborted) throw new DeployCancelledError();
+        job.stage = 'bootstrap';
+        job.stageLabel = '检测远端环境并下发 MiniMax-H3 部署脚本';
+        this._updateDeployStep(
+          job,
+          'bootstrap',
+          'running',
+          '正在探测远端显卡、磁盘空间与 ComfyUI 状态（新实例冷启动约 15-40 秒）…',
+        );
+
+        const ditPath = `/content/ComfyUI/models/diffusion_models/${presetObj.dit.destName}`;
+        const tePath = `/content/ComfyUI/models/text_encoders/${presetObj.textEncoder.destName}`;
+        const probeRes = await this.runRemoteBash(
+          actualSessionName,
+          `echo "===GPU==="
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null || echo "NO_GPU"
+echo "===DISK==="
+df -h /content 2>/dev/null | tail -n 1 || echo "UNKNOWN"
+echo "===READY_CHECK==="
+if [ -s "${ditPath}" ] && [ -s "${tePath}" ]; then echo "WEIGHTS_OK"; else echo "WEIGHTS_MISSING"; fi
+echo "===STATS==="
+curl -sf http://127.0.0.1:${rPort}/system_stats 2>/dev/null || echo "NOT_READY"`,
+          { timeoutMs: 60000, localPort: lPort, signal, retryOnTimeout: true, maxRetries: 2 },
+        );
+
+        const gpuRaw = this._extractTaggedSection(probeRes.stdout, 'GPU', 'DISK');
+        const diskRaw = this._extractTaggedSection(probeRes.stdout, 'DISK', 'READY_CHECK');
+        const readyRaw = this._extractTaggedSection(probeRes.stdout, 'READY_CHECK', 'STATS');
+        const statsRaw = this._extractTaggedSection(probeRes.stdout, 'STATS', null);
+        const detectedGpu = this._parseGpuNameAndMem(gpuRaw);
+        job.effectiveConfig = {
+          gpuName: detectedGpu?.name || actualGpu,
+          gpuMemoryMiB: detectedGpu?.memoryTotalMiB ?? null,
+          diskSummary: diskRaw && diskRaw !== 'UNKNOWN' ? diskRaw : '',
+          preset: presetObj.key,
+          presetLabel: presetObj.label,
+        };
+
+        alreadyServing =
+          !forceRestart &&
+          !forceReinstall &&
+          readyRaw.includes('WEIGHTS_OK') &&
+          statsRaw.startsWith('{') &&
+          statsRaw.includes('"system"');
+
+        if (alreadyServing) {
+          this._updateDeployStep(job, 'bootstrap', 'done', `ComfyUI 与 ${presetObj.key} 权重已就绪`);
+          this._updateDeployStep(job, 'waiting_api', 'done', '远端 ComfyUI 端口已响应');
+        } else {
+          const deployScript = buildDeployH3Script({
+            preset: presetObj.key,
+            remotePort: rPort,
+            useSageAttention,
+            lowVram,
+            forceReinstall,
+          });
+          const launchScript = `
+cat << 'DEPLOY_H3_EOF' > /content/deploy_minimax_h3.sh
+${deployScript}
+DEPLOY_H3_EOF
+chmod +x /content/deploy_minimax_h3.sh
+if command -v setsid >/dev/null 2>&1; then
+  setsid bash /content/deploy_minimax_h3.sh > /content/deploy_minimax_h3.launcher.log 2>&1 < /dev/null &
+else
+  nohup bash /content/deploy_minimax_h3.sh > /content/deploy_minimax_h3.launcher.log 2>&1 < /dev/null &
+fi
+echo "DEPLOY_H3_PID=$!"
+`;
+          await this.runRemoteBash(actualSessionName, launchScript, {
+            timeoutMs: 45000,
+            localPort: lPort,
+            signal,
+            retryOnTimeout: true,
+            maxRetries: 1,
+          });
+          this._updateDeployStep(
+            job,
+            'bootstrap',
+            'done',
+            `已下发部署脚本（${detectedGpu?.name || actualGpu} · ${presetObj.key}）`,
+          );
+        }
+      }
+
+      // 3. Poll remote ComfyUI progress until /system_stats responds
+      if (startIdx <= STEP_ORDER.indexOf('waiting_api') && !alreadyServing) {
+        if (signal?.aborted) throw new DeployCancelledError();
+        job.stage = 'waiting_api';
+        job.stageLabel = '正在安装 ComfyUI 并下载 MiniMax-H3 权重…';
+        this._updateDeployStep(job, 'waiting_api', 'running', '正在检查环境并启动安装与下载…');
+
+        await this._pollRemoteComfyUntilReady(job, {
+          sessionName: actualSessionName,
+          remotePort: rPort,
+          localPort: lPort,
+          pollIntervalMs,
+          pollTimeoutMs,
+          signal,
+        });
+        this._updateDeployStep(job, 'waiting_api', 'done', '远端 ComfyUI /system_stats 已就绪');
+      }
+
+      // 4. Establish/refresh resilient WebSocket + HTTP tunnel on :8188
+      if (signal?.aborted) throw new DeployCancelledError();
+      job.stage = 'tunnel';
+      job.stageLabel = `正在建立本机 :${lPort} ComfyUI 高可用隧道`;
+      this._updateDeployStep(job, 'tunnel', 'running', `正在连接 ${actualSessionName} SSH 隧道并校验 /system_stats…`);
+
+      const currentTunnel = await this.checkLocalTunnel(lPort, { probePath: '/system_stats' });
+      let tunnelInfo;
+      if (startFromStep === 'tunnel' || job.createdNewSession || !currentTunnel.listening || !currentTunnel.apiReady) {
+        const tunRes = await this.restartTunnel({
+          sessionName: actualSessionName,
+          localPort: lPort,
+          remotePort: rPort,
+          probePath: '/system_stats',
+        });
+        tunnelInfo = tunRes.tunnel;
+      } else {
+        tunnelInfo = currentTunnel;
+      }
+
+      if (signal?.aborted) throw new DeployCancelledError();
+      if (!tunnelInfo?.apiReady) {
+        throw new Error(tunnelInfo?.apiError || '隧道已建立，但本机 ComfyUI /system_stats 尚未就绪，请尝试点击「重建隧道」');
+      }
+
+      this._updateDeployStep(job, 'tunnel', 'done', `已连通 http://127.0.0.1:${lPort}`);
+      job.tunnel = tunnelInfo;
+      job.overview = await this.getOverview({ localPort: 8000, h3LocalPort: lPort }).catch(() => null);
+      job.status = 'ready';
+      job.stage = 'ready';
+      job.stageLabel = 'MiniMax-H3 视频服务 (ComfyUI) 已就绪';
+      job.finishedAt = new Date().toISOString();
+    } catch (err) {
+      if (err?.cancelled || signal?.aborted) {
+        for (const st of job.steps) {
+          if (st.status === 'running') {
+            st.status = 'cancelled';
+            st.detail = '已手动终止';
+          }
+        }
+        job.status = 'cancelled';
+        job.stage = 'cancelled';
+        job.stageLabel = '已手动终止';
+        job.error = '';
+        job.finishedAt = new Date().toISOString();
+        return;
+      }
+      const runningStep = job.steps.find((s) => s.status === 'running');
+      const shortErr = err?.message || '执行失败';
+      if (runningStep) {
+        runningStep.status = 'error';
+        runningStep.detail = shortErr.length > 120 ? `${shortErr.slice(0, 119)}…` : shortErr;
+      }
+      if (err?.rawDetail && !job.logTail) {
+        job.logTail = err.rawDetail.slice(-4000);
+      }
+      job.status = 'failed';
+      job.stage = 'failed';
+      job.stageLabel = '一键拉起 MiniMax-H3 失败';
+      job.error = shortErr;
+      job.finishedAt = new Date().toISOString();
+    } finally {
+      if (this._h3AbortController === abortController) {
+        this._h3AbortController = null;
+      }
+    }
+  }
+
+  async _pollRemoteComfyUntilReady(job, { sessionName, remotePort, localPort, pollIntervalMs, pollTimeoutMs, signal }) {
+    const deadline = Date.now() + pollTimeoutMs;
+    let deadProcessStrikes = 0;
+    let transientPollErrors = 0;
+
+    while (Date.now() < deadline) {
+      if (signal?.aborted) throw new DeployCancelledError();
+      const checkScript = `
+echo "===STAGE==="
+cat /content/.deploy_h3_stage 2>/dev/null || echo "unknown"
+echo "===ALIVE==="
+pgrep -af "deploy_minimax_h3.sh|ComfyUI/main.py|start_comfyui.sh" 2>/dev/null || echo "NONE"
+echo "===STATS==="
+curl -sf http://127.0.0.1:${remotePort}/system_stats 2>/dev/null || echo "NOT_READY"
+echo "===LOG==="
+STAGE=$(cat /content/.deploy_h3_stage 2>/dev/null || echo "")
+if [ "$STAGE" = "starting_comfyui" ]; then
+  tail -n 25 /content/comfyui_h3.log 2>/dev/null || tail -n 25 /content/deploy_minimax_h3.log 2>/dev/null || true
+else
+  tail -n 25 /content/deploy_minimax_h3.log 2>/dev/null || tail -n 25 /content/deploy_minimax_h3.launcher.log 2>/dev/null || true
+fi
+`;
+      let stdout = '';
+      try {
+        const res = await this.runRemoteBash(sessionName, checkScript, {
+          timeoutMs: 35000,
+          localPort,
+          signal,
+        });
+        stdout = res.stdout;
+        transientPollErrors = 0;
+      } catch (err) {
+        if (err?.cancelled || signal?.aborted) throw new DeployCancelledError();
+        transientPollErrors += 1;
+        if (transientPollErrors >= 3) {
+          throw err;
+        }
+        this._updateDeployStep(
+          job,
+          'waiting_api',
+          'running',
+          `远端状态轮询暂时超时 (${transientPollErrors}/3)，正在自动重试…`,
+        );
+        await sleepAbortable(pollIntervalMs, signal);
+        continue;
+      }
+
+      const remoteStage = this._extractTaggedSection(stdout, 'STAGE', 'ALIVE');
+      const aliveRaw = this._extractTaggedSection(stdout, 'ALIVE', 'STATS');
+      const statsRaw = this._extractTaggedSection(stdout, 'STATS', 'LOG');
+      const logTail = this._extractTaggedSection(stdout, 'LOG', null);
+
+      job.remoteStage = remoteStage;
+      if (logTail) job.logTail = logTail;
+
+      if (statsRaw.startsWith('{') && statsRaw.includes('"system"')) {
+        return true;
+      }
+
+      if (remoteStage === 'failed') {
+        throw new Error('远端 ComfyUI 安装或权重下载失败，请查看下方日志尾部');
+      }
+
+      if (remoteStage === 'installing_comfyui' || remoteStage === 'checking_env') {
+        job.stageLabel = '正在安装 ComfyUI、ComfyUI-GGUF 与视频导出插件…';
+        this._updateDeployStep(job, 'waiting_api', 'running', '正在克隆并安装 ComfyUI 及依赖包（约 1-3 分钟）');
+      } else if (remoteStage === 'downloading_models') {
+        const fetchingLine = logTail.split(/\r?\n/).reverse().find((l) => l.includes('[h3-dl] fetching'));
+        job.stageLabel = '正在从 Hugging Face 下载 MiniMax-H3 无审核权重…';
+        this._updateDeployStep(
+          job,
+          'waiting_api',
+          'running',
+          fetchingLine ? fetchingLine.slice(0, 110) : '正在高速下载约 38-42 GB 模型权重与 VAE…',
+        );
+      } else if (remoteStage === 'writing_workflow') {
+        job.stageLabel = '正在写入 L4 无审核工作流配置…';
+        this._updateDeployStep(job, 'waiting_api', 'running', '正在生成预配置 L4 工作流 JSON');
+      } else {
+        job.stageLabel = '正在启动 ComfyUI 与定制节点…';
+        this._updateDeployStep(job, 'waiting_api', 'running', `当前阶段：${remoteStage || '启动中'}`);
+      }
+
+      if (aliveRaw === 'NONE') {
+        deadProcessStrikes += 1;
+        if (deadProcessStrikes >= 2) {
+          throw new Error('远端 ComfyUI 部署进程已意外退出，请查看日志确认报错原因');
+        }
+      } else {
+        deadProcessStrikes = 0;
+      }
+
+      await sleepAbortable(pollIntervalMs, signal);
+    }
+
+    throw new Error('等待远端 ComfyUI 就绪超时，可进入 H3 检测页面查看实时日志');
   }
 
   async testInference({

@@ -2,16 +2,20 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 import {
+  buildDeployH3Script,
   buildDeployScript,
+  buildStartComfyScript,
   buildStartVllmScript,
   ColabConsoleService,
   isTransientColabNetworkError,
+  MINIMAX_H3_PRESETS,
   parseNvidiaSmiCsv,
   parseSessionsOutput,
   parseStatusOutput,
   parseUsageOutput,
   parseWhoamiOutput,
   resolveGpuVllmDefaults,
+  resolveH3Preset,
   summarizeCliError,
 } from './service.js';
 import { ResilientTunnelProxy } from './tunnel-proxy.js';
@@ -511,7 +515,10 @@ test('ResilientTunnelProxy transparently retries pre-header socket drop', async 
     assert.ok(hits >= 2);
   } finally {
     await proxy.stop();
-    await new Promise((resolve) => mockUpstream.close(resolve));
+    await new Promise((resolve) => {
+      mockUpstream.close(resolve);
+      mockUpstream.closeAllConnections?.();
+    });
   }
 });
 
@@ -645,4 +652,247 @@ test('_provisionSession reconciles then retries once on transient SSLEOFError wi
       return true;
     },
   );
+});
+
+test('resolveH3Preset, buildStartComfyScript, and buildDeployH3Script cover all uncensored presets', () => {
+  assert.throws(() => resolveH3Preset('invalid-preset'), /不支持的 MiniMax-H3 预设/);
+
+  for (const key of Object.keys(MINIMAX_H3_PRESETS)) {
+    const preset = resolveH3Preset(key);
+    assert.equal(preset.textEncoder.destName, 'MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-13.6G_vis.gguf');
+    const script = buildDeployH3Script({ preset: key, remotePort: 8188, useSageAttention: true });
+    assert.ok(script.includes('ComfyUI-GGUF'));
+    assert.ok(script.includes('ComfyUI-VideoHelperSuite'));
+    assert.ok(script.includes(preset.dit.destName));
+    assert.ok(script.includes('minimax_h3_uncensored_l4.json'));
+    assert.ok(script.includes('CLIPLoaderGGUF'));
+  }
+
+  const startComfy = buildStartComfyScript({ remotePort: 8188, useSageAttention: true, lowVram: true });
+  assert.ok(startComfy.includes('--port 8188'));
+  assert.ok(startComfy.includes('--use-sage-attention'));
+  assert.ok(startComfy.includes('--lowvram'));
+});
+
+test('ResilientTunnelProxy supports /system_stats probe and WebSocket upgrade tunneling', async () => {
+  const net = await import('node:net');
+  const isOriginMismatched = (req) => {
+    if (!req.headers.origin) return false;
+    try {
+      return new URL(req.headers.origin).host !== req.headers.host;
+    } catch {
+      return true;
+    }
+  };
+  const mockUpstream = http.createServer((req, res) => {
+    if (isOriginMismatched(req)) {
+      res.writeHead(403);
+      res.end();
+      return;
+    }
+    if (req.url === '/system_stats') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ system: { comfyui_version: '0.45.0' }, devices: [{ name: 'NVIDIA L4' }] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  const upgradeSockets = new Set();
+  mockUpstream.on('upgrade', (req, socket) => {
+    if (isOriginMismatched(req)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    upgradeSockets.add(socket);
+    socket.on('close', () => upgradeSockets.delete(socket));
+    socket.on('end', () => socket.end());
+    socket.on('error', () => socket.destroy());
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n\r\n',
+    );
+    socket.on('data', (chunk) => socket.write(chunk));
+  });
+
+  await new Promise((resolve) => mockUpstream.listen(0, '127.0.0.1', resolve));
+  const upstreamPort = mockUpstream.address().port;
+
+  class MockComfyProxy extends ResilientTunnelProxy {
+    _spawnSsh() {
+      this.state = 'connected';
+      this._notifyReady();
+    }
+  }
+
+  const proxy = new MockComfyProxy({
+    sessionName: 'l4',
+    localPort: 0,
+    upstreamPort,
+    probePath: '/system_stats',
+    probeIntervalMs: 60000,
+  });
+
+  try {
+    await proxy.start();
+    assert.equal(proxy.getStatus().probePath, '/system_stats');
+    const httpResp = await fetch(`http://127.0.0.1:${proxy.localPort}/system_stats`, {
+      headers: { Origin: `http://127.0.0.1:${proxy.localPort}` },
+    });
+    assert.equal(httpResp.status, 200);
+    const statsJson = await httpResp.json();
+    assert.equal(statsJson.system.comfyui_version, '0.45.0');
+    assert.equal(proxy.getStatus().inFlightRequests, 0);
+
+    const wsResult = await new Promise((resolve, reject) => {
+      const client = net.connect({ host: '127.0.0.1', port: proxy.localPort }, () => {
+        client.write(
+          'GET /ws?clientId=test HTTP/1.1\r\n' +
+            `Host: 127.0.0.1:${proxy.localPort}\r\n` +
+            `Origin: http://127.0.0.1:${proxy.localPort}\r\n` +
+            'Upgrade: websocket\r\n' +
+            'Connection: Upgrade\r\n' +
+            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+            'Sec-WebSocket-Version: 13\r\n\r\n',
+        );
+      });
+      let recv = '';
+      client.on('data', (d) => {
+        recv += d.toString('utf8');
+        if (recv.includes('101 Switching Protocols') && !recv.includes('PING_H3')) {
+          client.write('PING_H3');
+        } else if (recv.includes('PING_H3')) {
+          client.destroy();
+          resolve(recv);
+        }
+      });
+      client.on('error', reject);
+    });
+    assert.ok(wsResult.includes('101 Switching Protocols'));
+    assert.ok(wsResult.includes('PING_H3'));
+  } finally {
+    await proxy.stop();
+    for (const s of upgradeSockets) s.destroy();
+    await new Promise((resolve) => {
+      mockUpstream.close(resolve);
+      mockUpstream.closeAllConnections?.();
+    });
+  }
+});
+
+test('startH3Deploy, cancelH3Deploy, and retryH3Deploy manage L4 ComfyUI deployment cleanly', async () => {
+  let createdL4 = false;
+  let pollHits = 0;
+  let restartedPort = null;
+  let launchedH3Script = '';
+
+  class MockH3Service extends ColabConsoleService {
+    constructor() {
+      super();
+      this.h3DeployPollIntervalMs = 10;
+      this.h3DeployTimeoutMs = 2000;
+    }
+
+    async runColab(args) {
+      if (args[0] === 'sessions') {
+        return {
+          stdout: createdL4
+            ? '[l4] gpu-l4-test | Hardware: L4 | Shape: High-RAM | Variant: GPU'
+            : '[colab] No active sessions found on server.',
+          stderr: '',
+        };
+      }
+      if (args[0] === 'new') {
+        createdL4 = true;
+        return { stdout: '[colab] Session READY.', stderr: '' };
+      }
+      if (args[0] === 'whoami') return { stdout: 'Auth provider: oauth2\nEmail: u@example.com\nExpires in: 59m', stderr: '' };
+      if (args[0] === 'usage') return { stdout: 'Current balance: 970 compute units\nUsage rate: 1.54/hr\nActive assignments: 1', stderr: '' };
+      if (args[0] === 'status') return { stdout: 'Status: IDLE', stderr: '' };
+      return { stdout: '', stderr: '' };
+    }
+
+    async runRemoteBash(sessionName, script) {
+      assert.equal(sessionName, 'l4');
+      if (script.includes('DEPLOY_H3_EOF')) {
+        launchedH3Script = script;
+        return { via: 'ssh', stdout: 'DEPLOY_H3_PID=222' };
+      }
+      if (script.includes('===STATS===')) {
+        pollHits += 1;
+        const ready = pollHits >= 2;
+        return {
+          via: 'ssh',
+          stdout: `===STAGE===\nstarting_comfyui\n===ALIVE===\n222 python3 /content/ComfyUI/main.py\n===STATS===\n${ready ? '{"system":{"comfyui_version":"0.45.0"},"devices":[{"name":"NVIDIA L4"}]}' : 'NOT_READY'}\n===LOG===\n${ready ? 'To see the GUI go to: http://0.0.0.0:8188' : '[h3-dl] fetching'}`,
+        };
+      }
+      return {
+        via: 'ssh',
+        stdout: '===GPU===\nNVIDIA L4, 23034\n===DISK===\n/dev/sda1 112G 30G 82G 27% /content\n===READY_CHECK===\nWEIGHTS_MISSING\n===STATS===\nNOT_READY',
+      };
+    }
+
+    async checkLocalTunnel(port) {
+      return {
+        port,
+        listening: port === 8188 && pollHits >= 2,
+        pid: 4444,
+        mode: 'resilient-proxy',
+        state: 'connected',
+        probePath: port === 8188 ? '/system_stats' : '/v1/models',
+        apiReady: port === 8188 && pollHits >= 2,
+      };
+    }
+
+    async stopTunnel() {
+      return { ok: true };
+    }
+
+    async restartTunnel({ localPort, remotePort, probePath }) {
+      restartedPort = { localPort, remotePort, probePath };
+      return { ok: true, tunnel: await this.checkLocalTunnel(localPort) };
+    }
+  }
+
+  const svc = new MockH3Service();
+  const started = await svc.startH3Deploy({ sessionName: 'l4', gpu: 'L4', preset: 'uncensored-fp8-turbo' });
+  assert.equal(started.ok, true);
+
+  for (let i = 0; i < 40; i += 1) {
+    await new Promise((r) => setTimeout(r, 25));
+    if (!svc.getH3DeployStatus().active) break;
+  }
+
+  const done = svc.getH3DeployStatus();
+  assert.equal(done.job.status, 'ready');
+  assert.equal(done.job.sessionName, 'l4');
+  assert.equal(done.job.gpu, 'L4');
+  assert.ok(launchedH3Script.includes('MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-13.6G_vis.gguf'));
+  assert.deepEqual(restartedPort, { localPort: 8188, remotePort: 8188, probePath: '/system_stats' });
+
+  // Verify cancel + retry on H3 job
+  class SlowH3Svc extends ColabConsoleService {
+    async runColab(args, { signal } = {}) {
+      if (args[0] === 'sessions') return { stdout: '[colab] No active sessions found on server.', stderr: '' };
+      if (args[0] === 'new') {
+        return new Promise((_, reject) => {
+          signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          }, { once: true });
+        });
+      }
+      return { stdout: '', stderr: '' };
+    }
+    async stopTunnel() { return { ok: true }; }
+  }
+  const slow = new SlowH3Svc();
+  await slow.startH3Deploy({ sessionName: 'l4', gpu: 'L4' });
+  await new Promise((r) => setTimeout(r, 20));
+  const cancelled = slow.cancelH3Deploy();
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.job.status, 'cancelled');
 });

@@ -126,7 +126,9 @@ window.__ModuleLoader__.load({
       const [overview, setOverview] = React.useState(null);
       const [selectedSession, setSelectedSession] = React.useState('g4');
       const [localPort, setLocalPort] = React.useState(8000);
+      const [h3LocalPort, setH3LocalPort] = React.useState(8188);
       const [serviceInfo, setServiceInfo] = React.useState(null);
+      const [h3Info, setH3Info] = React.useState(null);
       const [testResult, setTestResult] = React.useState(null);
       const [testPrompt, setTestPrompt] = React.useState('你好，请用一句话介绍你自己。');
       const [testModel, setTestModel] = React.useState('qwen38-27b-nb');
@@ -135,9 +137,13 @@ window.__ModuleLoader__.load({
       const [showNewModal, setShowNewModal] = React.useState(false);
       const [showStartVllmModal, setShowStartVllmModal] = React.useState(false);
       const [showDeployModal, setShowDeployModal] = React.useState(false);
+      const [showH3DeployModal, setShowH3DeployModal] = React.useState(false);
       const [deployJob, setDeployJob] = React.useState(null);
       const [hideDeployCard, setHideDeployCard] = React.useState(false);
       const prevDeployStatusRef = React.useRef('');
+      const [h3DeployJob, setH3DeployJob] = React.useState(null);
+      const [hideH3DeployCard, setHideH3DeployCard] = React.useState(false);
+      const prevH3DeployStatusRef = React.useRef('');
 
       React.useEffect(() => {
         if (document.getElementById('cc-console-style')) return;
@@ -150,17 +156,25 @@ window.__ModuleLoader__.load({
       const refreshOverview = React.useCallback(async (quiet = false) => {
         if (!quiet) setBusy('overview');
         try {
-          const [data, deployData] = await Promise.all([
-            api(`/overview?localPort=${localPort}`),
+          const [data, deployData, h3DeployData] = await Promise.all([
+            api(`/overview?localPort=${localPort}&h3LocalPort=${h3LocalPort}`),
             api('/service/deploy/status').catch(() => null),
+            api('/h3/deploy/status').catch(() => null),
           ]);
           setOverview(data);
           if (deployData?.job) {
             setDeployJob(deployData.job);
             prevDeployStatusRef.current = deployData.job.status;
           }
+          if (h3DeployData?.job) {
+            setH3DeployJob(h3DeployData.job);
+            prevH3DeployStatusRef.current = h3DeployData.job.status;
+          }
           if (data.tunnel) {
             setServiceInfo((prev) => (prev ? { ...prev, tunnel: data.tunnel } : prev));
+          }
+          if (data.h3Tunnel) {
+            setH3Info((prev) => (prev ? { ...prev, tunnel: data.h3Tunnel } : prev));
           }
           if (data.sessions?.length) {
             setSelectedSession((prev) => (data.sessions.some((s) => s.name === prev) ? prev : data.sessions[0].name));
@@ -173,7 +187,7 @@ window.__ModuleLoader__.load({
         } finally {
           if (!quiet) setBusy('');
         }
-      }, [localPort]);
+      }, [localPort, h3LocalPort]);
 
       const inspectService = React.useCallback(async (targetSession) => {
         const sName = targetSession || selectedSession;
@@ -197,6 +211,24 @@ window.__ModuleLoader__.load({
           setBusy('');
         }
       }, [selectedSession, localPort]);
+
+      const inspectH3Service = React.useCallback(async (targetSession) => {
+        const sName = targetSession || selectedSession;
+        if (!sName) return;
+        setBusy('inspect-h3');
+        try {
+          const data = await api('/h3/inspect', { sessionName: sName, localPort: h3LocalPort, remotePort: 8188 });
+          setH3Info(data);
+          if (data?.tunnel) {
+            setOverview((prev) => (prev ? { ...prev, h3Tunnel: data.tunnel } : prev));
+          }
+          setBanner(null);
+        } catch (err) {
+          setBanner({ error: true, text: err.message });
+        } finally {
+          setBusy('');
+        }
+      }, [selectedSession, h3LocalPort]);
 
       React.useEffect(() => {
         refreshOverview();
@@ -238,15 +270,56 @@ window.__ModuleLoader__.load({
         };
       }, [deployJob?.status, refreshOverview, inspectService, tab]);
 
-      async function runAction(tag, fn, okMsg, { afterOverview = true, afterInspect = false } = {}) {
+      React.useEffect(() => {
+        if (h3DeployJob?.status !== 'running') return undefined;
+        let stopped = false;
+        const timer = setInterval(async () => {
+          try {
+            const res = await api('/h3/deploy/status');
+            if (stopped || !res?.job) return;
+            setH3DeployJob(res.job);
+            if (prevH3DeployStatusRef.current === 'running' && res.job.status !== 'running') {
+              prevH3DeployStatusRef.current = res.job.status;
+              if (res.job.overview) {
+                setOverview(res.job.overview);
+              } else {
+                refreshOverview(true);
+              }
+              if (res.job.status === 'ready') {
+                setBanner({ error: false, text: `MiniMax-H3 (ComfyUI) 已就绪：http://127.0.0.1:${res.job.localPort}` });
+                if (res.job.sessionName) setSelectedSession(res.job.sessionName);
+                if (tab === 'h3') inspectH3Service(res.job.sessionName);
+              } else if (res.job.status === 'failed') {
+                setBanner({ error: true, text: 'MiniMax-H3 拉起失败（可点「重试此步」或改用备选 GPU）' });
+              } else if (res.job.status === 'cancelled') {
+                setBanner({ error: false, text: '已终止 MiniMax-H3 拉起任务' });
+                refreshOverview(true);
+              }
+            }
+          } catch {
+            // Keep polling across transient UI reloads
+          }
+        }, 2500);
+        return () => {
+          stopped = true;
+          clearInterval(timer);
+        };
+      }, [h3DeployJob?.status, refreshOverview, inspectH3Service, tab]);
+
+      async function runAction(tag, fn, okMsg, { afterOverview = true, afterInspect = false, afterInspectH3 = false } = {}) {
         setBusy(tag);
         setBanner(null);
         try {
           const res = await fn();
           if (okMsg) setBanner({ error: false, text: okMsg });
           if (res?.tunnel) {
-            setOverview((prev) => (prev ? { ...prev, tunnel: res.tunnel } : prev));
-            setServiceInfo((prev) => (prev ? { ...prev, tunnel: res.tunnel } : prev));
+            const isH3 = res.tunnel.port === h3LocalPort || res.tunnel.probePath === '/system_stats';
+            setOverview((prev) => (prev ? { ...prev, [isH3 ? 'h3Tunnel' : 'tunnel']: res.tunnel } : prev));
+            if (isH3) {
+              setH3Info((prev) => (prev ? { ...prev, tunnel: res.tunnel } : prev));
+            } else {
+              setServiceInfo((prev) => (prev ? { ...prev, tunnel: res.tunnel } : prev));
+            }
           }
           if (res?.overview) {
             setOverview(res.overview);
@@ -255,6 +328,9 @@ window.__ModuleLoader__.load({
           }
           if (afterInspect) {
             await inspectService();
+          }
+          if (afterInspectH3) {
+            await inspectH3Service();
           }
           return res;
         } catch (err) {
@@ -269,9 +345,14 @@ window.__ModuleLoader__.load({
       const quota = overview?.quota || {};
       const sessions = overview?.sessions || [];
       const tunnel = serviceInfo?.tunnel || overview?.tunnel || {};
+      const h3Tunnel = h3Info?.tunnel || overview?.h3Tunnel || {};
       const gpu = serviceInfo?.gpu || null;
       const vllm = serviceInfo?.vllm || null;
+      const h3Gpu = h3Info?.gpu || null;
+      const h3Comfy = h3Info?.comfyui || null;
       const deploying = deployJob?.status === 'running';
+      const deployingH3 = h3DeployJob?.status === 'running';
+      const anyDeploying = deploying || deployingH3;
       const disabled = Boolean(busy);
 
       const startOneClickDeploy = async (opts = {}) => {
@@ -295,7 +376,7 @@ window.__ModuleLoader__.load({
             forceReinstall: Boolean(opts.forceReinstall),
             forceRestart: Boolean(opts.forceRestart),
           }),
-          '已开始一键拉起流程（新开实例安装并下载权重通常需 2-4 分钟，G4 无货将按备选自动切换）',
+          '已开始一键拉起 Qwen3.8 流程（新开实例安装并下载权重通常需 2-4 分钟）',
           { afterOverview: false },
         );
         if (res?.job) {
@@ -306,8 +387,38 @@ window.__ModuleLoader__.load({
         return res;
       };
 
+      const startH3OneClickDeploy = async (opts = {}) => {
+        setHideH3DeployCard(false);
+        const activeSelected = sessions.some((s) => s.name === selectedSession) ? selectedSession : '';
+        const targetGpu = opts.gpu || 'L4';
+        const res = await runAction(
+          'deploy-h3',
+          () => api('/h3/deploy', {
+            sessionName: opts.sessionName || activeSelected || targetGpu.toLowerCase(),
+            gpu: targetGpu,
+            fallbackGpus: opts.fallbackGpus !== undefined ? opts.fallbackGpus : ['G4', 'A100'],
+            highMem: Boolean(opts.highMem),
+            preset: opts.preset || 'uncensored-fp8-turbo',
+            localPort: h3LocalPort,
+            remotePort: 8188,
+            useSageAttention: opts.useSageAttention ?? true,
+            lowVram: Boolean(opts.lowVram),
+            forceReinstall: Boolean(opts.forceReinstall),
+            forceRestart: Boolean(opts.forceRestart),
+          }),
+          '已开始一键拉起 MiniMax-H3 无审核视频服务（安装 ComfyUI + 下载约 38-42GB 权重通常需 5-12 分钟）',
+          { afterOverview: false },
+        );
+        if (res?.job) {
+          setH3DeployJob(res.job);
+          prevH3DeployStatusRef.current = res.job.status;
+          if (res.job.sessionName) setSelectedSession(res.job.sessionName);
+        }
+        return res;
+      };
+
       const cancelDeploy = async () => {
-        const res = await runAction('deploy-cancel', () => api('/service/deploy/cancel', {}), '已手动终止当前拉起任务');
+        const res = await runAction('deploy-cancel', () => api('/service/deploy/cancel', {}), '已手动终止当前 Qwen3.8 拉起任务');
         if (res?.job) {
           setDeployJob(res.job);
           prevDeployStatusRef.current = res.job.status;
@@ -329,69 +440,153 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const cancelH3Deploy = async () => {
+        const res = await runAction('h3-cancel', () => api('/h3/deploy/cancel', {}), '已手动终止 MiniMax-H3 拉起任务');
+        if (res?.job) {
+          setH3DeployJob(res.job);
+          prevH3DeployStatusRef.current = res.job.status;
+        }
+      };
+
+      const retryH3Deploy = async (fromStep) => {
+        setHideH3DeployCard(false);
+        const res = await runAction(
+          'h3-retry',
+          () => api('/h3/deploy/retry', fromStep ? { fromStep } : {}),
+          fromStep ? `正在从步骤「${fromStep}」重试 H3 拉起…` : '正在重试 H3 当前失败/终止的步骤…',
+          { afterOverview: false },
+        );
+        if (res?.job) {
+          setH3DeployJob(res.job);
+          prevH3DeployStatusRef.current = res.job.status;
+          if (res.job.sessionName) setSelectedSession(res.job.sessionName);
+        }
+      };
+
       const stepStatusLabel = { done: '已完成', running: '进行中', pending: '等待中', error: '失败', cancelled: '已终止' };
       const stepPillClass = { done: 'ok', running: 'warn', pending: '', error: 'danger', cancelled: 'warn' };
 
-      const deployCardEl = deployJob && !hideDeployCard && h('div', { className: 'cc-card' },
-        h('div', { className: 'cc-top', style: { padding: 0 } },
-          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
-            h('h2', null, `一键拉起 Qwen3.8：${deployJob.stageLabel}`),
-            h('span', { className: `cc-pill ${deployJob.status === 'ready' ? 'ok' : deployJob.status === 'failed' ? 'danger' : 'warn'}` },
-              deployJob.status === 'ready'
-                ? '已就绪'
-                : deployJob.status === 'failed'
-                  ? '失败'
-                  : deployJob.status === 'cancelled'
-                    ? '已终止'
-                    : `进行中 · ${deployJob.elapsedSec || 0}s`),
-            deployJob.effectiveConfig && h('span', { className: 'cc-pill' },
-              `${deployJob.gpu} · kv=${deployJob.effectiveConfig.kvCacheDtype} · len=${deployJob.effectiveConfig.maxModelLen}`)),
-          h('div', { className: 'cc-actions' },
-            deploying
-              ? h('button', { className: 'cc-btn small danger', type: 'button', disabled: busy === 'deploy-cancel', onClick: cancelDeploy }, '终止拉起')
-              : h('button', { className: 'cc-btn small', type: 'button', onClick: () => setHideDeployCard(true) }, '收起'))),
-        h('div', { className: 'cc-steps' },
-          (deployJob.steps || []).map((st, idx) => h('div', { key: st.key, className: `cc-step ${st.status}` },
-            h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' } },
-              h('strong', { style: { fontSize: '12px' } }, `${idx + 1}. ${st.label}`),
-              h('span', { className: `cc-pill ${stepPillClass[st.status] || ''}` }, stepStatusLabel[st.status] || st.status)),
-            st.detail && h('p', { style: { fontSize: '11.5px', color: 'var(--cc-muted)' } }, st.detail),
-            st.status === 'running'
-              ? h('div', { style: { marginTop: '4px' } },
-                  h('button', { className: 'cc-btn small danger', type: 'button', disabled: busy === 'deploy-cancel', onClick: cancelDeploy }, '终止'))
-              : !deploying && (st.status === 'error' || st.status === 'cancelled') && h('div', { style: { marginTop: '4px' } },
-                  h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => retryDeploy(st.key) }, '重试此步'))))),
-        deployJob.error && h('div', { className: 'cc-banner error' }, h('span', null, deployJob.error)),
-        (deployJob.status === 'failed' || deployJob.status === 'cancelled') && h('div', { className: 'cc-actions' },
+      const renderDeployCard = ({ title, job, hidden, onHide, isRunning, cancelBusyTag, onCancel, onRetry, fallbackButtons, readyActions }) => {
+        if (!job || hidden) return null;
+        return h('div', { className: 'cc-card' },
+          h('div', { className: 'cc-top', style: { padding: 0 } },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+              h('h2', null, `${title}：${job.stageLabel}`),
+              h('span', { className: `cc-pill ${job.status === 'ready' ? 'ok' : job.status === 'failed' ? 'danger' : 'warn'}` },
+                job.status === 'ready'
+                  ? '已就绪'
+                  : job.status === 'failed'
+                    ? '失败'
+                    : job.status === 'cancelled'
+                      ? '已终止'
+                      : `进行中 · ${job.elapsedSec || 0}s`),
+              job.effectiveConfig?.kvCacheDtype && h('span', { className: 'cc-pill' },
+                `${job.gpu} · kv=${job.effectiveConfig.kvCacheDtype} · len=${job.effectiveConfig.maxModelLen}`),
+              job.effectiveConfig?.preset && h('span', { className: 'cc-pill' },
+                `${job.gpu} · ${job.effectiveConfig.preset}`)),
+            h('div', { className: 'cc-actions' },
+              isRunning
+                ? h('button', { className: 'cc-btn small danger', type: 'button', disabled: busy === cancelBusyTag, onClick: onCancel }, '终止拉起')
+                : h('button', { className: 'cc-btn small', type: 'button', onClick: onHide }, '收起'))),
+          h('div', { className: 'cc-steps' },
+            (job.steps || []).map((st, idx) => h('div', { key: st.key, className: `cc-step ${st.status}` },
+              h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' } },
+                h('strong', { style: { fontSize: '12px' } }, `${idx + 1}. ${st.label}`),
+                h('span', { className: `cc-pill ${stepPillClass[st.status] || ''}` }, stepStatusLabel[st.status] || st.status)),
+              st.detail && h('p', { style: { fontSize: '11.5px', color: 'var(--cc-muted)' } }, st.detail),
+              st.status === 'running'
+                ? h('div', { style: { marginTop: '4px' } },
+                    h('button', { className: 'cc-btn small danger', type: 'button', disabled: busy === cancelBusyTag, onClick: onCancel }, '终止'))
+                : !isRunning && (st.status === 'error' || st.status === 'cancelled') && h('div', { style: { marginTop: '4px' } },
+                    h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => onRetry(st.key) }, '重试此步'))))),
+          job.error && h('div', { className: 'cc-banner error' }, h('span', null, job.error)),
+          job.status === 'ready' && readyActions,
+          (job.status === 'failed' || job.status === 'cancelled') && h('div', { className: 'cc-actions' },
+            h('button', {
+              className: 'cc-btn small primary',
+              type: 'button',
+              disabled: disabled || isRunning,
+              onClick: () => onRetry(),
+            }, '重试当前步骤'),
+            h('button', {
+              className: 'cc-btn small',
+              type: 'button',
+              disabled: disabled || isRunning,
+              onClick: () => onRetry('session'),
+            }, '从头重来'),
+            ...fallbackButtons),
+          job.logTail && (job.status === 'failed'
+            ? h('details', null,
+                h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--cc-muted)' } }, '查看完整诊断日志'),
+                h('pre', { className: 'cc-log', style: { maxHeight: '170px', marginTop: '8px' } }, job.logTail))
+            : h('pre', { className: 'cc-log', style: { maxHeight: '170px' } }, job.logTail)));
+      };
+
+      const deployCardEl = renderDeployCard({
+        title: '一键拉起 Qwen3.8',
+        job: deployJob,
+        hidden: hideDeployCard,
+        onHide: () => setHideDeployCard(true),
+        isRunning: deploying,
+        cancelBusyTag: 'deploy-cancel',
+        onCancel: cancelDeploy,
+        onRetry: retryDeploy,
+        readyActions: null,
+        fallbackButtons: [
           h('button', {
-            className: 'cc-btn small primary',
-            type: 'button',
-            disabled: disabled || deploying,
-            onClick: () => retryDeploy(),
-          }, '重试当前步骤'),
-          h('button', {
-            className: 'cc-btn small',
-            type: 'button',
-            disabled: disabled || deploying,
-            onClick: () => retryDeploy('session'),
-          }, '从头重来'),
-          h('button', {
+            key: 'fb-a100',
             className: 'cc-btn small',
             type: 'button',
             disabled: disabled || deploying,
             onClick: () => startOneClickDeploy({ sessionName: 'a100', gpu: 'A100', fallbackGpus: [] }),
           }, '改用 A100 拉起'),
           h('button', {
+            key: 'fb-h100',
             className: 'cc-btn small',
             type: 'button',
             disabled: disabled || deploying,
             onClick: () => startOneClickDeploy({ sessionName: 'h100', gpu: 'H100', fallbackGpus: [] }),
-          }, '改用 H100 拉起')),
-        deployJob.logTail && (deployJob.status === 'failed'
-          ? h('details', null,
-              h('summary', { style: { cursor: 'pointer', fontSize: '12px', color: 'var(--cc-muted)' } }, '查看完整诊断日志'),
-              h('pre', { className: 'cc-log', style: { maxHeight: '170px', marginTop: '8px' } }, deployJob.logTail))
-          : h('pre', { className: 'cc-log', style: { maxHeight: '170px' } }, deployJob.logTail)));
+          }, '改用 H100 拉起'),
+        ],
+      });
+
+      const h3DeployCardEl = renderDeployCard({
+        title: '一键拉起 MiniMax-H3 视频',
+        job: h3DeployJob,
+        hidden: hideH3DeployCard,
+        onHide: () => setHideH3DeployCard(true),
+        isRunning: deployingH3,
+        cancelBusyTag: 'h3-cancel',
+        onCancel: cancelH3Deploy,
+        onRetry: retryH3Deploy,
+        readyActions: h('div', { className: 'cc-actions' },
+          h('button', {
+            className: 'cc-btn small primary',
+            type: 'button',
+            onClick: () => window.open(`http://127.0.0.1:${h3DeployJob?.localPort || h3LocalPort}`, '_blank', 'noopener,noreferrer'),
+          }, `打开 ComfyUI (http://127.0.0.1:${h3DeployJob?.localPort || h3LocalPort})`),
+          h('button', {
+            className: 'cc-btn small',
+            type: 'button',
+            onClick: () => { setTab('h3'); inspectH3Service(h3DeployJob?.sessionName); },
+          }, '进入 H3 服务面板')),
+        fallbackButtons: [
+          h('button', {
+            key: 'h3-fb-g4',
+            className: 'cc-btn small',
+            type: 'button',
+            disabled: disabled || deployingH3,
+            onClick: () => startH3OneClickDeploy({ sessionName: 'g4', gpu: 'G4', fallbackGpus: [] }),
+          }, '改用 G4 拉起'),
+          h('button', {
+            key: 'h3-fb-a100',
+            className: 'cc-btn small',
+            type: 'button',
+            disabled: disabled || deployingH3,
+            onClick: () => startH3OneClickDeploy({ sessionName: 'a100', gpu: 'A100', fallbackGpus: [] }),
+          }, '改用 A100 拉起'),
+        ],
+      });
 
       const renderVllmConfigFields = () => h(React.Fragment, null,
         h('label', { className: 'cc-field wide' }, 'HuggingFace 模型',
@@ -411,6 +606,7 @@ window.__ModuleLoader__.load({
           h('input', { type: 'checkbox', name: 'enableTools', defaultChecked: true }), '开启工具调用解析'));
 
       const vramPct = gpu && gpu.memoryTotalMiB > 0 ? Math.min(100, Math.round((gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100)) : 0;
+      const h3VramPct = h3Gpu && h3Gpu.memoryTotalMiB > 0 ? Math.min(100, Math.round((h3Gpu.memoryUsedMiB / h3Gpu.memoryTotalMiB) * 100)) : 0;
 
       return h('div', { className: 'cc-root' },
         h('header', { className: 'cc-header' },
@@ -421,7 +617,7 @@ window.__ModuleLoader__.load({
                 h('div', null,
                   h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
                     h('h1', null, 'Colab 算力与模型控制台'),
-                    h('span', { className: 'cc-pill' }, 'v1.3.1')),
+                    h('span', { className: 'cc-pill' }, 'v1.4.0')),
                   h('p', { style: { fontSize: '12px', color: 'var(--cc-muted)' } },
                     auth.email ? `${auth.email} · ${auth.authProvider || 'oauth2'}（剩余 ${auth.expiresIn || '—'}）` : '未检测到登录凭证，请在终端运行 colab sessions 完成授权'))),
               h('div', { className: 'cc-toolbar' },
@@ -435,21 +631,34 @@ window.__ModuleLoader__.load({
                 h('button', {
                   className: 'cc-btn primary',
                   type: 'button',
-                  disabled: disabled || deploying,
+                  disabled: disabled || anyDeploying,
                   onClick: () => startOneClickDeploy(),
-                }, deploying ? '一键拉起中…' : '一键拉起 Qwen3.8'),
+                }, deploying ? 'Qwen 拉起中…' : '一键拉起 Qwen3.8'),
                 h('button', {
                   className: 'cc-btn',
                   type: 'button',
-                  disabled: disabled || deploying,
+                  disabled: disabled || anyDeploying,
                   onClick: () => setShowDeployModal(true),
-                }, '部署参数'),
+                }, 'Qwen 参数'),
+                h('button', {
+                  className: 'cc-btn primary',
+                  type: 'button',
+                  disabled: disabled || anyDeploying,
+                  onClick: () => startH3OneClickDeploy(),
+                }, deployingH3 ? 'H3 拉起中…' : '一键拉起 H3 视频'),
+                h('button', {
+                  className: 'cc-btn',
+                  type: 'button',
+                  disabled: disabled || anyDeploying,
+                  onClick: () => setShowH3DeployModal(true),
+                }, 'H3 参数'),
                 h('button', { className: 'cc-btn', type: 'button', disabled, onClick: () => refreshOverview() }, busy === 'overview' ? '刷新中…' : '刷新概览'),
                 h('button', { className: 'cc-btn', type: 'button', disabled, onClick: () => setShowNewModal(true) }, '新建会话'))),
             h('nav', { className: 'cc-nav' },
               [
                 ['overview', '额度与会话'],
-                ['service', '机器与服务检测 (Qwen3.8 / vLLM)'],
+                ['service', 'Qwen3.8 / vLLM (:8000)'],
+                ['h3', 'MiniMax H3 视频 (ComfyUI :8188)'],
               ].map(([id, label]) =>
                 h('button', { key: id, type: 'button', 'aria-current': tab === id ? 'page' : undefined, onClick: () => setTab(id) }, label))))),
 
@@ -460,6 +669,7 @@ window.__ModuleLoader__.load({
               h('button', { className: 'cc-btn small', type: 'button', onClick: () => setBanner(null) }, '关闭')),
 
             deployCardEl,
+            h3DeployCardEl,
 
             tab === 'overview' && h(React.Fragment, null,
               h('div', { className: 'cc-hero' },
@@ -474,53 +684,62 @@ window.__ModuleLoader__.load({
                     h('div', null, h('dt', null, '活跃实例数'), h('dd', null, quota.activeAssignments ?? sessions.length)))),
 
                 h('div', { className: 'cc-card' },
-                  h('h2', null, '本机接入状态 (OpenAI 兼容)'),
+                  h('h2', null, '本机接入状态（LLM :8000 / H3 视频 :8188）'),
                   h('dl', { className: 'cc-kv' },
-                    h('div', null, h('dt', null, '本地隧道'), h('dd', null,
+                    h('div', null, h('dt', null, 'Qwen3.8 (:8000)'), h('dd', null,
                       tunnel.listening
-                        ? h('span', { className: `cc-pill ${tunnel.state === 'connected' ? 'ok' : 'warn'}` },
-                            `${tunnel.mode === 'resilient-proxy' ? '高可用代理' : '普通 SSH'} :${tunnel.port} (PID ${tunnel.pid})`)
-                        : h('span', { className: 'cc-pill warn' }, `未监听 :${tunnel.port || localPort}`))),
-                    h('div', null, h('dt', null, '保活与重连'), h('dd', null,
-                      tunnel.listening && tunnel.mode === 'resilient-proxy'
-                        ? `状态 ${tunnel.state} · 已自动重连 ${tunnel.reconnectCount ?? 0} 次${tunnel.lastProbeMs != null ? ` · 探测 ${tunnel.lastProbeMs} ms` : ''}`
-                        : tunnel.listening
-                          ? '普通 SSH 直连（建议点「重建隧道」升级为高可用代理）'
-                          : '未启动（点击开启后自动启用高可用代理与断线重试）')),
-                    tunnel.lastError && h('div', null, h('dt', null, '最近异常'), h('dd', { style: { color: 'var(--cc-warn)' } }, tunnel.lastError)),
-                    h('div', null, h('dt', null, 'API 服务'), h('dd', null,
-                      tunnel.apiReady
-                        ? h('span', { className: 'cc-pill ok' }, '已就绪')
-                        : h('span', { className: 'cc-pill danger' }, tunnel.apiError || '未连接'))),
-                    h('div', null, h('dt', null, 'Base URL'), h('dd', null, tunnel.endpoint || `http://127.0.0.1:${localPort}/v1`)),
-                    h('div', null, h('dt', null, '可用模型'), h('dd', null,
-                      tunnel.models?.length ? tunnel.models.map((m) => m.id).join(', ') : '—'))),
+                        ? h('span', { className: `cc-pill ${tunnel.apiReady ? 'ok' : 'warn'}` },
+                            tunnel.apiReady
+                              ? `已就绪 · ${tunnel.models?.[0]?.id || 'vLLM'}`
+                              : `隧道${tunnel.state || '已监听'}（${tunnel.apiError || 'API未就绪'}）`)
+                        : h('span', { className: 'cc-pill warn' }, `未监听 :${localPort}`))),
+                    tunnel.lastError && h('div', null, h('dt', null, 'LLM 异常'), h('dd', { style: { color: 'var(--cc-warn)' } }, tunnel.lastError)),
+                    h('div', null, h('dt', null, 'MiniMax H3 (:8188)'), h('dd', null,
+                      h3Tunnel.listening
+                        ? h('span', { className: `cc-pill ${h3Tunnel.apiReady ? 'ok' : 'warn'}` },
+                            h3Tunnel.apiReady
+                              ? `ComfyUI 已就绪${h3Tunnel.lastProbeMs != null ? ` (${h3Tunnel.lastProbeMs} ms)` : ''}`
+                              : `隧道${h3Tunnel.state || '已监听'}（${h3Tunnel.apiError || '未就绪'}）`)
+                        : h('span', { className: 'cc-pill warn' }, `未监听 :${h3LocalPort}`))),
+                    h3Tunnel.lastError && h('div', null, h('dt', null, 'H3 异常'), h('dd', { style: { color: 'var(--cc-warn)' } }, h3Tunnel.lastError))),
                   h('div', { className: 'cc-actions' },
                     !tunnel.listening
                       ? h('button', {
-                          className: 'cc-btn primary',
+                          className: 'cc-btn small',
                           type: 'button',
                           disabled: disabled || !selectedSession,
-                          onClick: () => runAction('tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort }), `已开启到 ${selectedSession} 的高可用隧道`),
-                        }, busy === 'tunnel-on' ? '开启中…' : `开启 ${selectedSession || ''} 隧道`)
+                          onClick: () => runAction('tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort }), `已开启 :${localPort} 高可用隧道`),
+                        }, busy === 'tunnel-on' ? '开启中…' : '开启 :8000')
                       : h('button', {
-                          className: 'cc-btn danger',
+                          className: 'cc-btn small danger',
                           type: 'button',
                           disabled,
-                          onClick: () => runAction('tunnel-off', () => api('/service/tunnel/stop', { localPort }), '已关闭本地 SSH 隧道'),
-                        }, busy === 'tunnel-off' ? '关闭中…' : '关闭隧道'),
-                    h('button', {
-                      className: 'cc-btn',
+                          onClick: () => runAction('tunnel-off', () => api('/service/tunnel/stop', { localPort }), '已关闭 :8000 隧道'),
+                        }, '关闭 :8000'),
+                    !h3Tunnel.listening
+                      ? h('button', {
+                          className: 'cc-btn small',
+                          type: 'button',
+                          disabled: disabled || !selectedSession,
+                          onClick: () => runAction('h3-tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort: h3LocalPort, remotePort: 8188, probePath: '/system_stats' }), `已开启 :${h3LocalPort} ComfyUI 隧道`),
+                        }, busy === 'h3-tunnel-on' ? '开启中…' : '开启 :8188')
+                      : h('button', {
+                          className: 'cc-btn small danger',
+                          type: 'button',
+                          disabled,
+                          onClick: () => runAction('h3-tunnel-off', () => api('/service/tunnel/stop', { localPort: h3LocalPort }), '已关闭 :8188 隧道'),
+                        }, '关闭 :8188'),
+                    h3Tunnel.apiReady && h('button', {
+                      className: 'cc-btn small primary',
                       type: 'button',
-                      disabled: disabled || !selectedSession,
-                      onClick: () => runAction('tunnel-re', () => api('/service/tunnel/restart', { sessionName: selectedSession, localPort }), '已重建高可用 SSH 隧道'),
-                    }, busy === 'tunnel-re' ? '重建中…' : '重建隧道'),
+                      onClick: () => window.open(`http://127.0.0.1:${h3LocalPort}`, '_blank', 'noopener,noreferrer'),
+                    }, '打开 ComfyUI'),
                     h('button', {
-                      className: 'cc-btn',
+                      className: 'cc-btn small',
                       type: 'button',
                       disabled,
-                      onClick: () => { setTab('service'); inspectService(); },
-                    }, '进入机器检测')))),
+                      onClick: () => { setTab('h3'); inspectH3Service(); },
+                    }, 'H3 面板')))),
 
               h('div', { className: 'cc-card' },
                 h('div', { className: 'cc-top', style: { padding: 0 } },
@@ -528,9 +747,12 @@ window.__ModuleLoader__.load({
                   h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => refreshOverview() }, '同步会话')),
                 sessions.length === 0
                   ? h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' } },
-                      h('p', { style: { color: 'var(--cc-muted)' } }, '当前没有运行中的 Colab 实例（已释放，未计费）。点击「一键拉起 Qwen3.8」可自动开卡、装环境、拉模型并接通隧道。'),
-                      h('button', { className: 'cc-btn primary', type: 'button', disabled: disabled || deploying, onClick: () => startOneClickDeploy() },
-                        deploying ? '正在拉起中…' : '一键拉起 Qwen3.8'))
+                      h('p', { style: { color: 'var(--cc-muted)' } }, '当前没有运行中的 Colab 实例（已释放，未计费）。可选择「一键拉起 Qwen3.8」文本大模型或「一键拉起 H3 视频」无审核视频生成。'),
+                      h('div', { className: 'cc-actions' },
+                        h('button', { className: 'cc-btn', type: 'button', disabled: disabled || anyDeploying, onClick: () => startOneClickDeploy() },
+                          deploying ? 'Qwen 拉起中…' : '一键拉起 Qwen3.8'),
+                        h('button', { className: 'cc-btn primary', type: 'button', disabled: disabled || anyDeploying, onClick: () => startH3OneClickDeploy() },
+                          deployingH3 ? 'H3 拉起中…' : '一键拉起 H3 视频 (L4)')))
                   : h('div', { className: 'cc-table-wrap' },
                       h('table', { className: 'cc-table' },
                         h('thead', null, h('tr', null,
@@ -545,7 +767,8 @@ window.__ModuleLoader__.load({
                           h('td', null, h('span', { className: `cc-pill ${s.status === 'IDLE' ? 'ok' : 'warn'}` }, s.status || 'UNKNOWN')),
                           h('td', { style: { fontSize: '12px', color: 'var(--cc-muted)' } }, s.endpoint),
                           h('td', null, h('div', { className: 'cc-actions' },
-                            h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => { setSelectedSession(s.name); setTab('service'); inspectService(s.name); } }, '检测机器'),
+                            h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => { setSelectedSession(s.name); setTab('service'); inspectService(s.name); } }, '检测 LLM'),
+                            h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => { setSelectedSession(s.name); setTab('h3'); inspectH3Service(s.name); } }, '检测 H3'),
                             h('button', { className: 'cc-btn small', type: 'button', disabled, onClick: () => runAction('url', async () => {
                               const r = await api('/sessions/url', { name: s.name });
                               if (r.url) window.open(r.url, '_blank', 'noopener,noreferrer');
@@ -565,7 +788,7 @@ window.__ModuleLoader__.load({
                     h('p', { style: { fontSize: '12px', color: 'var(--cc-muted)' } },
                       serviceInfo ? `上次检测：${new Date(serviceInfo.fetchedAt).toLocaleTimeString()} · 通道：${serviceInfo.inspectedVia}` : '点击「一键拉起 Qwen3.8」可直接从零自动部署并接通隧道，或点击「检测机器状态」查看当前环境')),
                   h('div', { className: 'cc-actions' },
-                    h('button', { className: 'cc-btn primary', type: 'button', disabled: disabled || deploying, onClick: () => startOneClickDeploy() },
+                    h('button', { className: 'cc-btn primary', type: 'button', disabled: disabled || anyDeploying, onClick: () => startOneClickDeploy() },
                       deploying ? '拉起中…' : '一键拉起 Qwen3.8'),
                     h('button', { className: 'cc-btn', type: 'button', disabled: disabled || !selectedSession, onClick: () => inspectService() },
                       busy === 'inspect' ? '正在检测…' : '检测机器状态')))),
@@ -665,7 +888,107 @@ window.__ModuleLoader__.load({
 
               vllm?.logTail && h('div', { className: 'cc-card' },
                 h('h3', null, '远端服务日志（最近 35 行）'),
-                h('pre', { className: 'cc-log' }, vllm.logTail))))),
+                h('pre', { className: 'cc-log' }, vllm.logTail))),
+
+            tab === 'h3' && h(React.Fragment, null,
+              h('div', { className: 'cc-card' },
+                h('div', { className: 'cc-top', style: { padding: 0 } },
+                  h('div', null,
+                    h('h2', null, `MiniMax H3 无审核视频服务（ComfyUI）：${selectedSession || '当前无活跃会话'}`),
+                    h('p', { style: { fontSize: '12px', color: 'var(--cc-muted)' } },
+                      h3Info
+                        ? `上次检测：${new Date(h3Info.fetchedAt).toLocaleTimeString()} · 通道：${h3Info.inspectedVia}`
+                        : '默认推荐 L4 24GB 组合：无审核 Qwen3-VL-32B 消融编码器 + 剪枝 FP8/INT8 主模型 + 4/8步 Turbo LoRA + SageAttention')),
+                  h('div', { className: 'cc-actions' },
+                    h('button', { className: 'cc-btn primary', type: 'button', disabled: disabled || anyDeploying, onClick: () => startH3OneClickDeploy() },
+                      deployingH3 ? '拉起中…' : '一键拉起 H3 视频'),
+                    h('button', { className: 'cc-btn', type: 'button', disabled: disabled || anyDeploying, onClick: () => setShowH3DeployModal(true) }, 'H3 参数'),
+                    h('button', { className: 'cc-btn', type: 'button', disabled: disabled || !selectedSession, onClick: () => inspectH3Service() },
+                      busy === 'inspect-h3' ? '正在检测…' : '检测 H3 状态')))),
+
+              h('div', { className: 'cc-grid' },
+                h('div', { className: 'cc-card' },
+                  h('h3', null, '显卡、显存、磁盘与系统内存'),
+                  h3Gpu
+                    ? h(React.Fragment, null,
+                        h('dl', { className: 'cc-kv' },
+                          h('div', null, h('dt', null, 'GPU 型号'), h('dd', null, h3Gpu.name)),
+                          h('div', null, h('dt', null, '显存占用'), h('dd', null, `${fmt(h3Gpu.memoryUsedMiB, 0)} / ${fmt(h3Gpu.memoryTotalMiB, 0)} MiB (${h3VramPct}%)`)),
+                          h('div', null, h('dt', null, 'GPU 利用率'), h('dd', null, `${h3Gpu.gpuUtilPct}% · ${h3Gpu.temperatureC} °C`)),
+                          h3Info?.disk && h('div', null, h('dt', null, '容器磁盘 (/content)'), h('dd', null, h3Info.disk)),
+                          h3Info?.ram && h('div', null, h('dt', null, '主机内存 (卸载 32B)'), h('dd', null, `${fmt(h3Info.ram.usedMiB / 1024, 1)} / ${fmt(h3Info.ram.totalMiB / 1024, 1)} GiB`))),
+                        h('div', { className: 'cc-meter' }, h('span', { style: { width: `${h3VramPct}%` } })))
+                    : h('p', { style: { color: 'var(--cc-muted)' } }, '尚未读取 H3 实例硬件状态，请点击「检测 H3 状态」。')),
+
+                h('div', { className: 'cc-card' },
+                  h('h3', null, 'ComfyUI 进程与 :8188 WebSocket 隧道'),
+                  h('dl', { className: 'cc-kv' },
+                    h('div', null, h('dt', null, '远端 ComfyUI 进程'), h('dd', null,
+                      h3Comfy ? (h3Comfy.running ? h('span', { className: 'cc-pill ok' }, '运行中') : h('span', { className: 'cc-pill danger' }, '未运行')) : '—')),
+                    h('div', null, h('dt', null, '远端 8188 接口'), h('dd', null,
+                      h3Comfy ? (h3Comfy.remoteApiReady ? h('span', { className: 'cc-pill ok' }, '就绪') : h('span', { className: 'cc-pill warn' }, '未就绪')) : '—')),
+                    h('div', null, h('dt', null, '本机 WebSocket 隧道'), h('dd', null,
+                      h3Tunnel.listening
+                        ? h('span', { className: `cc-pill ${h3Tunnel.state === 'connected' ? 'ok' : 'warn'}` },
+                            `${h3Tunnel.mode === 'resilient-proxy' ? '高可用代理' : '普通 SSH'} :${h3Tunnel.port}${h3Tunnel.lastProbeMs != null ? ` (${h3Tunnel.lastProbeMs} ms)` : ''}`)
+                        : h('span', { className: 'cc-pill warn' }, '未连接'))),
+                    h('div', null, h('dt', null, 'ComfyUI 地址'), h('dd', null, `http://127.0.0.1:${h3LocalPort}`)),
+                    h3Tunnel.lastError && h('div', null, h('dt', null, '最近异常'), h('dd', { style: { color: 'var(--cc-warn)' } }, h3Tunnel.lastError))),
+                  h('div', { className: 'cc-actions' },
+                    h('button', {
+                      className: 'cc-btn primary',
+                      type: 'button',
+                      disabled: disabled || !selectedSession,
+                      onClick: () => runAction('comfy-start', () => api('/h3/start', { sessionName: selectedSession, remotePort: 8188, localPort: h3LocalPort }), '已在远端启动 ComfyUI', { afterOverview: false, afterInspectH3: true }),
+                    }, busy === 'comfy-start' ? '启动中…' : '启动 / 重启 ComfyUI'),
+                    h('button', {
+                      className: 'cc-btn danger',
+                      type: 'button',
+                      disabled: disabled || !selectedSession,
+                      onClick: () => runAction('comfy-stop', () => api('/h3/stop', { sessionName: selectedSession, localPort: h3LocalPort }), '已停止远端 ComfyUI', { afterOverview: false, afterInspectH3: true }),
+                    }, busy === 'comfy-stop' ? '停止中…' : '停止 ComfyUI'),
+                    !h3Tunnel.listening
+                      ? h('button', {
+                          className: 'cc-btn',
+                          type: 'button',
+                          disabled: disabled || !selectedSession,
+                          onClick: () => runAction('h3-tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort: h3LocalPort, remotePort: 8188, probePath: '/system_stats' }), 'ComfyUI :8188 高可用隧道已开启', { afterOverview: true, afterInspectH3: true }),
+                        }, '开启 :8188 隧道')
+                      : h('button', {
+                          className: 'cc-btn danger',
+                          type: 'button',
+                          disabled,
+                          onClick: () => runAction('h3-tunnel-off', () => api('/service/tunnel/stop', { localPort: h3LocalPort }), '已关闭 :8188 隧道', { afterOverview: true, afterInspectH3: true }),
+                        }, '关闭 :8188 隧道'),
+                    h('button', {
+                      className: 'cc-btn',
+                      type: 'button',
+                      disabled: disabled || !selectedSession,
+                      onClick: () => runAction('h3-tunnel-re', () => api('/service/tunnel/restart', { sessionName: selectedSession, localPort: h3LocalPort, remotePort: 8188, probePath: '/system_stats' }), '已重建 :8188 隧道', { afterOverview: true, afterInspectH3: true }),
+                    }, busy === 'h3-tunnel-re' ? '重建中…' : '重建隧道'),
+                    h('button', {
+                      className: 'cc-btn primary',
+                      type: 'button',
+                      disabled: !h3Tunnel.apiReady,
+                      onClick: () => window.open(`http://127.0.0.1:${h3LocalPort}`, '_blank', 'noopener,noreferrer'),
+                    }, '打开 ComfyUI WebUI')))),
+
+              h3Comfy && h('div', { className: 'cc-card' },
+                h('h3', null, `已安装的 MiniMax-H3 权重与工作流 (${h3Comfy.installedModels?.length || 0} 个模型文件)`),
+                h3Comfy.workflows?.length > 0 && h('p', { style: { fontSize: '12px', color: 'var(--cc-muted)' } },
+                  `预配置工作流：${h3Comfy.workflows.join(', ')}（打开 ComfyUI WebUI 后在左侧 Workflows 打开即可）`),
+                h3Comfy.installedModels?.length > 0
+                  ? h('div', { className: 'cc-table-wrap' },
+                      h('table', { className: 'cc-table' },
+                        h('thead', null, h('tr', null, h('th', null, '路径'), h('th', null, '大小'))),
+                        h('tbody', null, h3Comfy.installedModels.map((m) => h('tr', { key: m.path },
+                          h('td', { style: { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '12px' } }, m.path),
+                          h('td', null, m.sizeGiB !== null ? `${m.sizeGiB} GiB` : '—'))))))
+                  : h('p', { style: { color: 'var(--cc-muted)' } }, '尚未检测到 MiniMax-H3 模型文件，请先点击「一键拉起 H3 视频」。')),
+
+              h3Comfy?.logTail && h('div', { className: 'cc-card' },
+                h('h3', null, 'ComfyUI / 部署日志（最近 35 行）'),
+                h('pre', { className: 'cc-log' }, h3Comfy.logTail))))),
 
         showNewModal && h('div', { className: 'cc-backdrop', onClick: (e) => e.target === e.currentTarget && !disabled && setShowNewModal(false) },
           h('form', {
@@ -684,13 +1007,13 @@ window.__ModuleLoader__.load({
           h('h2', null, '新建 Colab 会话'),
           h('div', { className: 'cc-fields' },
             h('label', { className: 'cc-field' }, '会话名称',
-              h('input', { className: 'cc-input', name: 'name', defaultValue: 'g4', required: true })),
+              h('input', { className: 'cc-input', name: 'name', defaultValue: 'l4', required: true })),
             h('label', { className: 'cc-field' }, 'GPU 规格',
-              h('select', { className: 'cc-input', name: 'gpu', defaultValue: 'G4' },
+              h('select', { className: 'cc-input', name: 'gpu', defaultValue: 'L4' },
+                h('option', { value: 'L4' }, 'L4 (Ada 24GB，适合 H3 量化 / 14B LLM)'),
                 h('option', { value: 'G4' }, 'G4 (RTX PRO 6000 96GB)'),
                 h('option', { value: 'A100' }, 'A100'),
                 h('option', { value: 'H100' }, 'H100'),
-                h('option', { value: 'L4' }, 'L4'),
                 h('option', { value: 'T4' }, 'T4'),
                 h('option', { value: '' }, 'CPU (无 GPU)'))),
             h('label', { className: 'cc-field wide', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
@@ -748,7 +1071,7 @@ window.__ModuleLoader__.load({
               if (res) setShowDeployModal(false);
             },
           },
-          h('h2', null, '自定义一键拉起参数'),
+          h('h2', null, '自定义 Qwen3.8 一键拉起参数'),
           h('div', { className: 'cc-fields' },
             h('label', { className: 'cc-field' }, '会话名称',
               h('input', { className: 'cc-input', name: 'sessionName', defaultValue: selectedSession || 'g4', required: true })),
@@ -759,7 +1082,7 @@ window.__ModuleLoader__.load({
                 defaultValue: 'G4',
                 onChange: (e) => {
                   const sInput = e.target.form?.elements?.namedItem('sessionName');
-                  if (sInput && /^(g4|a100|h100)$/i.test(sInput.value.trim())) {
+                  if (sInput && /^(g4|a100|h100|l4)$/i.test(sInput.value.trim())) {
                     sInput.value = e.target.value.toLowerCase();
                   }
                 },
@@ -781,7 +1104,70 @@ window.__ModuleLoader__.load({
               h('input', { type: 'checkbox', name: 'forceReinstall' }), '强制重装 vLLM')),
           h('div', { className: 'cc-actions', style: { justifyContent: 'flex-end' } },
             h('button', { className: 'cc-btn', type: 'button', disabled, onClick: () => setShowDeployModal(false) }, '取消'),
-            h('button', { className: 'cc-btn primary', type: 'submit', disabled: disabled || deploying }, deploying ? '拉起中…' : '立即一键拉起')))));
+            h('button', { className: 'cc-btn primary', type: 'submit', disabled: disabled || anyDeploying }, deploying ? '拉起中…' : '立即一键拉起')))) ,
+
+        showH3DeployModal && h('div', { className: 'cc-backdrop', onClick: (e) => e.target === e.currentTarget && !disabled && setShowH3DeployModal(false) },
+          h('form', {
+            className: 'cc-dialog',
+            onSubmit: async (e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              const fallbackPreset = String(fd.get('fallbackPreset') || '').trim();
+              const res = await startH3OneClickDeploy({
+                sessionName: fd.get('sessionName'),
+                gpu: fd.get('gpu'),
+                fallbackGpus: fallbackPreset ? fallbackPreset.split(',').filter(Boolean) : [],
+                preset: fd.get('preset'),
+                useSageAttention: fd.get('useSageAttention') === 'on',
+                lowVram: fd.get('lowVram') === 'on',
+                forceRestart: fd.get('forceRestart') === 'on',
+                forceReinstall: fd.get('forceReinstall') === 'on',
+              });
+              if (res) setShowH3DeployModal(false);
+            },
+          },
+          h('h2', null, '自定义 MiniMax-H3 无审核视频参数'),
+          h('div', { className: 'cc-fields' },
+            h('label', { className: 'cc-field' }, '会话名称',
+              h('input', { className: 'cc-input', name: 'sessionName', defaultValue: selectedSession || 'l4', required: true })),
+            h('label', { className: 'cc-field' }, '新建时 GPU 规格',
+              h('select', {
+                className: 'cc-input',
+                name: 'gpu',
+                defaultValue: 'L4',
+                onChange: (e) => {
+                  const sInput = e.target.form?.elements?.namedItem('sessionName');
+                  if (sInput && /^(g4|a100|h100|l4)$/i.test(sInput.value.trim())) {
+                    sInput.value = e.target.value.toLowerCase();
+                  }
+                },
+              },
+                h('option', { value: 'L4' }, 'L4 · 24GB Ada (~1.6 CU/h，推荐平替)'),
+                h('option', { value: 'G4' }, 'G4 · 96GB Blackwell (~10.05 CU/h)'),
+                h('option', { value: 'A100' }, 'A100 · 40/80GB (~6.73 CU/h)'),
+                h('option', { value: 'H100' }, 'H100 · 80GB (~15 CU/h)'))),
+            h('label', { className: 'cc-field wide' }, '无审核模型组合预设',
+              h('select', { className: 'cc-input', name: 'preset', defaultValue: 'uncensored-fp8-turbo' },
+                h('option', { value: 'uncensored-fp8-turbo' }, '无审核版 FP8 + 4/8步 Turbo LoRA（推荐 L4 / G4，~42GB）'),
+                h('option', { value: 'uncensored-prism-8step' }, '无审核版 PRISM 融合 + 内置 8步 Turbo（Ref2VA INT8，~38GB）'),
+                h('option', { value: 'uncensored-gguf-q5-turbo' }, '无审核版 GGUF Q5_K_M + 4/8步 Turbo LoRA（最省显存，~36GB）'))),
+            h('label', { className: 'cc-field wide' }, '无货 / 503 自动切换备选',
+              h('select', { className: 'cc-input', name: 'fallbackPreset', defaultValue: 'G4,A100' },
+                h('option', { value: 'G4,A100' }, '依次尝试 G4 → A100（推荐）'),
+                h('option', { value: 'A100,H100' }, '依次尝试 A100 → H100'),
+                h('option', { value: 'G4' }, '仅备选 G4'),
+                h('option', { value: '' }, '不自动切换（仅尝试所选 GPU）'))),
+            h('label', { className: 'cc-field', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+              h('input', { type: 'checkbox', name: 'useSageAttention', defaultChecked: true }), '启用 SageAttention'),
+            h('label', { className: 'cc-field', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+              h('input', { type: 'checkbox', name: 'lowVram' }), '强制 --lowvram 卸载'),
+            h('label', { className: 'cc-field', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+              h('input', { type: 'checkbox', name: 'forceRestart' }), '强制重启 ComfyUI'),
+            h('label', { className: 'cc-field', style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+              h('input', { type: 'checkbox', name: 'forceReinstall' }), '强制重装 ComfyUI')),
+          h('div', { className: 'cc-actions', style: { justifyContent: 'flex-end' } },
+            h('button', { className: 'cc-btn', type: 'button', disabled, onClick: () => setShowH3DeployModal(false) }, '取消'),
+            h('button', { className: 'cc-btn primary', type: 'submit', disabled: disabled || anyDeploying }, deployingH3 ? '拉起中…' : '立即一键拉起 H3')))));
     }
 
     return {
