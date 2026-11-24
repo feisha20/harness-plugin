@@ -10,6 +10,7 @@
 | 个人工作台 | [dsh-workbench](dsh-workbench/) | 在左侧主菜单提供工作台入口，支持多通道会话采集、事项待办、日报、周报与月报自动生成 |
 | 侧栏紧凑布局 | [sidebar-compact-layout](sidebar-compact-layout/) | 系统菜单整行、自定义菜单双列；停用后恢复原布局 |
 | 冰火对话 | [conversation-elements](conversation-elements/) | 运行时输入框上沿显示火焰，空闲一分钟后点击破冰 |
+| Colab 控制台 | [colab-console](colab-console/) | 管理 Colab 计算单元额度、会话生命周期、远端 GPU/vLLM 服务与本机 SSH 隧道 |
 
 ## 开发约定
 
