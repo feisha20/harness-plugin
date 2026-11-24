@@ -1,33 +1,59 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
+import http from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { resolveColabBin, resolveDefaultSshKey } from './tunnel-proxy.js';
 
 const execFileAsync = promisify(execFile);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const TUNNEL_PROXY_SCRIPT = path.join(__dirname, 'tunnel-proxy.js');
 
-const DEFAULT_COLAB_BIN = path.join(os.homedir(), '.local', 'bin', 'colab');
-const DEFAULT_SSH_KEYS = [
-  path.join(os.homedir(), '.ssh', 'id_ed25519'),
-  path.join(os.homedir(), '.ssh', 'id_ed25519_github'),
-  path.join(os.homedir(), '.ssh', 'id_ecdsa'),
-  path.join(os.homedir(), '.ssh', 'id_rsa'),
-];
+function resolveNodeBin() {
+  for (const p of ['/opt/homebrew/bin/node', '/usr/local/bin/node']) {
+    if (fs.existsSync(p)) return p;
+  }
+  return process.execPath;
+}
+
+function localHttpJson(port, urlPath, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: urlPath,
+        method: 'GET',
+        agent: false,
+        headers: { Connection: 'close' },
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              resolve({ ok: true, status: res.statusCode, data: JSON.parse(text) });
+            } catch {
+              resolve({ ok: false, status: res.statusCode, error: 'Invalid JSON' });
+            }
+          } else {
+            resolve({ ok: false, status: res.statusCode, error: `HTTP ${res.statusCode}` });
+          }
+        });
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error('连接超时')));
+    req.on('error', (err) => reject(err));
+    req.end();
+  });
+}
 
 const DEFAULT_MODEL_REPO = 'sakamakismile/Huihui-Qwen3.8-27B-abliterated-NVFP4';
 const DEFAULT_SERVED_NAME = 'qwen3.8-27b-abliterated qwen38-27b-nb';
-
-function resolveColabBin() {
-  if (fs.existsSync(DEFAULT_COLAB_BIN)) return DEFAULT_COLAB_BIN;
-  return 'colab';
-}
-
-function resolveDefaultSshKey() {
-  for (const keyPath of DEFAULT_SSH_KEYS) {
-    if (fs.existsSync(keyPath)) return keyPath;
-  }
-  return '';
-}
 
 function validateSessionName(name) {
   const value = String(name || '').trim();
@@ -143,8 +169,11 @@ export class ColabConsoleService {
   async runRemoteBash(sessionName, script, { timeoutMs = 25000, sshKey } = {}) {
     const name = validateSessionName(sessionName);
     const key = sshKey || resolveDefaultSshKey();
+    const tunnel = await this.checkLocalTunnel(8000);
 
-    if (key && fs.existsSync(key)) {
+    // Colab restricts each runtime to a single concurrent SSH session (HTTP 429).
+    // When a tunnel is active, skip SSH and run via colab exec directly.
+    if (!tunnel.listening && key && fs.existsSync(key)) {
       try {
         const proxyCmd = `${this.colabBin} ssh --proxy-mode -s ${name} -i ${key}`;
         const { stdout, stderr } = await execFileAsync(
@@ -229,24 +258,31 @@ export class ColabConsoleService {
     let apiReady = false;
     let models = [];
     let apiError = '';
+    let proxyHealth = null;
     if (listeningPid) {
-      try {
-        const resp = await fetch(`http://127.0.0.1:${port}/v1/models`, {
-          signal: AbortSignal.timeout(3500),
-        });
+      const [modelsRes, healthRes] = await Promise.allSettled([
+        localHttpJson(port, '/v1/models', 3500),
+        localHttpJson(port, '/__tunnel_health', 1500),
+      ]);
+
+      if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
+        proxyHealth = healthRes.value.data;
+      }
+
+      if (modelsRes.status === 'fulfilled') {
+        const resp = modelsRes.value;
         if (resp.ok) {
-          const data = await resp.json();
           apiReady = true;
-          models = (data?.data || []).map((m) => ({
+          models = (resp.data?.data || []).map((m) => ({
             id: m.id,
             root: m.root || '',
             maxModelLen: m.max_model_len || null,
           }));
         } else {
-          apiError = `HTTP ${resp.status}`;
+          apiError = resp.error || `HTTP ${resp.status}`;
         }
-      } catch (err) {
-        apiError = err?.message || '连接超时';
+      } else {
+        apiError = modelsRes.reason?.message || '连接超时';
       }
     }
 
@@ -255,7 +291,15 @@ export class ColabConsoleService {
       listening: Boolean(listeningPid),
       pid: listeningPid,
       command: listeningCmd,
-      managedByPlugin: this.tunnelChildren.has(port),
+      mode: proxyHealth ? 'resilient-proxy' : listeningPid ? 'raw-ssh' : 'stopped',
+      state: proxyHealth?.state || (listeningPid ? 'connected' : 'stopped'),
+      reconnectCount: proxyHealth?.reconnectCount ?? 0,
+      lastProbeAt: proxyHealth?.lastProbeAt || null,
+      lastProbeMs: proxyHealth?.lastProbeMs ?? null,
+      lastError: proxyHealth?.lastError || '',
+      sshPid: proxyHealth?.sshPid ?? null,
+      upstreamPort: proxyHealth?.upstreamPort ?? null,
+      managedByPlugin: this.tunnelChildren.has(port) || Boolean(proxyHealth),
       apiReady,
       models,
       apiError,
@@ -500,26 +544,21 @@ echo "STARTED_PID=$!"
       return { ok: true, alreadyRunning: true, tunnel: existing };
     }
 
-    const proxyCmd = `${this.colabBin} ssh --proxy-mode -s ${name} -i ${key}`;
     const child = spawn(
-      'ssh',
+      resolveNodeBin(),
       [
-        '-N',
-        '-L', `${lPort}:127.0.0.1:${rPort}`,
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'ServerAliveInterval=20',
-        '-o', 'ServerAliveCountMax=3',
-        '-o', 'ExitOnForwardFailure=yes',
-        '-i', key,
-        '-o', `ProxyCommand=${proxyCmd}`,
-        'root@colab',
+        TUNNEL_PROXY_SCRIPT,
+        '--session', name,
+        '--port', String(lPort),
+        '--remote-port', String(rPort),
+        '--ssh-key', key,
       ],
       {
         detached: true,
         stdio: 'ignore',
         env: {
           ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
           PATH: `${path.dirname(this.colabBin)}:${process.env.PATH || ''}`,
         },
       },
@@ -533,11 +572,11 @@ echo "STARTED_PID=$!"
       }
     });
 
-    // Wait briefly for local port to start listening
-    for (let i = 0; i < 12; i += 1) {
+    // Wait up to 12s for local reverse proxy and upstream SSH handshake
+    for (let i = 0; i < 24; i += 1) {
       await new Promise((r) => setTimeout(r, 500));
       const status = await this.checkLocalTunnel(lPort);
-      if (status.listening) {
+      if (status.apiReady || (status.mode === 'resilient-proxy' && status.listening && status.state === 'connected')) {
         return { ok: true, alreadyRunning: false, tunnel: status };
       }
     }
@@ -562,7 +601,13 @@ echo "STARTED_PID=$!"
     }
 
     const current = await this.checkLocalTunnel(lPort);
-    if (current.listening && current.pid && current.command.toLowerCase().includes('ssh')) {
+    const cmd = (current.command || '').toLowerCase();
+    if (
+      current.listening &&
+      current.pid &&
+      current.pid !== process.pid &&
+      (current.mode === 'resilient-proxy' || cmd.includes('ssh') || cmd.includes('node') || cmd.includes('dsh'))
+    ) {
       try {
         process.kill(current.pid, 'SIGTERM');
       } catch {
@@ -570,8 +615,21 @@ echo "STARTED_PID=$!"
       }
     }
 
-    await new Promise((r) => setTimeout(r, 400));
+    for (let i = 0; i < 10; i += 1) {
+      await new Promise((r) => setTimeout(r, 250));
+      const next = await this.checkLocalTunnel(lPort);
+      if (!next.listening) {
+        return { ok: true, tunnel: next };
+      }
+    }
     return { ok: true, tunnel: await this.checkLocalTunnel(lPort) };
+  }
+
+  async restartTunnel({ sessionName, localPort = 8000, remotePort = 8000, sshKey } = {}) {
+    await this.stopTunnel({ localPort });
+    // Allow Colab time to release the single SSH session slot before reconnecting.
+    await new Promise((r) => setTimeout(r, 1500));
+    return this.startTunnel({ sessionName, localPort, remotePort, sshKey });
   }
 
   async testInference({
@@ -588,10 +646,8 @@ echo "STARTED_PID=$!"
     let contentText = '';
     let finishReason = '';
 
-    const resp = await fetch(`http://127.0.0.1:${lPort}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const payloadBytes = Buffer.from(
+      JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: Number(maxTokens) || 160,
@@ -599,52 +655,77 @@ echo "STARTED_PID=$!"
         stream: true,
         stream_options: { include_usage: true },
       }),
-      signal: AbortSignal.timeout(45000),
+      'utf8',
+    );
+
+    await new Promise((resolve, reject) => {
+      let buffer = '';
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: lPort,
+          path: '/v1/chat/completions',
+          method: 'POST',
+          agent: false,
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': String(payloadBytes.length),
+            Connection: 'close',
+          },
+          timeout: 45000,
+        },
+        (res) => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const errChunks = [];
+            res.on('data', (c) => errChunks.push(c));
+            res.on('end', () => {
+              const errText = Buffer.concat(errChunks).toString('utf8');
+              reject(new Error(`推理请求失败 (${res.statusCode}): ${errText.slice(0, 300)}`));
+            });
+            return;
+          }
+
+          res.on('data', (chunk) => {
+            buffer += chunk.toString('utf8');
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line.startsWith('data: ')) continue;
+              const payload = line.slice(6);
+              if (payload === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(payload);
+                const delta = parsed?.choices?.[0]?.delta;
+                if (delta) {
+                  if ((delta.content || delta.reasoning || delta.reasoning_content) && tFirst === null) {
+                    tFirst = performance.now();
+                  }
+                  if (delta.content) contentText += delta.content;
+                  if (delta.reasoning || delta.reasoning_content) {
+                    reasoningText += delta.reasoning || delta.reasoning_content;
+                  }
+                }
+                if (parsed?.choices?.[0]?.finish_reason) {
+                  finishReason = parsed.choices[0].finish_reason;
+                }
+                if (parsed?.usage?.completion_tokens) {
+                  completionTokens = parsed.usage.completion_tokens;
+                }
+              } catch {
+                // Ignore partial JSON
+              }
+            }
+          });
+          res.on('end', resolve);
+          res.on('error', reject);
+        },
+      );
+      req.on('timeout', () => req.destroy(new Error('推理请求超时')));
+      req.on('error', reject);
+      req.write(payloadBytes);
+      req.end();
     });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`推理请求失败 (${resp.status}): ${errText.slice(0, 300)}`);
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6);
-        if (payload === '[DONE]') continue;
-        try {
-          const chunk = JSON.parse(payload);
-          const delta = chunk?.choices?.[0]?.delta;
-          if (delta) {
-            if ((delta.content || delta.reasoning || delta.reasoning_content) && tFirst === null) {
-              tFirst = performance.now();
-            }
-            if (delta.content) contentText += delta.content;
-            if (delta.reasoning || delta.reasoning_content) {
-              reasoningText += delta.reasoning || delta.reasoning_content;
-            }
-          }
-          if (chunk?.choices?.[0]?.finish_reason) {
-            finishReason = chunk.choices[0].finish_reason;
-          }
-          if (chunk?.usage?.completion_tokens) {
-            completionTokens = chunk.usage.completion_tokens;
-          }
-        } catch {
-          // Ignore partial JSON
-        }
-      }
-    }
 
     const tEnd = performance.now();
     const totalSec = (tEnd - t0) / 1000;

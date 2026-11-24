@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import test from 'node:test';
 import {
   parseNvidiaSmiCsv,
@@ -7,6 +8,7 @@ import {
   parseUsageOutput,
   parseWhoamiOutput,
 } from './service.js';
+import { ResilientTunnelProxy } from './tunnel-proxy.js';
 
 test('parseWhoamiOutput parses authenticated user info', () => {
   const sample = `
@@ -64,4 +66,51 @@ test('parseNvidiaSmiCsv parses GPU telemetry', () => {
     gpuUtilPct: 12,
     temperatureC: 41,
   });
+});
+
+test('ResilientTunnelProxy transparently retries pre-header socket drop', async () => {
+  let hits = 0;
+  const mockUpstream = http.createServer((req, res) => {
+    hits += 1;
+    if (req.url === '/v1/chat/completions' && hits === 1) {
+      req.socket.destroy();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, hits }));
+  });
+
+  await new Promise((resolve) => mockUpstream.listen(0, '127.0.0.1', resolve));
+  const upstreamPort = mockUpstream.address().port;
+
+  class MockProxy extends ResilientTunnelProxy {
+    _spawnSsh() {
+      this.state = 'connected';
+      this._notifyReady();
+    }
+  }
+
+  const proxy = new MockProxy({
+    sessionName: 'test',
+    localPort: 0,
+    upstreamPort,
+    probeIntervalMs: 60000,
+  });
+
+  try {
+    await proxy.start();
+    hits = 0;
+    const resp = await fetch(`http://127.0.0.1:${proxy.localPort}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'qwen38-27b-nb', messages: [{ role: 'user', content: 'hi' }] }),
+    });
+    assert.equal(resp.status, 200);
+    const body = await resp.json();
+    assert.equal(body.ok, true);
+    assert.ok(hits >= 2);
+  } finally {
+    await proxy.stop();
+    await new Promise((resolve) => mockUpstream.close(resolve));
+  }
 });

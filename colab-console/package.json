@@ -1,6 +1,6 @@
 {
   "name": "@local/colab-console",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Colab 算力额度、会话生命周期与远端模型服务（vLLM / SSH 隧道）控制台面板",
@@ -13,6 +13,7 @@
   "files": [
     "index.js",
     "service.js",
+    "tunnel-proxy.js",
     "client.js",
     "cordis.patch.yml",
     "icon.svg",

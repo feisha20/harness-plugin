@@ -140,6 +140,9 @@ window.__ModuleLoader__.load({
         try {
           const data = await api(`/overview?localPort=${localPort}`);
           setOverview(data);
+          if (data.tunnel) {
+            setServiceInfo((prev) => (prev ? { ...prev, tunnel: data.tunnel } : prev));
+          }
           if (data.sessions?.length) {
             setSelectedSession((prev) => (data.sessions.some((s) => s.name === prev) ? prev : data.sessions[0].name));
           }
@@ -158,6 +161,9 @@ window.__ModuleLoader__.load({
         try {
           const data = await api('/service/inspect', { sessionName: sName, localPort, remotePort: 8000 });
           setServiceInfo(data);
+          if (data?.tunnel) {
+            setOverview((prev) => (prev ? { ...prev, tunnel: data.tunnel } : prev));
+          }
           if (data?.tunnel?.models?.[0]?.id) {
             setTestModel(data.tunnel.models[0].id);
           } else if (data?.vllm?.remoteModels?.[0]?.id) {
@@ -181,6 +187,10 @@ window.__ModuleLoader__.load({
         try {
           const res = await fn();
           if (okMsg) setBanner({ error: false, text: okMsg });
+          if (res?.tunnel) {
+            setOverview((prev) => (prev ? { ...prev, tunnel: res.tunnel } : prev));
+            setServiceInfo((prev) => (prev ? { ...prev, tunnel: res.tunnel } : prev));
+          }
           if (res?.overview) {
             setOverview(res.overview);
           } else if (afterOverview) {
@@ -215,7 +225,9 @@ window.__ModuleLoader__.load({
               h('div', { className: 'cc-brand' },
                 h('div', { className: 'cc-mark' }, h(Icon, { size: 20 })),
                 h('div', null,
-                  h('h1', null, 'Colab 算力与模型控制台'),
+                  h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+                    h('h1', null, 'Colab 算力与模型控制台'),
+                    h('span', { className: 'cc-pill' }, 'v1.1.0')),
                   h('p', { style: { fontSize: '12px', color: 'var(--cc-muted)' } },
                     auth.email ? `${auth.email} · ${auth.authProvider || 'oauth2'}（剩余 ${auth.expiresIn || '—'}）` : '未检测到登录凭证，请在终端运行 colab sessions 完成授权'))),
               h('div', { className: 'cc-toolbar' },
@@ -258,8 +270,16 @@ window.__ModuleLoader__.load({
                   h('dl', { className: 'cc-kv' },
                     h('div', null, h('dt', null, '本地隧道'), h('dd', null,
                       tunnel.listening
-                        ? h('span', { className: 'cc-pill ok' }, `监听中 :${tunnel.port} (PID ${tunnel.pid})`)
-                        : h('span', { className: 'cc-pill warn' }, `未监听 :${tunnel.port}`))),
+                        ? h('span', { className: `cc-pill ${tunnel.state === 'connected' ? 'ok' : 'warn'}` },
+                            `${tunnel.mode === 'resilient-proxy' ? '高可用代理' : '普通 SSH'} :${tunnel.port} (PID ${tunnel.pid})`)
+                        : h('span', { className: 'cc-pill warn' }, `未监听 :${tunnel.port || localPort}`))),
+                    h('div', null, h('dt', null, '保活与重连'), h('dd', null,
+                      tunnel.listening && tunnel.mode === 'resilient-proxy'
+                        ? `状态 ${tunnel.state} · 已自动重连 ${tunnel.reconnectCount ?? 0} 次${tunnel.lastProbeMs != null ? ` · 探测 ${tunnel.lastProbeMs} ms` : ''}`
+                        : tunnel.listening
+                          ? '普通 SSH 直连（建议点「重建隧道」升级为高可用代理）'
+                          : '未启动（点击开启后自动启用高可用代理与断线重试）')),
+                    tunnel.lastError && h('div', null, h('dt', null, '最近异常'), h('dd', { style: { color: 'var(--cc-warn)' } }, tunnel.lastError)),
                     h('div', null, h('dt', null, 'API 服务'), h('dd', null,
                       tunnel.apiReady
                         ? h('span', { className: 'cc-pill ok' }, '已就绪')
@@ -273,7 +293,7 @@ window.__ModuleLoader__.load({
                           className: 'cc-btn primary',
                           type: 'button',
                           disabled: disabled || !selectedSession,
-                          onClick: () => runAction('tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort }), `已开启到 ${selectedSession} 的本地隧道`),
+                          onClick: () => runAction('tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort }), `已开启到 ${selectedSession} 的高可用隧道`),
                         }, busy === 'tunnel-on' ? '开启中…' : `开启 ${selectedSession || ''} 隧道`)
                       : h('button', {
                           className: 'cc-btn danger',
@@ -281,6 +301,12 @@ window.__ModuleLoader__.load({
                           disabled,
                           onClick: () => runAction('tunnel-off', () => api('/service/tunnel/stop', { localPort }), '已关闭本地 SSH 隧道'),
                         }, busy === 'tunnel-off' ? '关闭中…' : '关闭隧道'),
+                    h('button', {
+                      className: 'cc-btn',
+                      type: 'button',
+                      disabled: disabled || !selectedSession,
+                      onClick: () => runAction('tunnel-re', () => api('/service/tunnel/restart', { sessionName: selectedSession, localPort }), '已重建高可用 SSH 隧道'),
+                    }, busy === 'tunnel-re' ? '重建中…' : '重建隧道'),
                     h('button', {
                       className: 'cc-btn',
                       type: 'button',
@@ -352,7 +378,17 @@ window.__ModuleLoader__.load({
                     h('div', null, h('dt', null, '远端 8000 接口'), h('dd', null,
                       vllm ? (vllm.remoteApiReady ? h('span', { className: 'cc-pill ok' }, '就绪') : h('span', { className: 'cc-pill warn' }, '未就绪')) : '—')),
                     h('div', null, h('dt', null, '本机 SSH 隧道'), h('dd', null,
-                      tunnel.listening ? h('span', { className: 'cc-pill ok' }, `:${tunnel.port} 连通`) : h('span', { className: 'cc-pill warn' }, '未连接')))),
+                      tunnel.listening
+                        ? h('span', { className: `cc-pill ${tunnel.state === 'connected' ? 'ok' : 'warn'}` },
+                            `${tunnel.mode === 'resilient-proxy' ? '高可用代理' : '普通 SSH'} :${tunnel.port}${tunnel.lastProbeMs != null ? ` (${tunnel.lastProbeMs} ms)` : ''}`)
+                        : h('span', { className: 'cc-pill warn' }, '未连接'))),
+                    h('div', null, h('dt', null, '自动重连统计'), h('dd', null,
+                      tunnel.listening && tunnel.mode === 'resilient-proxy'
+                        ? `状态 ${tunnel.state} · 重连 ${tunnel.reconnectCount ?? 0} 次`
+                        : tunnel.listening
+                          ? '普通模式（可点「重建隧道」升级）'
+                          : '未运行')),
+                    tunnel.lastError && h('div', null, h('dt', null, '最近异常'), h('dd', { style: { color: 'var(--cc-warn)' } }, tunnel.lastError))),
                   h('div', { className: 'cc-actions' },
                     h('button', {
                       className: 'cc-btn primary',
@@ -371,14 +407,20 @@ window.__ModuleLoader__.load({
                           className: 'cc-btn',
                           type: 'button',
                           disabled: disabled || !selectedSession,
-                          onClick: () => runAction('tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort }), '本机隧道已开启', { afterOverview: true, afterInspect: true }),
+                          onClick: () => runAction('tunnel-on', () => api('/service/tunnel/start', { sessionName: selectedSession, localPort }), '高可用本机隧道已开启', { afterOverview: true, afterInspect: true }),
                         }, '开启本机隧道')
                       : h('button', {
                           className: 'cc-btn danger',
                           type: 'button',
                           disabled,
                           onClick: () => runAction('tunnel-off', () => api('/service/tunnel/stop', { localPort }), '本机隧道已关闭', { afterOverview: true, afterInspect: true }),
-                        }, '关闭本机隧道')))),
+                        }, '关闭本机隧道'),
+                    h('button', {
+                      className: 'cc-btn',
+                      type: 'button',
+                      disabled: disabled || !selectedSession,
+                      onClick: () => runAction('tunnel-re', () => api('/service/tunnel/restart', { sessionName: selectedSession, localPort }), '已重建高可用本机隧道', { afterOverview: true, afterInspect: true }),
+                    }, busy === 'tunnel-re' ? '重建中…' : '重建隧道')))),
 
               h('div', { className: 'cc-card' },
                 h('h3', null, '推理速度与可用性实测（经本机隧道）'),

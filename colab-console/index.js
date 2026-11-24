@@ -76,6 +76,10 @@ function createHttpHandler(service) {
         const body = await readJsonBody(req);
         return sendJson(res, 200, await service.stopTunnel(body));
       }
+      if (method === 'POST' && subPath === '/service/tunnel/restart') {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await service.restartTunnel(body));
+      }
       if (method === 'POST' && subPath === '/service/test') {
         const body = await readJsonBody(req);
         return sendJson(res, 200, await service.testInference(body));
@@ -99,7 +103,7 @@ export function apply(ctx) {
         properties: {
           action: {
             type: 'string',
-            enum: ['overview', 'inspect_service', 'start_vllm', 'stop_vllm', 'start_tunnel', 'stop_tunnel', 'test_inference'],
+            enum: ['overview', 'inspect_service', 'start_vllm', 'stop_vllm', 'start_tunnel', 'stop_tunnel', 'restart_tunnel', 'test_inference'],
             description: '操作类型',
           },
           sessionName: { type: 'string', description: 'Colab 会话名（如 g4）' },
@@ -127,6 +131,8 @@ export function apply(ctx) {
             return service.startTunnel({ sessionName: args.sessionName, localPort: args.localPort || 8000 });
           case 'stop_tunnel':
             return service.stopTunnel({ localPort: args.localPort || 8000 });
+          case 'restart_tunnel':
+            return service.restartTunnel({ sessionName: args.sessionName, localPort: args.localPort || 8000 });
           case 'test_inference':
             return service.testInference({ localPort: args.localPort || 8000, model: args.model || 'qwen38-27b-nb' });
           default:
