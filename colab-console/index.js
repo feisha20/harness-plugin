@@ -68,6 +68,20 @@ function createHttpHandler(service) {
         const body = await readJsonBody(req);
         return sendJson(res, 200, await service.stopVllm(body));
       }
+      if (method === 'POST' && subPath === '/service/deploy') {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await service.startDeploy(body));
+      }
+      if (method === 'GET' && subPath === '/service/deploy/status') {
+        return sendJson(res, 200, service.getDeployStatus());
+      }
+      if (method === 'POST' && subPath === '/service/deploy/cancel') {
+        return sendJson(res, 200, service.cancelDeploy());
+      }
+      if (method === 'POST' && subPath === '/service/deploy/retry') {
+        const body = await readJsonBody(req);
+        return sendJson(res, 200, await service.retryDeploy(body));
+      }
       if (method === 'POST' && subPath === '/service/tunnel/start') {
         const body = await readJsonBody(req);
         return sendJson(res, 200, await service.startTunnel(body));
@@ -103,12 +117,16 @@ export function apply(ctx) {
         properties: {
           action: {
             type: 'string',
-            enum: ['overview', 'inspect_service', 'start_vllm', 'stop_vllm', 'start_tunnel', 'stop_tunnel', 'restart_tunnel', 'test_inference'],
+            enum: ['overview', 'inspect_service', 'deploy_qwen', 'deploy_status', 'deploy_cancel', 'deploy_retry', 'start_vllm', 'stop_vllm', 'start_tunnel', 'stop_tunnel', 'restart_tunnel', 'test_inference'],
             description: '操作类型',
           },
-          sessionName: { type: 'string', description: 'Colab 会话名（如 g4）' },
+          sessionName: { type: 'string', description: 'Colab 会话名（如 g4 / a100 / h100）' },
           localPort: { type: 'number', description: '本机转发端口，默认 8000' },
           model: { type: 'string', description: '测试推理或启动服务的模型名' },
+          gpu: { type: 'string', description: '新建实例的 GPU 规格，如 G4 / A100 / H100' },
+          fallbackGpus: { type: 'string', description: '主选 GPU 不可用时的备选顺序（逗号分隔，如 A100,H100）' },
+          kvCacheDtype: { type: 'string', description: 'KV Cache 类型（smart / fp8 / auto）' },
+          fromStep: { type: 'string', description: '重试时的起始步骤（session / bootstrap / waiting_api / tunnel）' },
         },
         required: ['action'],
         additionalProperties: false,
@@ -123,8 +141,23 @@ export function apply(ctx) {
             return service.getOverview({ localPort: args.localPort || 8000 });
           case 'inspect_service':
             return service.inspectService({ sessionName: args.sessionName, localPort: args.localPort || 8000 });
+          case 'deploy_qwen':
+            return service.startDeploy({
+              sessionName: args.sessionName || 'g4',
+              gpu: args.gpu || 'G4',
+              fallbackGpus: args.fallbackGpus !== undefined ? args.fallbackGpus : ['A100'],
+              kvCacheDtype: args.kvCacheDtype || 'smart',
+              localPort: args.localPort || 8000,
+              model: args.model,
+            });
+          case 'deploy_status':
+            return service.getDeployStatus();
+          case 'deploy_cancel':
+            return service.cancelDeploy();
+          case 'deploy_retry':
+            return service.retryDeploy({ fromStep: args.fromStep });
           case 'start_vllm':
-            return service.startVllm({ sessionName: args.sessionName });
+            return service.startVllm({ sessionName: args.sessionName, kvCacheDtype: args.kvCacheDtype || 'smart' });
           case 'stop_vllm':
             return service.stopVllm({ sessionName: args.sessionName });
           case 'start_tunnel':
