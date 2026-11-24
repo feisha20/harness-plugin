@@ -97,6 +97,34 @@ export function summarizeWork(tasks: Task[]): PeriodicSection[] {
   ]
 }
 
+// 规则稿沿用记录里的动作；没有执行证据的名词标题保留原文。
+function taskList(work: Task[], weekly: boolean): string[] {
+  const entries = new Map<string, Map<string, string>>()
+  for (const task of work) {
+    const text = readableWork(task.title)
+    if (!text) continue
+    const project = task.projectPath || ''
+    const day = weekly && /会议|说明会|评审会|例会/.test(text) ? recordDay(task) : ''
+    const contexts = entries.get(text) ?? new Map<string, string>()
+    const label = [project.split('/').filter(Boolean).pop(), day].filter(Boolean).join('，')
+    contexts.set(JSON.stringify([project, day]), label)
+    entries.set(text, contexts)
+  }
+
+  const lines: string[] = []
+  for (const [text, contexts] of entries) {
+    // 只在明确的句界或进展说明前断开，避免把任务对象截成半句话。
+    const split = text.search(/[。！？]|[，：](?=已|查明|发现|确认|定位到|仍需|待复测)/)
+    const title = split < 0 ? text : text.slice(0, split + 1)
+    const detail = split < 0 ? '' : text.slice(split + 1).trim()
+    for (const label of contexts.values()) {
+      const context = contexts.size > 1 && label ? `（${label}）` : ''
+      lines.push(`• **${title}**${context}${detail ? ' ' + detail : ''}`)
+    }
+  }
+  return lines
+}
+
 type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
 const valuePattern = /^(?:今日|本周)?(?:商业价值|业务价值|价值|业绩|收益|降本增效|降本|提效|成果)[:：]/
@@ -140,11 +168,7 @@ export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicS
     const teamIssues = tasks.filter(t => weeklyTeamIssuePattern.test(t.title.trim()))
     const work = tasks.filter(t => !values.includes(t) && !plans.includes(t) && !measures.includes(t) && !redos.includes(t) && !teamIssues.includes(t))
 
-    const groups = summarizeWork(work)
-    const workLines = groups.flatMap((group, index) => [
-      `#### ${index + 1}. ${group.title}`,
-      ...group.items.map(item => `• ${item}`), '',
-    ])
+    const workLines = taskList(work, true)
 
     return [
       {
@@ -178,8 +202,7 @@ export function reportSections(tasks: Task[], cadence: ReportCadence): PeriodicS
   const issues = tasks.filter(t => issuePattern.test(t.title.trim()))
   const values = cadence === 'daily' ? tasks.filter(t => valuePattern.test(t.title.trim())) : []
   const work = tasks.filter(t => !plans.includes(t) && !issues.includes(t) && !values.includes(t))
-  const groups = summarizeWork(work)
-  const workLines = groups.flatMap((group, index) => [
+  const workLines = cadence === 'daily' ? taskList(work, false) : summarizeWork(work).flatMap((group, index) => [
     `#### ${index + 1}. ${group.title}`,
     ...group.items.map(item => `• ${item}`), '',
   ])

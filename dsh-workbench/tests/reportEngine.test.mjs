@@ -18,6 +18,26 @@ test('汇报按工作内容归类，不将项目路径当作标题', () => {
   assert.match(report.markdown,/本周下来团队存在最大的问题是什么？（至少写一项）/)
   assert.doesNotMatch(report.markdown,/raw-project|完成交付|已上线|回归通过/)
 })
+test('日周报逐项展示动作和进展，相同会议标题按项目和场次区分', () => {
+  const records = [
+    task('bug', '排查停止后仍运行的问题。已登记缺陷，待修复后复测。'),
+    task('copy', '排查停止后仍运行的问题。已登记缺陷，待修复后复测。'),
+    task('online', '参加需求说明会', {projectPath: '/work/在线'}),
+    task('hammer', '参加需求说明会', {projectPath: '/work/千锤'}),
+    task('later', '参加需求说明会', {projectPath: '/work/在线', recordDate: '2026-11-08'}),
+  ]
+  const daily = ReportEngine.generateDailyReport('2026-11-07', records).summaryMarkdown
+  const weekly = ReportEngine.generateWeeklyReport('2026-W45', records, {}).sections[0].items
+  for (const text of [daily, weekly.join('\n')]) {
+    assert.equal(text.match(/• \*\*排查停止后仍运行的问题。\*\* 已登记缺陷，待修复后复测。/g)?.length, 1)
+    assert.doesNotMatch(text, /####|回归通过|已修复/)
+  }
+  assert.match(daily, /参加需求说明会\*\*（在线）/)
+  assert.match(daily, /参加需求说明会\*\*（千锤）/)
+  assert.equal(weekly.filter(line => line.includes('参加需求说明会')).length, 3)
+  assert.ok(weekly.some(line => line.includes('在线，2026-11-08')))
+})
+
 test('准备事项保留准备语气，未知业务原文保留', () => {
   assert.match(readableWork('预备禅道 API 凭据配置与待办双向过滤能力'),/^准备/)
   const report=summarizeWork([task('a','核对供应商报价')])
